@@ -60,17 +60,22 @@ namespace Molca
 
         public static T GetModule<T>() where T : SettingModule
         {
+            // Guard against an unconfigured project: main (GlobalSettings.main) is null when no
+            // GlobalSettings is assigned, and modules is null before Initialize() runs.
+            if (main == null)
+                return null;
+
             if (main._moduleCache != null)
             {
                 if (main._moduleCache.TryGetValue(typeof(T), out var module))
                     return (T)module;
             }
-            else
+            else if (main.modules != null)
             {
                 foreach (var module in main.modules)
                 {
-                    if (module is T)
-                        return (T)module;
+                    if (module is T typedModule)
+                        return typedModule;
                 }
             }
             return null;

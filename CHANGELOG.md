@@ -2,6 +2,11 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.9.2] - 2026-06-21
+
+### Fixed
+- **`GlobalSettings.GetModule<T>()` no longer throws on an unconfigured project.** It now returns `null` when `GlobalSettings.main` is null (no GlobalSettings assigned) or `modules` is null (before `Initialize()` runs), instead of a `NullReferenceException`. Upstreamed from an SDK-layer fix.
+
 ## [1.9.1] - 2026-06-21
 
 ### Changed
