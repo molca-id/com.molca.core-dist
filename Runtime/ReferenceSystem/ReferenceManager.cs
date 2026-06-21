@@ -37,8 +37,11 @@ namespace Molca.ReferenceSystem
         public event Action<IReferenceable> Unregistered;
 
         /// <summary>
-        /// Get the singleton instance of the ReferenceManager.
+        /// Cached convenience accessor that resolves the subsystem through
+        /// <see cref="RuntimeManager"/>. Prefer <c>[Inject]</c> or
+        /// <see cref="RuntimeManager.GetSubsystem{T}"/> directly.
         /// </summary>
+        [Obsolete("Use RuntimeManager.GetSubsystem<ReferenceManager>() or [Inject] ReferenceManager.")]
         public static ReferenceManager Instance
         {
             get
@@ -49,18 +52,11 @@ namespace Molca.ReferenceSystem
                     {
                         if (_instance == null)
                         {
-                            // Try to get from RuntimeManager first
                             _instance = RuntimeManager.GetSubsystem<ReferenceManager>();
 
                             if (_instance == null)
                             {
-                                // Fallback to FindObjectOfType for compatibility
-                                _instance = FindFirstObjectByType<ReferenceManager>();
-                            }
-
-                            if (_instance == null)
-                            {
-                                Debug.LogWarning("[ReferenceManager] No instance found. Make sure ReferenceManager is added to RuntimeManager or scene.");
+                                Debug.LogWarning("[ReferenceManager] No instance found. Make sure ReferenceManager is added to RuntimeManager.");
                             }
                         }
                     }

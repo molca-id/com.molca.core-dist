@@ -45,8 +45,7 @@ the `Instance` accessor (which resolves through `RuntimeManager`).
 
 ```csharp
 var refManager = RuntimeManager.GetSubsystem<ReferenceManager>();
-// or
-var refManager = ReferenceManager.Instance;
+// or via [Inject] ReferenceManager on a subsystem/service
 
 // Registration (usually called by the object itself in OnEnable/Awake)
 refManager.Register(myReferenceable);    // false on null/invalid id/conflict
@@ -160,10 +159,10 @@ public class SpawnPoint : MonoBehaviour, IReferenceable
     {
         await RuntimeManager.WaitForInitialization();
         if (this == null || !isActiveAndEnabled) return;
-        ReferenceManager.Instance?.Register(this);
+        RuntimeManager.GetSubsystem<ReferenceManager>()?.Register(this);
     }
 
-    private void OnDisable() => ReferenceManager.Instance?.Unregister(this);
+    private void OnDisable() => RuntimeManager.GetSubsystem<ReferenceManager>()?.Unregister(this);
 }
 ```
 

@@ -97,7 +97,7 @@ namespace Molca.ReferenceSystem
         {
             await RuntimeManager.WaitForInitialization();
 
-            var manager = ReferenceManager.Instance;
+            var manager = RuntimeManager.GetSubsystem<ReferenceManager>();
             if (manager != null && IsValid &&
                 !TryResolveCore<T>(out _, out _, callerMember, callerFilePath, callerLine))
             {
@@ -217,11 +217,11 @@ namespace Molca.ReferenceSystem
             failure = ResolveFailure.None;
 
             // 1. Check if the manager exists
-            var manager = ReferenceManager.Instance;
+            var manager = RuntimeManager.GetSubsystem<ReferenceManager>();
             if (manager == null)
             {
                 failure = ResolveFailure.ManagerUnavailable;
-                Debug.LogWarning($"[SceneObjectReference] ReferenceManager.Instance is not available. Cannot resolve '{refId}'.{FormatCallSite(callerMember, callerFilePath, callerLine)}");
+                Debug.LogWarning($"[SceneObjectReference] ReferenceManager is not available. Cannot resolve '{refId}'.{FormatCallSite(callerMember, callerFilePath, callerLine)}");
                 return false;
             }
 

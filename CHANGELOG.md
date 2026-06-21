@@ -2,6 +2,21 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.9.1] - 2026-06-21
+
+### Changed
+- **Repository URL / Documentation URL are now editable** in **Project Settings → Molca** (slim settings provider). Previously they were only set on `MolcaEditorSettings` with no active UI. The Hub's Repository/Documentation links now refresh live when these values change.
+- **DI-only subsystem access enforced internally.** Core no longer routes through legacy static singletons; `ReferenceManager.Instance` is now `[Obsolete]` — prefer `RuntimeManager.GetSubsystem<ReferenceManager>()` or `[Inject]`. The shim still works (compiles with a deprecation warning).
+
+### Removed
+- **Legacy `ColorSchemeManager` static shims** (`Instance`, `SetScheme`, `ToggleScheme`, `NextScheme`, `PreviousScheme`, `GetScheme`, `ActiveScheme`, `SchemeNames`, `SchemeCount`, `RefreshAllColorIDs`, `OnSchemeChanged`). Use `RuntimeManager.GetService<IColorSchemeService>()`. Breaking only for code that called these already-deprecated members.
+
+### Fixed
+- **`MolcaEditorSettings` fields rendered read-only** in the settings provider — `HideFlags.HideAndDontSave` bundles `NotEditable`, which disabled `SerializedObject`-bound fields. Now uses `HideInHierarchy | DontSave`.
+
+### Packaging
+- The distribution package now ships **`FORK_GUIDE.md`** (consumer/fork guide) and `.meta` files for the dist README and publish manifest, clearing Unity's "asset has no meta file in an immutable folder" import warnings.
+
 ## [1.9.0] - 2026-06-21
 
 ### Changed

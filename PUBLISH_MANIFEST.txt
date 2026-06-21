@@ -1,7 +1,7 @@
-﻿com.molca.core@1.9.0
-Published: 2026-06-21 19:16:36Z
-Source commit: 97e196fc
-Files: 1261
+﻿com.molca.core@1.9.1
+Published: 2026-06-21 20:39:32Z
+Source commit: 708319d2
+Files: 1264
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -744,9 +744,12 @@ Editor/Validation/Validators/ReferenceResolutionValidator.cs
 Editor/Validation/Validators/ReferenceResolutionValidator.cs.meta
 Editor/Validation/Validators/StructuralFlowValidator.cs
 Editor/Validation/Validators/StructuralFlowValidator.cs.meta
+FORK_GUIDE.md
+FORK_GUIDE.md.meta
 package.json
 package.json.meta
 README.md
+README.md.meta
 Runtime.meta
 Runtime/Attributes.meta
 Runtime/Attributes/DependsOnAttribute.cs

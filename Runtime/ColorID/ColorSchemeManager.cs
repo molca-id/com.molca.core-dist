@@ -8,9 +8,8 @@ namespace Molca.ColorID
     /// <summary>
     /// Runtime subsystem that manages color scheme switching (e.g., Light/Dark mode).
     /// Provides safe swapping of ColorModule instances and notifies all ColorID components.
-    /// New code should use the <see cref="IColorSchemeService"/> instance API (resolve via
-    /// <c>RuntimeManager.GetService&lt;IColorSchemeService&gt;()</c>); the static members
-    /// remain as obsolete compatibility shims.
+    /// Resolve via the <see cref="IColorSchemeService"/> instance API
+    /// (<c>RuntimeManager.GetService&lt;IColorSchemeService&gt;()</c> or <c>[Inject]</c>).
     /// </summary>
     public class ColorSchemeManager : RuntimeSubsystem, IColorSchemeService
     {
@@ -21,52 +20,12 @@ namespace Molca.ColorID
         [SerializeField, FormerlySerializedAs("defaultSchemeIndex")] private int _defaultSchemeIndex = 0;
 
         private int _activeSchemeIndex = -1;
-        private static ColorSchemeManager _instance;
 
-        // Instance event — the IColorSchemeService API. Backing field is shared with
-        // the obsolete static event via RaiseSchemeChanged.
+        // Instance event — the IColorSchemeService API.
         private event Action<ColorModule> _schemeChanged;
-
-        /// <summary>
-        /// Event fired when the color scheme changes. Passes the new active ColorModule.
-        /// </summary>
-        [Obsolete("Use IColorSchemeService.SchemeChanged (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static event Action<ColorModule> OnSchemeChanged;
-
-        /// <summary>
-        /// Gets the singleton instance of the ColorSchemeManager.
-        /// </summary>
-        [Obsolete("Use IColorSchemeService (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static ColorSchemeManager Instance => _instance;
-
-        /// <summary>
-        /// Gets the currently active color scheme.
-        /// </summary>
-        [Obsolete("Use IColorSchemeService.ActiveScheme (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static ColorModule ActiveScheme => _instance != null ? _instance.ActiveSchemeCore : null;
-
-        /// <summary>
-        /// Gets the index of the currently active scheme.
-        /// </summary>
-        [Obsolete("Use IColorSchemeService.ActiveSchemeIndex (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static int ActiveSchemeIndex => _instance?._activeSchemeIndex ?? -1;
-
-        /// <summary>
-        /// Gets the names of all available color schemes.
-        /// </summary>
-        [Obsolete("Use IColorSchemeService.SchemeNames (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static string[] SchemeNames => _instance != null ? _instance.SchemeNamesCore : Array.Empty<string>();
-
-        /// <summary>
-        /// Gets the count of available schemes.
-        /// </summary>
-        [Obsolete("Use IColorSchemeService.SchemeCount (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static int SchemeCount => _instance?._availableSchemes?.Length ?? 0;
 
         public override void Initialize(Action<IRuntimeSubsystem> finishCallback)
         {
-            _instance = this;
-
             // Validate schemes
             if (_availableSchemes == null || _availableSchemes.Length == 0)
             {
@@ -88,7 +47,6 @@ namespace Molca.ColorID
         public override void Shutdown()
         {
             base.Shutdown();
-            _instance = null;
         }
 
         #region Instance API (IColorSchemeService)
@@ -138,13 +96,9 @@ namespace Molca.ColorID
             }
         }
 
-        // Single raise point for both the instance event and the obsolete static one.
         private void RaiseSchemeChanged(ColorModule newScheme)
         {
             _schemeChanged?.Invoke(newScheme);
-#pragma warning disable CS0618
-            OnSchemeChanged?.Invoke(newScheme);
-#pragma warning restore CS0618
         }
 
         private void SetSchemeCore(int schemeIndex, bool save)
@@ -225,104 +179,6 @@ namespace Molca.ColorID
             }
 
             return null;
-        }
-
-        #endregion
-
-        #region Legacy static API (obsolete shims)
-
-        /// <summary>
-        /// Sets the active color scheme by index.
-        /// </summary>
-        /// <param name="schemeIndex">Index of the scheme to activate.</param>
-        /// <param name="save">Whether to save the preference.</param>
-        [Obsolete("Use IColorSchemeService.SetScheme (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static void SetScheme(int schemeIndex, bool save = true)
-        {
-            if (_instance == null)
-            {
-                Debug.LogError("ColorSchemeManager: Instance not initialized.");
-                return;
-            }
-            _instance.SetSchemeCore(schemeIndex, save);
-        }
-
-        /// <summary>
-        /// Sets the active color scheme by name.
-        /// </summary>
-        /// <param name="schemeName">Name of the scheme (ColorModule asset name) to activate.</param>
-        /// <param name="save">Whether to save the preference.</param>
-        [Obsolete("Use IColorSchemeService.SetScheme (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static void SetScheme(string schemeName, bool save = true)
-        {
-            if (_instance == null)
-            {
-                Debug.LogError("ColorSchemeManager: Instance not initialized.");
-                return;
-            }
-            _instance.SetSchemeCore(schemeName, save);
-        }
-
-        /// <summary>
-        /// Toggles between schemes. Useful for simple Light/Dark mode switching.
-        /// </summary>
-        /// <param name="save">Whether to save the preference.</param>
-        [Obsolete("Use IColorSchemeService.ToggleScheme (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static void ToggleScheme(bool save = true)
-        {
-            _instance?.ToggleSchemeCore(save);
-        }
-
-        /// <summary>
-        /// Moves to the next scheme in a cyclic manner.
-        /// </summary>
-        /// <param name="save">Whether to save the preference.</param>
-        [Obsolete("Use IColorSchemeService.NextScheme (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static void NextScheme(bool save = true)
-        {
-            _instance?.ToggleSchemeCore(save);
-        }
-
-        /// <summary>
-        /// Moves to the previous scheme in a cyclic manner.
-        /// </summary>
-        /// <param name="save">Whether to save the preference.</param>
-        [Obsolete("Use IColorSchemeService.PreviousScheme (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static void PreviousScheme(bool save = true)
-        {
-            _instance?.PreviousSchemeCore(save);
-        }
-
-        /// <summary>
-        /// Forces a refresh of all ColorID components with the current scheme.
-        /// Useful after dynamic changes or scene loads.
-        /// </summary>
-        [Obsolete("Use IColorSchemeService.RefreshAllColorIDs (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static void RefreshAllColorIDs()
-        {
-            _instance?.RaiseSchemeChanged(_instance.ActiveSchemeCore);
-        }
-
-        /// <summary>
-        /// Gets a ColorModule by index without activating it.
-        /// </summary>
-        /// <param name="index">Index of the scheme.</param>
-        /// <returns>The ColorModule at the specified index, or null if invalid.</returns>
-        [Obsolete("Use IColorSchemeService.GetScheme (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static ColorModule GetScheme(int index)
-        {
-            return _instance != null ? _instance.GetSchemeCore(index) : null;
-        }
-
-        /// <summary>
-        /// Gets a ColorModule by name without activating it.
-        /// </summary>
-        /// <param name="schemeName">Name of the scheme.</param>
-        /// <returns>The ColorModule with the specified name, or null if not found.</returns>
-        [Obsolete("Use IColorSchemeService.GetScheme (RuntimeManager.GetService<IColorSchemeService>()).")]
-        public static ColorModule GetScheme(string schemeName)
-        {
-            return _instance != null ? _instance.GetSchemeCore(schemeName) : null;
         }
 
         #endregion

@@ -58,7 +58,7 @@ namespace Molca.ReferenceSystem
             // a dead entry in the ReferenceManager.
             if (this == null || !isActiveAndEnabled) return;
 
-            var manager = ReferenceManager.Instance;
+            var manager = RuntimeManager.GetSubsystem<ReferenceManager>();
             if (manager != null && !string.IsNullOrEmpty(refId) && !string.IsNullOrEmpty(RefType))
             {
                 manager.Register(this);
@@ -67,7 +67,7 @@ namespace Molca.ReferenceSystem
 
         private void OnDisable()
         {
-            var manager = ReferenceManager.Instance;
+            var manager = RuntimeManager.GetSubsystem<ReferenceManager>();
             if (manager != null)
             {
                 manager.Unregister(this);

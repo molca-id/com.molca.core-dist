@@ -29,7 +29,7 @@ namespace Molca.ReferenceSystem
     ///     {
     ///         if (string.IsNullOrEmpty(refId))
     ///             refId = ReferenceGenerator.GenerateUniqueId(RefType);
-    ///         ReferenceManager.Instance.Register(this);
+    ///         RuntimeManager.GetSubsystem&lt;ReferenceManager&gt;()?.Register(this);
     ///     }
     /// }
     /// </code>

@@ -50,7 +50,7 @@ namespace Molca.ReferenceSystem
             }
 
             // Check if ReferenceManager is available
-            var referenceManager = ReferenceManager.Instance;
+            var referenceManager = RuntimeManager.GetSubsystem<ReferenceManager>();
             if (referenceManager == null)
             {
                 Debug.LogWarning($"[ReferenceTracker<{typeof(T).Name}>] ReferenceManager not available, only local tracking will be used");
@@ -100,7 +100,7 @@ namespace Molca.ReferenceSystem
             }
 
             // Check if ReferenceManager is available
-            var referenceManager = ReferenceManager.Instance;
+            var referenceManager = RuntimeManager.GetSubsystem<ReferenceManager>();
 
             // Remove from our local tracking first
             _trackedObjects.Remove(obj.RefId);

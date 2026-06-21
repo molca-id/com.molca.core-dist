@@ -160,35 +160,41 @@ namespace Molca.Editor.Hub.Sections
             var card = new MolcaSectionCard("Links");
             Add(card);
 
-            card.Body.Add(BuildLinkRow("Repository", _editorSettings.FindProperty("repositoryUrl").stringValue));
+            card.Body.Add(BuildLinkRow("Repository", _editorSettings.FindProperty("repositoryUrl")));
             card.Body.Add(BuildDivider());
-            card.Body.Add(BuildLinkRow("Documentation", _editorSettings.FindProperty("documentationUrl").stringValue));
+            card.Body.Add(BuildLinkRow("Documentation", _editorSettings.FindProperty("documentationUrl")));
         }
 
-        private VisualElement BuildLinkRow(string label, string url)
+        private VisualElement BuildLinkRow(string label, SerializedProperty urlProperty)
         {
             var row = new VisualElement();
             row.AddToClassList("molca-hub-link-row");
 
             row.Add(BuildFieldLabel(label));
 
-            var link = new Button(() => OpenUrl(url))
-            {
-                text = ShortUrl(url),
-                tooltip = string.IsNullOrEmpty(url) ? "No URL configured." : url
-            };
+            // Click handlers read the property live so they always open the current URL,
+            // even after it is edited in Project Settings (same underlying singleton).
+            var link = new Button(() => OpenUrl(urlProperty.stringValue));
             link.AddToClassList("molca-hub-link-button");
-            link.SetEnabled(!string.IsNullOrEmpty(url));
             row.Add(link);
 
-            var open = new Button(() => OpenUrl(url))
-            {
-                text = "Open",
-                tooltip = string.IsNullOrEmpty(url) ? "No URL configured." : $"Open {url}"
-            };
+            var open = new Button(() => OpenUrl(urlProperty.stringValue)) { text = "Open" };
             open.AddToClassList("molca-hub-mini-button");
-            open.SetEnabled(!string.IsNullOrEmpty(url));
             row.Add(open);
+
+            void Refresh(string url)
+            {
+                bool hasUrl = !string.IsNullOrEmpty(url);
+                link.text = ShortUrl(url);
+                link.tooltip = hasUrl ? url : "No URL configured.";
+                link.SetEnabled(hasUrl);
+                open.tooltip = hasUrl ? $"Open {url}" : "No URL configured.";
+                open.SetEnabled(hasUrl);
+            }
+
+            Refresh(urlProperty.stringValue);
+            // Live-refresh when the value changes elsewhere (e.g. Project Settings > Molca).
+            row.TrackPropertyValue(urlProperty, p => Refresh(p.stringValue));
 
             return row;
         }

@@ -53,8 +53,10 @@ namespace Molca.Editor
                 {
                     if (obj is MolcaEditorSettings loaded)
                     {
-                        // Must survive without a backing AssetDatabase asset.
-                        loaded.hideFlags = HideFlags.HideAndDontSave;
+                        // Hidden + not Unity-managed (we persist via Save() to ProjectSettings/),
+                        // but NOT NotEditable — that flag (bundled in HideAndDontSave) would render
+                        // SerializedObject fields read-only in the settings provider.
+                        loaded.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
                         return loaded;
                     }
                 }
@@ -81,7 +83,7 @@ namespace Molca.Editor
                 settings.name = nameof(MolcaEditorSettings);
             }
 
-            settings.hideFlags = HideFlags.HideAndDontSave;
+            settings.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
             settings.Save();
             return settings;
         }
