@@ -1,0 +1,34 @@
+{
+  "name": "com.molca.core",
+  "version": "1.8.9",
+  "displayName": "Molca",
+  "description": "General-purpose Unity application framework. Provides RuntimeManager, DI, EventDispatcher, Networking, Sequence, Settings, Modals, Audio, and related systems.",
+  "unity": "6000.0",
+  "unityRelease": "0f1",
+  "documentationUrl": "https://github.com/molca-id/framework-unity",
+  "changelogUrl": "https://github.com/molca-id/framework-unity/blob/main/Packages/com.molca.core/CHANGELOG.md",
+  "keywords": [
+    "molca",
+    "framework",
+    "runtime",
+    "di",
+    "sequence"
+  ],
+  "author": {
+    "name": "Molca",
+    "email": "dev@molca.id",
+    "url": "https://molca.id"
+  },
+  "samples": [
+    {
+      "displayName": "Content Package Demos",
+      "description": "Manual demo MonoBehaviours and editor utilities for the ContentPackage system.",
+      "path": "Samples~/ContentPackageDemos"
+    }
+  ],
+  "dependencies": {
+    "com.unity.addressables": "2.0.0",
+    "com.unity.localization": "1.4.0",
+    "com.unity.inputsystem": "1.7.0"
+  }
+}

@@ -1,0 +1,175 @@
+/*
+ * Doctor-scoped styles (Sprint 44 — IMGUI → UI Toolkit rewrite).
+ *
+ * Colors come exclusively from the shared tokens in MolcaEditorTokens.uss (loaded by
+ * MolcaEditorUi.Apply); no copied hex. Layout mirrors the canonical dimensions in
+ * EDITOR_DESIGN_LANGUAGE.md so the Doctor renders uniformly with the Hub.
+ */
+
+.molca-doctor {
+    flex-grow: 1;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+/* ---- Toolbar ---- */
+
+.molca-doctor__toolbar {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.molca-doctor__toolbar-spacer {
+    flex-grow: 1;
+}
+
+.molca-doctor__run {
+    flex-grow: 0;
+    flex-shrink: 0;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    margin-right: 6px;
+}
+
+/* ---- Filter / check chips ---- */
+
+/*
+ * Default (base) is the DISABLED look: dim, muted, hollow — so a project with all checks on reads
+ * calm and uniform, and turning a check off visibly recedes. --active is the calm enabled look (the
+ * common case); the lime accent is reserved for hover so the wall of chips never shouts.
+ */
+.molca-doctor__chip {
+    height: 21px;
+    padding-left: 10px;
+    padding-right: 10px;
+    margin-left: 4px;
+    margin-bottom: 4px;
+    border-width: 1px;
+    border-color: var(--molca-border-soft);
+    border-radius: 4px;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--molca-muted);
+    font-size: 11px;
+    -unity-font-style: bold;
+    opacity: 0.55;
+}
+
+.molca-doctor__chip--active {
+    background-color: var(--molca-card-header);
+    border-color: var(--molca-border);
+    color: var(--molca-text);
+    opacity: 1;
+}
+
+.molca-doctor__chip:hover {
+    border-color: var(--molca-accent);
+    color: var(--molca-heading);
+}
+
+.molca-doctor__chip-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.molca-doctor__chip-head {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+/* ---- Progress ---- */
+
+.molca-doctor__progress {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.molca-doctor__progress-bar {
+    flex-grow: 1;
+    margin-right: 8px;
+}
+
+.molca-doctor__progress-label {
+    color: var(--molca-muted);
+    font-size: 10px;
+    flex-shrink: 0;
+    max-width: 60%;
+    overflow: hidden;
+    -unity-text-overflow-position: end;
+    text-overflow: ellipsis;
+}
+
+/* ---- Results ---- */
+
+.molca-doctor__results {
+    flex-grow: 1;
+}
+
+.molca-doctor__placeholder {
+    color: var(--molca-muted);
+    font-size: 11px;
+    white-space: normal;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    -unity-text-align: middle-center;
+}
+
+.molca-doctor__row {
+    flex-direction: row;
+    align-items: flex-start;
+    border-width: 1px;
+    border-color: var(--molca-border-soft);
+    border-radius: 3px;
+    background-color: var(--molca-card);
+    padding-top: 8px;
+    padding-bottom: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+    margin-bottom: 6px;
+}
+
+.molca-doctor__row-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    margin-top: 4px;
+    margin-right: 9px;
+    flex-shrink: 0;
+}
+
+.molca-doctor__row-body {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.molca-doctor__row-check {
+    color: var(--molca-muted);
+    font-size: 9px;
+    -unity-font-style: bold;
+    margin-bottom: 2px;
+}
+
+.molca-doctor__row-message {
+    color: var(--molca-text);
+    font-size: 11px;
+    white-space: normal;
+}
+
+.molca-doctor__row-location {
+    border-width: 0;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--molca-link);
+    -unity-text-align: middle-left;
+    font-size: 10px;
+    margin-top: 4px;
+    padding: 0;
+}
+
+.molca-doctor__row-location:hover {
+    color: var(--molca-accent);
+}

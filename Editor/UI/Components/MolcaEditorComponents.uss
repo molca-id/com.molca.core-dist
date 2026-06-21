@@ -1,0 +1,271 @@
+/*
+ * Shared Molca editor component styles (Sprint 27.2).
+ *
+ * The reusable editor components under Editor/UI/Components/ (section card, status dot, rail item,
+ * search field, mini/primary buttons, link row, compact field row) style themselves with the
+ * `molca-*` classes below. Colors come exclusively from the tokens in MolcaEditorTokens.uss — no
+ * copied hex — so any window that calls MolcaEditorUi.Apply() gets the design language for free,
+ * not just the Hub. Layout values mirror the canonical dimensions in EDITOR_DESIGN_LANGUAGE.md.
+ *
+ * The Hub's own `molca-hub-*` classes (Sprint 26) predate this sheet; its section card now derives
+ * from the shared MolcaSectionCard, so the Hub renders through these classes too.
+ */
+
+/* ---- Section card ---- */
+
+.molca-card {
+    border-width: 1px;
+    border-color: var(--molca-border-soft);
+    border-radius: 3px;
+    background-color: rgb(51, 51, 51);
+    margin-bottom: 14px;
+}
+
+.molca-card__header {
+    min-height: 29px;
+    flex-direction: row;
+    align-items: center;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 10px;
+    padding-right: 10px;
+    background-color: var(--molca-card-header);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--molca-border-soft);
+}
+
+.molca-card__title-stack {
+    flex-grow: 1;
+}
+
+.molca-card__title {
+    color: var(--molca-heading);
+    -unity-font-style: bold;
+    font-size: 12px;
+}
+
+.molca-card__subtitle {
+    color: var(--molca-muted);
+    font-size: 10px;
+    margin-top: 1px;
+}
+
+.molca-card__status-label {
+    color: var(--molca-muted);
+    font-size: 10px;
+    margin-left: 5px;
+    margin-right: 6px;
+}
+
+.molca-card__actions {
+    flex-direction: row;
+    align-items: center;
+    margin-left: 6px;
+}
+
+.molca-card__body {
+    padding-top: 11px;
+    padding-bottom: 11px;
+    padding-left: 12px;
+    padding-right: 12px;
+}
+
+.molca-card__body--disabled {
+    opacity: 0.4;
+}
+
+.molca-help-button {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border-radius: 10px;
+    -unity-text-align: middle-center;
+    font-size: 10px;
+}
+
+/* ---- Status dot ---- */
+
+.molca-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background-color: var(--molca-status-grey);
+}
+
+.molca-status-dot--ok {
+    background-color: var(--molca-status-green);
+}
+
+.molca-status-dot--idle {
+    background-color: var(--molca-status-grey);
+}
+
+.molca-status-dot--warn {
+    background-color: var(--molca-status-warn);
+}
+
+.molca-status-dot--error {
+    background-color: var(--molca-status-error);
+}
+
+/* ---- Compact field row ---- */
+
+.molca-field-row {
+    flex-direction: row;
+    align-items: center;
+    min-height: 24px;
+    margin-bottom: 8px;
+}
+
+.molca-field-row--top {
+    align-items: flex-start;
+}
+
+.molca-field-label {
+    width: 118px;
+    color: var(--molca-label);
+    font-size: 11px;
+}
+
+.molca-field-label--slim {
+    width: 96px;
+}
+
+.molca-field-control {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+/* ---- Rail ---- */
+
+.molca-rail {
+    width: 188px;
+    flex-shrink: 0;
+    background-color: var(--molca-panel);
+    border-right-width: 1px;
+    border-right-color: var(--molca-border);
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
+.molca-rail-item {
+    min-height: 29px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 12px;
+    padding-right: 12px;
+    border-width: 0;
+    border-left-width: 2px;
+    border-left-color: rgba(0, 0, 0, 0);
+    border-radius: 0;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--molca-text);
+    -unity-text-align: middle-left;
+    font-size: 11px;
+}
+
+.molca-rail-item--selected {
+    background-color: var(--molca-row-selected);
+    border-left-color: var(--molca-accent);
+    color: white;
+}
+
+/* ---- Search field (placeholder overlay) ---- */
+
+.molca-search {
+    margin-left: 9px;
+    margin-right: 9px;
+    margin-bottom: 8px;
+}
+
+.molca-search TextInput {
+    -unity-text-align: middle-left;
+    background-color: var(--molca-input);
+    border-color: var(--molca-border);
+    border-radius: 3px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 11px;
+}
+
+.molca-search-placeholder {
+    position: absolute;
+    left: 17px;
+    top: 4px;
+    color: var(--molca-muted);
+    font-size: 11px;
+}
+
+/* ---- Buttons ---- */
+
+.molca-button {
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 10px;
+    padding-right: 10px;
+    border-width: 1px;
+    border-color: var(--molca-card);
+    border-radius: 2px;
+    background-color: rgb(77, 77, 77);
+    color: var(--molca-text);
+    font-size: 10px;
+}
+
+.molca-mini-button {
+    height: 20px;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 10px;
+    border-radius: 2px;
+}
+
+.molca-button--primary {
+    flex-grow: 0;
+    flex-shrink: 0;
+    border-width: 1px;
+    border-color: var(--molca-border);
+    border-radius: 2px;
+    background-color: var(--molca-primary);
+    color: white;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    padding-top: 7px;
+    padding-bottom: 7px;
+}
+
+/* ---- Link row ---- */
+
+.molca-link {
+    color: var(--molca-link);
+}
+
+.molca-link-row {
+    flex-direction: row;
+    align-items: center;
+    min-height: 24px;
+}
+
+.molca-link-button {
+    flex-grow: 1;
+    min-width: 0;
+    border-width: 0;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--molca-link);
+    -unity-text-align: middle-left;
+    font-size: 11px;
+}
+
+.molca-link-button:hover {
+    color: var(--molca-accent);
+}
+
+/* ---- Divider ---- */
+
+.molca-divider {
+    height: 1px;
+    background-color: var(--molca-border-soft);
+    margin-top: 7px;
+    margin-bottom: 7px;
+}

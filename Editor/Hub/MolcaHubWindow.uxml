@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Static shell for the Molca Hub window (Sprint 26.1). Later sprint items replace the placeholder
+  detail area with section-specific VisualElements while keeping this workspace toolbar + rail frame.
+-->
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <ui:VisualElement name="workspace-toolbar" class="molca-hub-workspace-toolbar" />
+
+    <ui:TwoPaneSplitView name="hub-body" class="molca-hub-body" fixed-pane-index="0" fixed-pane-initial-dimension="188" orientation="Horizontal">
+        <ui:VisualElement name="rail-panel" class="molca-hub-rail">
+            <ui:TextField name="settings-search" class="molca-hub-search" />
+            <ui:VisualElement name="settings-rail" class="molca-hub-rail-list" />
+        </ui:VisualElement>
+
+        <ui:ScrollView name="detail-scroll" class="molca-hub-detail-scroll">
+            <ui:VisualElement name="detail-root" class="molca-hub-detail">
+                <ui:VisualElement name="detail-header" class="molca-hub-detail-header">
+                    <ui:VisualElement class="molca-hub-logo-tile">
+                        <ui:Label text="m" class="molca-hub-logo-mark" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="molca-hub-title-stack">
+                        <ui:Label name="detail-title" text="Project" class="molca-hub-title" />
+                        <ui:Label name="detail-description" class="molca-hub-muted" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+
+                <ui:VisualElement name="detail-content" class="molca-hub-detail-content" />
+            </ui:VisualElement>
+        </ui:ScrollView>
+    </ui:TwoPaneSplitView>
+</ui:UXML>

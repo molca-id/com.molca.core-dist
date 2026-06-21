@@ -1,0 +1,16 @@
+{
+    "name": "Molca.ReferenceSystem",
+    "rootNamespace": "Molca.ReferenceSystem",
+    "references": [
+        "Molca"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

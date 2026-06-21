@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 85044ac7523ec67479df122f83035b64, type: 3}
+  m_Name: MolcaEditorSettings
+  m_EditorClassIdentifier: Molca.Editor::Molca.Editor.MolcaEditorSettings
+  repositoryUrl: https://github.com/molca-id/framework-unity.git
+  documentationUrl: https://docs-unity.molca.id
+  buildSettings: {fileID: 11400000, guid: 34f82cdc8a51c1f498e158750d9fd4f4, type: 2}
+  versionSettings: {fileID: 11400000, guid: db1336046d3cb3a4c9cbc934f84df6a6, type: 2}
+  notificationSettings: {fileID: 11400000, guid: 367ee57c75ce06f42a1fb3b1898740b9, type: 2}
+  mcpSettings: {fileID: 11400000, guid: 1d0566b7d8c140b4cb45e9e95beeae8d, type: 2}
+  assistantSettings: {fileID: 11400000, guid: fbd43649f77dd454895da420f778cffe, type: 2}

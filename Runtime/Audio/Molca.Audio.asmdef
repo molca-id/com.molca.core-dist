@@ -1,0 +1,19 @@
+{
+    "name": "Molca.Audio",
+    "rootNamespace": "Molca.Audio",
+    "references": [
+        "Molca",
+        "Molca.Localization",
+        "Unity.Addressables",
+        "Unity.ResourceManager"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

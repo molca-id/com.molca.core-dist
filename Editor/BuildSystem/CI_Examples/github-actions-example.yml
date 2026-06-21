@@ -1,0 +1,121 @@
+# GitHub Actions Example for Molca Build System
+# Place this file in .github/workflows/build.yml in your repository root
+
+name: Unity Build
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Build Profile'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+env:
+  UNITY_VERSION: 2022.3.x  # Change to your Unity version
+
+jobs:
+  build-windows:
+    name: Build for Windows
+    runs-on: windows-latest
+    
+    steps:
+      # Checkout repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          lfs: true
+      
+      # Cache Unity Library folder
+      - name: Cache Unity Library
+        uses: actions/cache@v3
+        with:
+          path: Library
+          key: Library-Windows-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-Windows-
+      
+      # Build
+      - name: Build project
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: StandaloneWindows64
+          buildMethod: Molca.Editor.CommandLineBuild.BuildProduction
+          versioning: None
+      
+      # Upload build artifacts
+      - name: Upload build
+        uses: actions/upload-artifact@v3
+        with:
+          name: Build-Windows
+          path: Builds/
+          retention-days: 7
+      
+      # Optional: Upload to itch.io
+      # - name: Deploy to itch.io
+      #   uses: manleydev/butler-publish-itchio-action@v1.0.3
+      #   env:
+      #     BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
+      #     CHANNEL: windows
+      #     ITCH_GAME: your-game
+      #     ITCH_USER: your-username
+      #     PACKAGE: Builds/Windows
+  
+  build-android:
+    name: Build for Android
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          lfs: true
+      
+      - name: Cache Unity Library
+        uses: actions/cache@v3
+        with:
+          path: Library
+          key: Library-Android-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-Android-
+      
+      - name: Build project
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: Android
+          buildMethod: Molca.Editor.CommandLineBuild.BuildProduction
+          versioning: None
+      
+      - name: Upload build
+        uses: actions/upload-artifact@v3
+        with:
+          name: Build-Android
+          path: Builds/Android/*.apk
+          retention-days: 7
+
+# Setup Instructions:
+# 1. Copy this file to .github/workflows/build.yml
+# 2. Set up Unity license secrets in repository settings:
+#    - UNITY_LICENSE (activation file)
+#    - UNITY_EMAIL
+#    - UNITY_PASSWORD
+# 3. Push to trigger the build
+# 4. Download artifacts from Actions tab
+

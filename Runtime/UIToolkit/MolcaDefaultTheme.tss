@@ -1,0 +1,20 @@
+/*
+ * Molca default runtime theme.
+ *
+ * Assigned to new PanelSettings by the molca_unity_uitk_create_panel_settings MCP tool so UI Toolkit
+ * documents render with Molca defaults without any manual theme wiring.
+ *
+ * It imports Unity's built-in control styles first (so standard controls render correctly), then layers
+ * Molca theme tokens and overrides on top. Add project-wide UI Toolkit theming here rather than per-document.
+ */
+
+@import url("unity-theme://default");
+
+/* Molca theme tokens — extend with brand colors, spacing, and typography as the design system grows. */
+:root {
+    --molca-color-background: rgb(24, 24, 27);
+    --molca-color-surface: rgb(39, 39, 42);
+    --molca-color-text: rgb(228, 228, 231);
+    --molca-color-accent: rgb(162, 89, 255);
+    --molca-spacing-unit: 4px;
+}

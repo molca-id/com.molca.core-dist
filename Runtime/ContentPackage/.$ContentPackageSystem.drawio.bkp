@@ -1,0 +1,320 @@
+<mxfile host="Electron" pages="3">
+  <diagram id="p-arch" name="Architecture">
+    <mxGraphModel dx="1542" dy="1042" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="a-ttl" parent="1" style="text;html=1;align=center;fontSize=18;fontStyle=1;strokeColor=none;fillColor=none;" value="Content Package System — Architecture" vertex="1">
+          <mxGeometry height="36" width="800" x="184" y="16" as="geometry" />
+        </mxCell>
+
+        <!-- Layer headers -->
+        <mxCell id="a-lh1" parent="1" style="text;html=1;align=center;fontSize=11;fontStyle=1;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;" value="Edit-Time (Core)" vertex="1">
+          <mxGeometry height="28" width="260" x="20" y="64" as="geometry" />
+        </mxCell>
+        <mxCell id="a-lh2" parent="1" style="text;html=1;align=center;fontSize=11;fontStyle=1;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" value="Runtime (Core)" vertex="1">
+          <mxGeometry height="28" width="280" x="360" y="64" as="geometry" />
+        </mxCell>
+        <mxCell id="a-lh3" parent="1" style="text;html=1;align=center;fontSize=11;fontStyle=1;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;" value="External" vertex="1">
+          <mxGeometry height="28" width="280" x="730" y="64" as="geometry" />
+        </mxCell>
+        <mxCell id="a-lh4" parent="1" style="text;html=1;align=center;fontSize=11;fontStyle=1;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;" value="Presentation (MolcaSDK)" vertex="1">
+          <mxGeometry height="28" width="280" x="360" y="620" as="geometry" />
+        </mxCell>
+        <mxCell id="a-lh5" parent="1" style="text;html=1;align=center;fontSize=11;fontStyle=1;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" value="Storage Providers (Core)" vertex="1">
+          <mxGeometry height="28" width="260" x="20" y="440" as="geometry" />
+        </mxCell>
+
+        <!-- Edit-Time nodes -->
+        <mxCell id="a-cps" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;ContentPackageSettings&lt;/b&gt;&lt;br/&gt;&lt;i&gt;SettingModule (ScriptableObject)&lt;/i&gt;&lt;br/&gt;packageConfigs[] · system settings" vertex="1">
+          <mxGeometry height="76" width="260" x="20" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="a-cbc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;ContentPackageBuildConfig&lt;/b&gt;&lt;br/&gt;&lt;i&gt;ScriptableObject&lt;/i&gt;&lt;br/&gt;localBuildPath · remoteLoadURL · storageProvider" vertex="1">
+          <mxGeometry height="76" width="260" x="20" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="a-bdp" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;Build &amp;amp; Deploy Panel&lt;/b&gt;&lt;br/&gt;&lt;i&gt;Editor Inspector partial&lt;/i&gt;&lt;br/&gt;Build · Verify · StorageProvider.Deploy()" vertex="1">
+          <mxGeometry height="76" width="260" x="20" y="360" as="geometry" />
+        </mxCell>
+
+        <!-- Storage provider nodes -->
+        <mxCell id="a-sp-base" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&lt;b&gt;ContentPackageStorageProvider&lt;/b&gt;&lt;br/&gt;&lt;i&gt;abstract ScriptableObject&lt;/i&gt;&lt;br/&gt;BuildDeployArguments · CheckAvailability" vertex="1">
+          <mxGeometry height="76" width="260" x="20" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="a-sp-s3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" value="AWSS3StorageProvider" vertex="1">
+          <mxGeometry height="36" width="76" x="20" y="596" as="geometry" />
+        </mxCell>
+        <mxCell id="a-sp-r2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" value="CloudflareR2StorageProvider" vertex="1">
+          <mxGeometry height="36" width="96" x="106" y="596" as="geometry" />
+        </mxCell>
+        <mxCell id="a-sp-gcs" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" value="GCSStorageProvider" vertex="1">
+          <mxGeometry height="36" width="76" x="212" y="596" as="geometry" />
+        </mxCell>
+
+        <!-- Runtime nodes -->
+        <mxCell id="a-gs" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;GlobalSettings&lt;/b&gt;&lt;br/&gt;&lt;i&gt;Framework — loads all SettingModules&lt;/i&gt;" vertex="1">
+          <mxGeometry height="56" width="280" x="360" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="a-pss" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;PackageSubsystem&lt;/b&gt;&lt;br/&gt;&lt;i&gt;RuntimeSubsystem (priority 150)&lt;/i&gt;&lt;br/&gt;Boots PackageService on startup" vertex="1">
+          <mxGeometry height="76" width="280" x="360" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="a-svc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;PackageService&lt;/b&gt;&lt;br/&gt;&lt;i&gt;Plain C# — core logic&lt;/i&gt;&lt;br/&gt;Install · Uninstall · State · Catalog refresh" vertex="1">
+          <mxGeometry height="76" width="280" x="360" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="a-pm" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;PackageManifest&lt;/b&gt;&lt;br/&gt;PackageState[] ↔ PlayerPrefs (JSON)" vertex="1">
+          <mxGeometry height="56" width="280" x="360" y="480" as="geometry" />
+        </mxCell>
+
+        <!-- External nodes -->
+        <mxCell id="a-addr" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="&lt;b&gt;Unity Addressables&lt;/b&gt;&lt;br/&gt;DownloadDependenciesAsync&lt;br/&gt;CheckForCatalogUpdates&lt;br/&gt;ClearDependencyCacheAsync" vertex="1">
+          <mxGeometry height="90" width="280" x="730" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="a-cdn" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;boundedLbl=1;backgroundOutline=1;" value="&lt;b&gt;Remote Storage / CDN&lt;/b&gt;&lt;br/&gt;AWS S3 · Cloudflare R2 · GCS&lt;br/&gt;*.bundle · catalog_*.json + *.hash" vertex="1">
+          <mxGeometry height="130" width="200" x="770" y="104" as="geometry" />
+        </mxCell>
+
+        <!-- Presentation node (SDK layer) -->
+        <mxCell id="a-ui" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="&lt;b&gt;ContentPackageManagerUI&lt;/b&gt;&lt;br/&gt;&lt;i&gt;MolcaSDK — MonoBehaviour&lt;/i&gt;&lt;br/&gt;ColorIDButton · ColorIDButtonGroup · Progress" vertex="1">
+          <mxGeometry height="76" width="280" x="360" y="660" as="geometry" />
+        </mxCell>
+
+        <!-- Edges -->
+        <mxCell id="a-e1" edge="1" parent="1" source="a-cps" style="edgeStyle=orthogonalEdgeStyle;dashed=1;html=1;fontSize=10;" target="a-gs" value="registers module">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="150" y="220" />
+              <mxPoint x="320" y="220" />
+              <mxPoint x="320" y="132" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a-e2" edge="1" parent="1" source="a-gs" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" target="a-pss" value="provides settings" />
+        <mxCell id="a-e3" edge="1" parent="1" source="a-pss" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" target="a-svc" value="creates &amp; owns" />
+        <mxCell id="a-e4" edge="1" parent="1" source="a-svc" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" target="a-pm" value="persists state" />
+        <mxCell id="a-e5" edge="1" parent="1" source="a-svc" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" target="a-addr" value="downloads via">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="700" y="398" />
+              <mxPoint x="700" y="325" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a-e6" edge="1" parent="1" source="a-addr" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" target="a-cdn" value="fetches bundles" />
+        <mxCell id="a-e7" edge="1" parent="1" source="a-cbc" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" target="a-bdp" value="referenced by" />
+        <mxCell id="a-e8" edge="1" parent="1" source="a-bdp" style="edgeStyle=orthogonalEdgeStyle;dashed=1;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="a-cdn" value="deploy via StorageProvider">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="150" y="590" />
+              <mxPoint x="700" y="590" />
+              <mxPoint x="700" y="168" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a-e9" edge="1" parent="1" source="a-ui" style="edgeStyle=orthogonalEdgeStyle;dashed=1;html=1;fontSize=10;" target="a-svc" value="[Inject]">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="310" y="698" />
+              <mxPoint x="310" y="398" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a-e10" edge="1" parent="1" source="a-cbc" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" target="a-sp-base" value="references">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="150" y="340" />
+              <mxPoint x="150" y="490" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a-e11" edge="1" parent="1" source="a-sp-s3" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" target="a-sp-base" value="" />
+        <mxCell id="a-e12" edge="1" parent="1" source="a-sp-r2" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" target="a-sp-base" value="" />
+        <mxCell id="a-e13" edge="1" parent="1" source="a-sp-gcs" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" target="a-sp-base" value="" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="p-life" name="Package Lifecycle">
+    <mxGraphModel dx="1169" dy="827" grid="1" gridSize="10" guides="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="l-ttl" value="Package Lifecycle — State Machine" style="text;html=1;align=center;fontSize=18;fontStyle=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="184" y="16" width="800" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="l-avail" value="&lt;b&gt;Available&lt;/b&gt;&lt;br/&gt;Not installed. Ready to download." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="464" y="96" width="240" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="l-down" value="&lt;b&gt;Downloading&lt;/b&gt;&lt;br/&gt;Transfer in progress.&lt;br/&gt;downloadProgress: 0.0 – 1.0" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="464" y="270" width="240" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="l-inst" value="&lt;b&gt;Installed&lt;/b&gt;&lt;br/&gt;Content available to load.&lt;br/&gt;installedVersion set." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="464" y="460" width="240" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="l-fail" value="&lt;b&gt;Failed&lt;/b&gt;&lt;br/&gt;Download or install error.&lt;br/&gt;errorMessage set." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="800" y="270" width="240" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="l-upd" value="&lt;b&gt;UpdateAvailable&lt;/b&gt;&lt;br/&gt;Newer version detected.&lt;br/&gt;Current version still usable." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="800" y="460" width="240" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="l-e1" value="InstallPackageAsync()" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="l-avail" target="l-down" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="l-e2" value="download complete" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="l-down" target="l-inst" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="l-e3" value="error" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="l-down" target="l-fail" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="l-e4" value="cancel" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="l-down" target="l-avail" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="370" y="308" />
+              <mxPoint x="370" y="128" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l-e5" value="InstallPackageAsync() retry" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" edge="1" source="l-fail" target="l-down" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="720" y="308" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l-e6" value="UninstallPackageAsync()" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="l-inst" target="l-avail" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="310" y="498" />
+              <mxPoint x="310" y="128" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l-e7" value="catalog refresh — version mismatch" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="l-inst" target="l-upd" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1090" y="498" />
+              <mxPoint x="1090" y="498" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l-e8" value="InstallPackageAsync()" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="l-upd" target="l-down" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="730" y="498" />
+              <mxPoint x="730" y="308" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l-note" value="State is persisted to PlayerPrefs immediately on every transition." style="text;html=1;strokeColor=#d6b656;fillColor=#fff2cc;align=center;whiteSpace=wrap;rounded=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="364" y="640" width="440" height="36" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="p-build" name="Build &amp; Deploy">
+    <mxGraphModel dx="1169" dy="827" grid="1" gridSize="10" guides="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1400">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="b-ttl" value="Build, Verify &amp;amp; Deploy Workflow" style="text;html=1;align=center;fontSize=18;fontStyle=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="184" y="16" width="800" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="b-start" value="Start" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="544" y="70" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="b-s1" value="Configure &lt;b&gt;ContentPackageBuildConfig&lt;/b&gt;&lt;br/&gt;Set: Local Output Path · Remote Load URL&lt;br/&gt;Assign: &lt;b&gt;StorageProvider&lt;/b&gt; asset (S3 / R2 / GCS)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="419" y="136" width="330" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="b-s1b" value="Configure &lt;b&gt;StorageProvider&lt;/b&gt; asset&lt;br/&gt;(Bucket · Region · Profile / Account ID · Token)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="419" y="236" width="330" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="b-s2" value="Configure Addressables Groups&lt;br/&gt;Build Path → &lt;i&gt;RemoteBuildPath&lt;/i&gt;&lt;br/&gt;Load Path → &lt;i&gt;RemoteLoadPath&lt;/i&gt;&lt;br/&gt;Can Change Post Release = ✓" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="419" y="316" width="330" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="b-d1" value="First time or&lt;br/&gt;structural change?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="484" y="432" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="b-full" value="&lt;b&gt;Build Player Content&lt;/b&gt;&lt;br/&gt;Full rebuild of all groups.&lt;br/&gt;Generates content_state.bin." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="174" y="548" width="240" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="b-upd" value="&lt;b&gt;Build Content Update&lt;/b&gt;&lt;br/&gt;Incremental — changed groups only.&lt;br/&gt;Requires content_state.bin." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="754" y="548" width="240" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="b-verify" value="&lt;b&gt;Run Verification&lt;/b&gt;&lt;br/&gt;Check bundles exist per package.&lt;br/&gt;Compare bundle sizes vs estimates." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="419" y="672" width="330" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="b-d2" value="All packages&lt;br/&gt;green ●?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="484" y="784" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="b-fix" value="Fix issues&lt;br/&gt;Labels · Group config · Assets" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="800" y="788" width="200" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="b-dry" value="&lt;b&gt;Deploy — Dry Run&lt;/b&gt;&lt;br/&gt;StorageProvider.BuildDeployCommand() --dryrun&lt;br/&gt;Review log: correct files listed?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="419" y="908" width="330" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="b-d3" value="Log looks&lt;br/&gt;correct?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="484" y="1020" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="b-adj" value="Adjust config&lt;br/&gt;Prefix · Profile · Extra args" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="800" y="1024" width="200" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="b-live" value="&lt;b&gt;Deploy Live&lt;/b&gt;&lt;br/&gt;StorageProvider.BuildDeployCommand()&lt;br/&gt;Monitor streaming log. Abort if needed." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="419" y="1144" width="330" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="b-smoke" value="Smoke Test&lt;br/&gt;Run app · confirm catalog picked up&lt;br/&gt;Install a package end-to-end" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="419" y="1260" width="330" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="b-end" value="Done" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="544" y="1376" width="80" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Edges -->
+        <mxCell id="b-e1" style="html=1;" edge="1" source="b-start" target="b-s1" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e1b" style="html=1;" edge="1" source="b-s1" target="b-s1b" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e2" style="html=1;" edge="1" source="b-s1b" target="b-s2" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e3" style="html=1;" edge="1" source="b-s2" target="b-d1" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e4" value="Yes" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" edge="1" source="b-d1" target="b-full" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e5" value="No" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" edge="1" source="b-d1" target="b-upd" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e6" style="edgeStyle=orthogonalEdgeStyle;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="b-full" target="b-verify" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="294" y="652" />
+              <mxPoint x="419" y="710" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="b-e7" style="edgeStyle=orthogonalEdgeStyle;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="b-upd" target="b-verify" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="874" y="652" />
+              <mxPoint x="749" y="710" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="b-e8" style="html=1;" edge="1" source="b-verify" target="b-d2" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e9" value="No" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" edge="1" source="b-d2" target="b-fix" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e10" style="edgeStyle=orthogonalEdgeStyle;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;" edge="1" source="b-fix" target="b-d1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="900" y="472" />
+              <mxPoint x="584" y="472" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="b-e11" value="Yes" style="html=1;" edge="1" source="b-d2" target="b-dry" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e12" style="html=1;" edge="1" source="b-dry" target="b-d3" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e13" value="No" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" edge="1" source="b-d3" target="b-adj" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e14" style="edgeStyle=orthogonalEdgeStyle;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="b-adj" target="b-dry" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="900" y="946" />
+              <mxPoint x="749" y="946" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="b-e15" value="Yes" style="html=1;" edge="1" source="b-d3" target="b-live" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e16" style="html=1;" edge="1" source="b-live" target="b-smoke" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="b-e17" style="html=1;" edge="1" source="b-smoke" target="b-end" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

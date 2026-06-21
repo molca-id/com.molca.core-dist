@@ -1,0 +1,26 @@
+{
+    "name": "Molca.Networking.WebSocket",
+    "rootNamespace": "Molca.Networking.Data",
+    "references": [
+        "Molca",
+        "Molca.Networking",
+        "endel.nativewebsocket"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "MOLCA_WEBSOCKET"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.endel.nativewebsocket",
+            "expression": "",
+            "define": "MOLCA_WEBSOCKET"
+        }
+    ],
+    "noEngineReferences": false
+}

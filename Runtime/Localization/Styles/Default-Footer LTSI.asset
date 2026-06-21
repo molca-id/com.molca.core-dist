@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a406efbbcef218d43b7c73c554388dcc, type: 3}
+  m_Name: Default-Footer LTSI
+  m_EditorClassIdentifier: 
+  id: header
+  font: {fileID: 11400000, guid: b9c008ba13a15174ea1dde1536fe88e9, type: 2}
+  minSize: 12
+  maxSize: 24
+  preferedSize: 18

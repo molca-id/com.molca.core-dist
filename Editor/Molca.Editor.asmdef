@@ -1,0 +1,28 @@
+{
+    "name": "Molca.Editor",
+    "rootNamespace": "Molca.Editor",
+    "references": [
+        "Molca",
+        "Molca.Audio",
+        "Molca.Localization",
+        "Molca.Networking",
+        "Molca.Sequence",
+        "Molca.ContentPackage",
+        "Molca.ReferenceSystem",
+        "Unity.Addressables",
+        "Unity.Addressables.Editor",
+        "Unity.Localization",
+        "YamlDotNet"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,26 @@
+{
+    "name": "Molca.Networking.SocketIO",
+    "rootNamespace": "Molca.Networking.Data",
+    "references": [
+        "Molca",
+        "Molca.Networking",
+        "SocketIOUnityAssembly"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "MOLCA_SOCKETIO"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.itisnajim.socketiounity",
+            "expression": "",
+            "define": "MOLCA_SOCKETIO"
+        }
+    ],
+    "noEngineReferences": false
+}

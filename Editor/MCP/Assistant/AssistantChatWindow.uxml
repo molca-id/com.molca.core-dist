@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Static layout for the Molca Assistant chat window (Sprint 25.1). Cosmetic styling lives in
+  AssistantChatWindow.uss; dynamic content (icon buttons, action-mode field, transcript rows,
+  context chips) is built in C# and attached to the named slots below.
+-->
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <ui:VisualElement name="header" class="chat-header">
+        <ui:Label name="status" class="chat-status" />
+    </ui:VisualElement>
+
+    <ui:Label name="last-question-banner" class="chat-banner" style="display: none;" />
+
+    <ui:ScrollView name="scroll" class="chat-scroll" />
+
+    <ui:VisualElement name="prompt-bar" class="chat-prompt-bar" style="display: none;">
+        <ui:ScrollView name="prompt-bar-question-scroll" class="chat-prompt-bar__question-scroll">
+            <ui:Label name="prompt-bar-question" class="chat-prompt-bar__question" />
+        </ui:ScrollView>
+        <ui:VisualElement name="prompt-bar-options" class="chat-prompt-bar__options" />
+        <ui:VisualElement name="prompt-bar-input-row" class="chat-prompt-input-row">
+            <ui:TextField name="prompt-bar-input" class="chat-prompt-input" />
+            <ui:Button name="prompt-bar-answer" text="Answer" class="chat-mini-button" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+
+    <ui:VisualElement name="composer" class="chat-composer">
+        <ui:VisualElement name="context-row" class="chat-context-row">
+            <ui:Button name="add-context" text="+ Context" class="chat-add-context" />
+            <ui:VisualElement name="context-chips" class="chat-context-chips" />
+        </ui:VisualElement>
+
+        <ui:TextField name="input" multiline="true" class="chat-input" />
+
+        <ui:VisualElement name="control-row" class="chat-control-row">
+            <ui:VisualElement name="mode-slot" style="flex-shrink: 0;" />
+            <ui:Label name="token-estimate" class="chat-token-estimate" />
+            <ui:Button name="send" text="Send" class="chat-send" />
+            <ui:Button name="stop" text="Stop" class="chat-stop" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

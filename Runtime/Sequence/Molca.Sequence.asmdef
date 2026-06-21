@@ -1,0 +1,20 @@
+{
+    "name": "Molca.Sequence",
+    "rootNamespace": "Molca.Sequence",
+    "references": [
+        "Molca",
+        "Molca.Audio",
+        "Molca.Localization",
+        "Molca.ReferenceSystem",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

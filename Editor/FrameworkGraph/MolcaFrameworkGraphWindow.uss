@@ -1,0 +1,27 @@
+/*
+ * Chrome styling for the Molca Framework Graph window (Sprint 27.5).
+ *
+ * Tokens come from MolcaEditorTokens.uss, which MolcaFrameworkGraphWindow loads via
+ * MolcaEditorUi.Apply(); these rules only reference the inherited `--molca-*` custom properties
+ * rather than copying hex. The GraphView node/severity tints live in C# (FrameworkGraphView) and
+ * read the same status tokens through CustomStyleProperty resolution.
+ */
+
+.molca-fg-banner {
+    white-space: normal;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    background-color: var(--molca-status-warn);
+    color: rgb(28, 28, 28);
+    font-size: 11px;
+}
+
+.molca-fg-details-panel {
+    width: 280px;
+    min-width: 200px;
+    border-left-width: 1px;
+    border-left-color: var(--molca-border);
+    background-color: var(--molca-panel);
+}

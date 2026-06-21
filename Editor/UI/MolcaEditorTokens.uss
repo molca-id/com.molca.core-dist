@@ -1,0 +1,95 @@
+/*
+ * Molca shared editor design tokens (Sprint 27.1).
+ *
+ * This is the single source of truth for the color/spacing vocabulary described in
+ * Documentation~/EDITOR_DESIGN_LANGUAGE.md. Any custom Molca editor window applies the
+ * `molca-editor` class to its root element (and `molca-light` when !EditorGUIUtility.isProSkin)
+ * and loads this stylesheet, after which every `--molca-*` token below is available to descendant
+ * rules through CSS custom-property inheritance.
+ *
+ * Back-compat: the `--hub-*` aliases established by the Molca Hub (Sprint 26) are defined here too,
+ * so Hub/Assistant USS that still reads `var(--hub-*)` resolves against this one definition instead
+ * of a copied block. Prefer the `--molca-*` names in new editor UI.
+ */
+
+.molca-editor {
+    /*
+     * Typeface — Poppins Medium ships inside the Core package (Editor/UI/Fonts/, SIL OFL). Using the
+     * Medium face as the base gives the Molca editor surfaces a heavier, on-brand baseline than the
+     * default editor font; `-unity-font-style: bold` rules then synth-embolden from Medium. The url()
+     * is relative to this sheet's folder (Editor/UI/), so it resolves without a GUID dependency.
+     */
+    -unity-font-definition: url("Fonts/Poppins-Medium.ttf");
+
+    /* ---- Surfaces ---- */
+    --molca-bg: rgb(56, 56, 56);
+    --molca-panel: rgb(48, 48, 48);
+    --molca-card: rgb(47, 47, 47);
+    --molca-card-header: rgb(58, 58, 58);
+    --molca-input: rgb(43, 43, 43);
+
+    /* ---- Borders ---- */
+    --molca-border: rgb(31, 31, 31);
+    --molca-border-soft: rgb(37, 37, 37);
+
+    /* ---- Text ---- */
+    --molca-text: rgb(194, 194, 194);
+    --molca-heading: rgb(220, 220, 220);
+    --molca-muted: rgb(138, 138, 138);
+    --molca-label: rgb(182, 182, 182);
+
+    /* ---- Accents / interactive ---- */
+    --molca-primary: rgb(59, 103, 150);
+    --molca-row-selected: rgb(59, 94, 128);
+    --molca-link: rgb(91, 155, 213);
+    --molca-accent: rgb(198, 242, 58);
+
+    /* ---- Status ---- */
+    --molca-status-green: rgb(87, 200, 74);
+    --molca-status-grey: rgb(107, 107, 107);
+    --molca-status-warn: rgb(216, 178, 74);
+    --molca-status-error: rgb(224, 112, 58);
+
+    /* ---- Hub back-compat aliases (Sprint 26 vocabulary) ---- */
+    --hub-bg: var(--molca-bg);
+    --hub-panel: var(--molca-panel);
+    --hub-card: var(--molca-card);
+    --hub-card-header: var(--molca-card-header);
+    --hub-input: var(--molca-input);
+    --hub-border: var(--molca-border);
+    --hub-border-soft: var(--molca-border-soft);
+    --hub-text: var(--molca-text);
+    --hub-heading: var(--molca-heading);
+    --hub-muted: var(--molca-muted);
+    --hub-label: var(--molca-label);
+    --hub-primary: var(--molca-primary);
+    --hub-row-selected: var(--molca-row-selected);
+    --hub-link: var(--molca-link);
+    --hub-accent: var(--molca-accent);
+    --hub-status-green: var(--molca-status-green);
+    --hub-status-grey: var(--molca-status-grey);
+    --hub-status-warn: var(--molca-status-warn);
+    --hub-status-error: var(--molca-status-error);
+}
+
+/*
+ * Light-skin overrides. Unity does not expose a skin pseudo-class to USS, so windows add the
+ * `molca-light` class to their root when EditorGUIUtility.isProSkin is false. Values are nudged for
+ * legibility on the lighter editor background rather than recolored wholesale (per the doc's
+ * "controls remain legible" light-skin verification rule). Accents/status keep their hues.
+ */
+.molca-editor.molca-light {
+    --molca-bg: rgb(194, 194, 194);
+    --molca-panel: rgb(200, 200, 200);
+    --molca-card: rgb(207, 207, 207);
+    --molca-card-header: rgb(196, 196, 196);
+    --molca-input: rgb(222, 222, 222);
+    --molca-border: rgb(150, 150, 150);
+    --molca-border-soft: rgb(168, 168, 168);
+    --molca-text: rgb(38, 38, 38);
+    --molca-heading: rgb(20, 20, 20);
+    --molca-muted: rgb(102, 102, 102);
+    --molca-label: rgb(56, 56, 56);
+    --molca-row-selected: rgb(140, 170, 205);
+    --molca-link: rgb(38, 96, 158);
+}

@@ -1,0 +1,1547 @@
+/*
+ * Molca Hub shell styles (Sprint 26.1).
+ * These classes intentionally mirror the design handoff vocabulary: workspace tabs, left rail,
+ * section cards, compact field rows, links, mini buttons, and status dots.
+ */
+
+/*
+ * Token definitions (--hub-* / --molca-*) live in Editor/UI/MolcaEditorTokens.uss and are applied
+ * via MolcaEditorUi.Apply() (the root also carries the `molca-editor` class). This sheet only
+ * consumes them through var(). See EDITOR_DESIGN_LANGUAGE.md.
+ */
+.molca-hub-root {
+    flex-grow: 1;
+    min-height: 0;
+    background-color: var(--hub-bg);
+    color: var(--hub-text);
+}
+
+.molca-hub-workspace-toolbar {
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: center;
+    padding-top: 5px;
+    padding-bottom: 5px;
+    padding-left: 8px;
+    padding-right: 8px;
+    background-color: rgb(57, 57, 57);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--hub-border);
+}
+
+.molca-hub-workspace-tab {
+    margin-left: 0;
+    margin-right: 2px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+    padding-left: 13px;
+    padding-right: 13px;
+    border-width: 0;
+    border-radius: 3px;
+    background-color: rgba(0, 0, 0, 0);
+    color: rgb(189, 189, 189);
+    font-size: 11px;
+}
+
+.molca-hub-workspace-tab--active {
+    background-color: var(--hub-primary);
+    color: white;
+}
+
+.molca-hub-spacer {
+    flex-grow: 1;
+}
+
+.molca-hub-button {
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 10px;
+    padding-right: 10px;
+    border-width: 1px;
+    border-color: rgb(47, 47, 47);
+    border-radius: 2px;
+    background-color: rgb(77, 77, 77);
+    color: rgb(189, 189, 189);
+    font-size: 10px;
+}
+
+.molca-hub-body {
+    flex-grow: 1;
+    min-height: 0;
+}
+
+.molca-hub-workspace-host {
+    flex-grow: 1;
+    min-height: 0;
+}
+
+.molca-hub-rail {
+    background-color: rgb(46, 46, 46);
+    border-right-width: 1px;
+    border-right-color: rgb(35, 35, 35);
+    padding-top: 8px;
+    padding-bottom: 8px;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+.molca-hub-search {
+    margin-left: 9px;
+    margin-right: 9px;
+    margin-bottom: 8px;
+}
+
+.molca-hub-search TextInput {
+    -unity-text-align: middle-left;
+    background-color: rgb(37, 37, 37);
+    border-color: rgb(28, 28, 28);
+    border-radius: 3px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 11px;
+}
+
+.molca-hub-search-placeholder {
+    position: absolute;
+    left: 17px;
+    top: 4px;
+    color: rgb(119, 119, 119);
+    font-size: 11px;
+}
+
+.molca-hub-rail-list {
+    flex-grow: 1;
+}
+
+.molca-hub-rail-item {
+    min-height: 29px;
+    margin-left: 0;
+    margin-right: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 12px;
+    padding-right: 12px;
+    border-width: 0;
+    border-left-width: 2px;
+    border-left-color: rgba(0, 0, 0, 0);
+    border-radius: 0;
+    background-color: rgba(0, 0, 0, 0);
+    color: rgb(189, 189, 189);
+    -unity-text-align: middle-left;
+    font-size: 11px;
+}
+
+.molca-hub-rail-item--selected {
+    background-color: var(--hub-row-selected);
+    border-left-color: var(--hub-accent);
+    color: white;
+}
+
+.molca-hub-detail-scroll {
+    flex-grow: 1;
+    min-height: 0;
+    background-color: var(--hub-bg);
+}
+
+.molca-hub-detail {
+    padding: 14px;
+}
+
+.molca-hub-detail-header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 13px;
+}
+
+.molca-hub-logo-tile {
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--hub-border);
+    background-color: rgb(42, 42, 42);
+    align-items: center;
+    justify-content: center;
+    margin-right: 9px;
+}
+
+.molca-hub-logo-mark {
+    color: var(--hub-accent);
+    -unity-font-style: bold;
+    font-size: 19px;
+    -unity-text-align: middle-center;
+}
+
+.molca-hub-title-stack {
+    flex-grow: 1;
+}
+
+.molca-hub-title {
+    color: var(--hub-heading);
+    font-size: 15px;
+    -unity-font-style: bold;
+}
+
+.molca-hub-muted {
+    color: var(--hub-muted);
+    white-space: normal;
+    font-size: 11px;
+}
+
+.molca-hub-detail-content {
+    flex-grow: 1;
+}
+
+.molca-hub-project-section {
+    flex-grow: 1;
+}
+
+.molca-hub-project-header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.molca-hub-project-logo {
+    width: 36px;
+    height: 36px;
+    border-radius: 7px;
+    border-width: 1px;
+    border-color: var(--hub-border);
+    background-color: rgb(42, 42, 42);
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+}
+
+.molca-hub-project-logo__mark {
+    color: var(--hub-accent);
+    -unity-font-style: bold;
+    font-size: 24px;
+    -unity-text-align: middle-center;
+}
+
+.molca-hub-project-logo__image {
+    width: 24px;
+    height: 24px;
+}
+
+.molca-hub-project-title-stack {
+    flex-grow: 1;
+}
+
+.molca-hub-project-title {
+    color: var(--hub-heading);
+    -unity-font-style: bold;
+    font-size: 17px;
+}
+
+.molca-hub-project-subtitle {
+    color: rgb(127, 127, 127);
+    font-size: 11px;
+}
+
+.molca-hub-section-card {
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+    background-color: rgb(51, 51, 51);
+    margin-bottom: 14px;
+}
+
+.molca-hub-section-card__header {
+    min-height: 29px;
+    flex-direction: row;
+    align-items: center;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 10px;
+    padding-right: 10px;
+    background-color: var(--hub-card-header);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--hub-border-soft);
+}
+
+.molca-hub-section-card__title-stack {
+    flex-grow: 1;
+}
+
+.molca-hub-section-card__title {
+    color: rgb(207, 207, 207);
+    -unity-font-style: bold;
+    font-size: 12px;
+}
+
+.molca-hub-section-card__subtitle {
+    color: var(--hub-muted);
+    font-size: 10px;
+    margin-top: 1px;
+}
+
+.molca-hub-section-card__status-label {
+    color: var(--hub-muted);
+    font-size: 10px;
+    margin-left: 5px;
+    margin-right: 6px;
+}
+
+.molca-hub-section-card__actions {
+    flex-direction: row;
+    align-items: center;
+    margin-left: 6px;
+}
+
+.molca-hub-section-card__body {
+    padding-top: 11px;
+    padding-bottom: 11px;
+    padding-left: 12px;
+    padding-right: 12px;
+}
+
+.molca-hub-section-card__body--disabled {
+    opacity: 0.4;
+}
+
+.molca-hub-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background-color: var(--hub-status-grey);
+}
+
+.molca-hub-status-dot--ok {
+    background-color: var(--hub-status-green);
+}
+
+.molca-hub-status-dot--idle {
+    background-color: var(--hub-status-grey);
+}
+
+.molca-hub-status-dot--warn {
+    background-color: var(--hub-status-warn);
+}
+
+.molca-hub-status-dot--error {
+    background-color: var(--hub-status-error);
+}
+
+.molca-hub-help-button {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border-radius: 10px;
+    -unity-text-align: middle-center;
+    font-size: 10px;
+}
+
+.molca-hub-field-row {
+    flex-direction: row;
+    align-items: center;
+    min-height: 24px;
+    margin-bottom: 8px;
+}
+
+.molca-hub-field-row--top {
+    align-items: flex-start;
+}
+
+.molca-hub-field-label {
+    width: 118px;
+    color: var(--hub-label);
+    font-size: 11px;
+}
+
+.molca-hub-field-control {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.molca-hub-project-id-box {
+    flex-grow: 1;
+    min-height: 22px;
+    flex-direction: row;
+    align-items: center;
+    background-color: var(--hub-input);
+    border-width: 1px;
+    border-color: var(--hub-border);
+    border-radius: 2px;
+    padding-left: 7px;
+    padding-right: 7px;
+}
+
+.molca-hub-project-id-text {
+    flex-grow: 1;
+    color: rgb(127, 127, 127);
+    font-size: 11px;
+}
+
+.molca-hub-logo-picker {
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 1;
+}
+
+.molca-hub-logo-preview {
+    width: 38px;
+    height: 38px;
+    border-width: 1px;
+    border-color: var(--hub-border);
+    border-radius: 4px;
+    background-color: rgb(42, 42, 42);
+    align-items: center;
+    justify-content: center;
+    margin-right: 9px;
+}
+
+.molca-hub-logo-preview__mark {
+    color: var(--hub-accent);
+    -unity-font-style: bold;
+    font-size: 22px;
+    -unity-text-align: middle-center;
+}
+
+.molca-hub-logo-preview__image {
+    width: 30px;
+    height: 30px;
+}
+
+.molca-hub-logo-picker__stack {
+    flex-grow: 1;
+}
+
+.molca-hub-logo-picker__name {
+    color: var(--hub-text);
+    font-size: 11px;
+    margin-bottom: 3px;
+}
+
+.molca-hub-logo-picker__field {
+    max-width: 240px;
+}
+
+.molca-hub-link {
+    color: var(--hub-link);
+}
+
+.molca-hub-link-row {
+    flex-direction: row;
+    align-items: center;
+    min-height: 24px;
+}
+
+.molca-hub-link-button {
+    flex-grow: 1;
+    min-width: 0;
+    border-width: 0;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--hub-link);
+    -unity-text-align: middle-left;
+    font-size: 11px;
+}
+
+.molca-hub-divider {
+    height: 1px;
+    background-color: rgb(42, 42, 42);
+    margin-top: 7px;
+    margin-bottom: 7px;
+}
+
+.molca-hub-mini-button {
+    height: 20px;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 10px;
+    border-radius: 2px;
+}
+
+/* ----- Build & Version section (Sprint 26.6) ----- */
+
+.molca-hub-buildversion-section {
+    flex-grow: 1;
+}
+
+.molca-hub-bv-context {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgb(51, 51, 51);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 10px;
+    padding-right: 10px;
+    margin-bottom: 12px;
+}
+
+.molca-hub-bv-context__marker {
+    width: 13px;
+    height: 13px;
+    border-radius: 2px;
+    background-color: var(--hub-accent);
+    margin-right: 8px;
+}
+
+.molca-hub-bv-context__asset {
+    color: rgb(201, 201, 201);
+    font-size: 11px;
+}
+
+.molca-hub-bv-context__sep {
+    width: 1px;
+    height: 14px;
+    background-color: rgb(74, 74, 74);
+    margin-left: 10px;
+    margin-right: 10px;
+}
+
+.molca-hub-bv-context__meta {
+    color: var(--hub-muted);
+    font-size: 11px;
+    margin-right: 10px;
+}
+
+.molca-hub-bv-primary-pill {
+    border-width: 1px;
+    border-color: var(--hub-border);
+    border-radius: 2px;
+    background-color: var(--hub-primary);
+    color: white;
+    font-size: 11px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 12px;
+    padding-right: 12px;
+}
+
+.molca-hub-bv-segmented {
+    flex-direction: row;
+    margin-bottom: 12px;
+}
+
+.molca-hub-bv-segment {
+    flex-grow: 1;
+    margin-left: 0;
+    margin-right: 1px;
+    border-width: 1px;
+    border-color: rgb(42, 42, 42);
+    border-radius: 2px;
+    background-color: rgb(85, 85, 85);
+    color: var(--hub-text);
+    font-size: 11px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+.molca-hub-bv-segment--active {
+    background-color: var(--hub-primary);
+    color: white;
+}
+
+.molca-hub-bv-build-row {
+    flex-direction: row;
+    align-items: flex-start;
+}
+
+.molca-hub-bv-profile-rail {
+    flex-shrink: 0;
+    width: 182px;
+    margin-right: 10px;
+    background-color: rgb(48, 48, 48);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+}
+
+.molca-hub-bv-rail-header {
+    flex-direction: row;
+    align-items: center;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 10px;
+    padding-right: 8px;
+    background-color: var(--hub-card-header);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--hub-border-soft);
+}
+
+.molca-hub-bv-rail-title {
+    flex-grow: 1;
+    color: var(--hub-muted);
+    font-size: 10px;
+    -unity-font-style: bold;
+}
+
+.molca-hub-bv-rail-actions {
+    flex-direction: row;
+}
+
+.molca-hub-bv-rail-button {
+    width: 18px;
+    height: 18px;
+    margin-left: 4px;
+    padding: 0;
+    border-width: 1px;
+    border-color: rgb(47, 47, 47);
+    border-radius: 2px;
+    background-color: rgb(77, 77, 77);
+    color: rgb(189, 189, 189);
+    font-size: 12px;
+    -unity-text-align: middle-center;
+}
+
+.molca-hub-bv-profile-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 34px;
+    margin: 0;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    padding-left: 10px;
+    padding-right: 8px;
+    border-width: 0;
+    border-left-width: 2px;
+    border-left-color: rgba(0, 0, 0, 0);
+    border-radius: 0;
+    background-color: rgba(0, 0, 0, 0);
+    -unity-text-align: middle-left;
+}
+
+.molca-hub-bv-profile-row--selected {
+    background-color: var(--hub-row-selected);
+    border-left-color: var(--hub-accent);
+}
+
+.molca-hub-bv-profile-row__stack {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.molca-hub-bv-profile-row__name {
+    color: rgb(220, 220, 220);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -unity-text-align: middle-left;
+}
+
+.molca-hub-bv-profile-row__target {
+    color: rgb(127, 127, 127);
+    font-size: 9px;
+    -unity-text-align: middle-left;
+}
+
+.molca-hub-bv-active-badge {
+    color: var(--hub-accent);
+    font-size: 9px;
+    border-width: 1px;
+    border-color: var(--hub-accent);
+    border-radius: 2px;
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+.molca-hub-bv-profile-detail {
+    flex-grow: 1;
+    min-width: 0;
+    background-color: rgb(48, 48, 48);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+}
+
+.molca-hub-bv-detail-header {
+    flex-direction: row;
+    align-items: center;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+    background-color: var(--hub-card-header);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--hub-border-soft);
+}
+
+.molca-hub-bv-detail-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    background-color: var(--hub-accent);
+    margin-right: 8px;
+}
+
+.molca-hub-bv-detail-title {
+    color: rgb(220, 220, 220);
+    -unity-font-style: bold;
+    font-size: 12px;
+    margin-right: 8px;
+}
+
+.molca-hub-bv-detail-sub {
+    color: rgb(111, 111, 111);
+    font-size: 10px;
+}
+
+.molca-hub-bv-detail-body {
+    padding: 11px;
+}
+
+/* Detail field labels hold longer captions ("Package Name Override", signing env vars)
+   than the 118px project-section default, so widen the label column to prevent clipping. */
+.molca-hub-bv-field > .molca-hub-field-label {
+    width: 150px;
+    flex-shrink: 0;
+}
+
+.molca-hub-bv-card {
+    background-color: rgb(44, 44, 44);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+    margin-top: 11px;
+}
+
+.molca-hub-bv-card__header {
+    color: var(--hub-muted);
+    font-size: 10px;
+    -unity-font-style: bold;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    padding-left: 9px;
+    padding-right: 9px;
+    background-color: rgb(51, 51, 51);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--hub-border-soft);
+}
+
+.molca-hub-bv-card__body {
+    padding: 9px;
+}
+
+.molca-hub-bv-options-grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.molca-hub-bv-option-group {
+    width: 50%;
+    margin-bottom: 8px;
+    padding-right: 10px;
+}
+
+.molca-hub-bv-option-heading {
+    color: rgb(127, 127, 127);
+    font-size: 9px;
+    -unity-font-style: bold;
+    margin-bottom: 4px;
+}
+
+.molca-hub-bv-toggle-row {
+    flex-direction: row;
+    align-items: center;
+    min-height: 20px;
+}
+
+.molca-hub-bv-toggle-label {
+    flex-grow: 1;
+    color: var(--hub-label);
+    font-size: 11px;
+}
+
+.molca-hub-bv-toggle {
+    flex-shrink: 0;
+}
+
+.molca-hub-bv-signing {
+    margin-top: 4px;
+    margin-bottom: 4px;
+    padding-left: 8px;
+    border-left-width: 2px;
+    border-left-color: rgb(58, 58, 58);
+}
+
+.molca-hub-bv-actions {
+    flex-direction: row;
+    margin-top: 11px;
+}
+
+.molca-hub-bv-action {
+    flex-grow: 1;
+    margin-left: 0;
+    margin-right: 6px;
+    border-width: 1px;
+    border-color: rgb(42, 42, 42);
+    border-radius: 2px;
+    background-color: rgb(77, 77, 77);
+    color: var(--hub-text);
+    font-size: 11px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+.molca-hub-bv-action--primary {
+    flex-grow: 1.4;
+    background-color: var(--hub-primary);
+    color: white;
+}
+
+/* Full-width standalone/stacked action button. Unlike .molca-hub-bv-action (which uses flex-grow to
+   share width inside a horizontal .molca-hub-bv-actions row), this does not grow on the main axis, so
+   it stays a normal-height full-width button when placed directly in a column card body. */
+.molca-hub-action-full {
+    flex-grow: 0;
+    flex-shrink: 0;
+    margin-top: 0;
+    margin-bottom: 6px;
+    margin-left: 0;
+    margin-right: 0;
+    border-width: 1px;
+    border-color: rgb(42, 42, 42);
+    border-radius: 2px;
+    background-color: rgb(77, 77, 77);
+    color: var(--hub-text);
+    font-size: 11px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+}
+
+.molca-hub-action-full--primary {
+    background-color: var(--hub-primary);
+    color: white;
+}
+
+.molca-hub-bv-summary {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgb(51, 51, 51);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+    padding-top: 11px;
+    padding-bottom: 11px;
+    padding-left: 12px;
+    padding-right: 12px;
+    margin-bottom: 12px;
+}
+
+.molca-hub-bv-summary__stack {
+    margin-right: 16px;
+}
+
+.molca-hub-bv-summary__caption {
+    color: var(--hub-muted);
+    font-size: 10px;
+}
+
+.molca-hub-bv-summary__value {
+    color: var(--hub-heading);
+    font-size: 22px;
+}
+
+.molca-hub-bv-summary__meta {
+    color: var(--hub-muted);
+    font-size: 11px;
+}
+
+.molca-hub-bv-version-grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.molca-hub-bv-version-field {
+    width: 50%;
+    margin-bottom: 6px;
+    padding-right: 12px;
+}
+
+.molca-hub-bv-version-field__label {
+    width: 50px;
+}
+
+.molca-hub-bv-warning {
+    flex-direction: row;
+    align-items: flex-start;
+    background-color: rgb(47, 47, 47);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+    padding: 8px;
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+
+.molca-hub-bv-warning__icon {
+    color: var(--hub-status-warn);
+    font-size: 13px;
+    margin-right: 8px;
+}
+
+.molca-hub-bv-warning__text {
+    flex-grow: 1;
+    color: var(--hub-muted);
+    font-size: 11px;
+    white-space: normal;
+}
+
+.molca-hub-bv-foldout {
+    margin-top: 4px;
+}
+
+.molca-hub-bv-history-entry {
+    color: var(--hub-text);
+    font-size: 11px;
+    margin-top: 3px;
+}
+
+.molca-hub-bv-footer {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top-width: 1px;
+    border-top-color: var(--hub-border-soft);
+}
+
+.molca-hub-bv-footer__button {
+    margin-left: 0;
+    margin-right: 0;
+    border-width: 1px;
+    border-color: rgb(42, 42, 42);
+    border-radius: 2px;
+    background-color: rgb(77, 77, 77);
+    color: var(--hub-text);
+    font-size: 11px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+}
+
+.molca-hub-bv-footer__note {
+    -unity-text-align: middle-center;
+    color: rgb(111, 111, 111);
+    font-size: 10px;
+    margin-top: 4px;
+}
+
+/* ----- Runtime & Global section (Sprint 26.7) ----- */
+
+.molca-hub-runtime-section {
+    flex-grow: 1;
+}
+
+.molca-hub-rt-context {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgb(51, 51, 51);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 10px;
+    padding-right: 10px;
+    margin-bottom: 12px;
+}
+
+.molca-hub-rt-context__crumb {
+    flex-direction: row;
+    align-items: center;
+}
+
+.molca-hub-rt-context__marker {
+    width: 13px;
+    height: 13px;
+    border-radius: 2px;
+    margin-right: 6px;
+}
+
+.molca-hub-rt-context__marker--runtime {
+    background-color: rgb(90, 122, 168);
+}
+
+.molca-hub-rt-context__marker--global {
+    background-color: var(--hub-accent);
+}
+
+.molca-hub-rt-context__label {
+    color: rgb(201, 201, 201);
+    font-size: 11px;
+}
+
+.molca-hub-rt-context__sep {
+    color: rgb(95, 95, 95);
+    font-size: 13px;
+    margin-left: 8px;
+    margin-right: 8px;
+}
+
+.molca-hub-rt-context__ping {
+    width: 18px;
+    height: 18px;
+    margin-left: 4px;
+    padding: 0;
+    border-width: 0;
+    background-color: rgba(0, 0, 0, 0);
+    color: rgb(122, 122, 122);
+    font-size: 12px;
+    -unity-text-align: middle-center;
+}
+
+.molca-hub-rt-context__field {
+    width: 170px;
+    margin-left: 4px;
+    margin-right: 0;
+}
+
+.molca-hub-rt-chip {
+    border-width: 1px;
+    border-color: rgb(47, 47, 47);
+    border-radius: 2px;
+    background-color: rgb(85, 85, 85);
+    color: rgb(189, 189, 189);
+    font-size: 10px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 9px;
+    padding-right: 9px;
+}
+
+.molca-hub-rt-modules {
+    flex-grow: 1;
+}
+
+.molca-hub-rt-modules-heading {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 9px;
+}
+
+.molca-hub-rt-modules-title {
+    color: var(--hub-muted);
+    font-size: 10px;
+    -unity-font-style: bold;
+    margin-right: 7px;
+}
+
+.molca-hub-rt-modules-count {
+    color: var(--hub-muted);
+    font-size: 10px;
+    background-color: rgb(43, 43, 43);
+    border-width: 1px;
+    border-color: rgb(35, 35, 35);
+    border-radius: 9px;
+    padding-left: 7px;
+    padding-right: 7px;
+}
+
+/* Horizontal wrapping chip strip — replaces the vertical rail so the detail/inspector
+   below gets the full panel width. */
+.molca-hub-rt-chip-strip {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.molca-hub-rt-chip-item {
+    flex-direction: row;
+    align-items: center;
+    margin-left: 0;
+    margin-right: 6px;
+    margin-bottom: 6px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+    padding-left: 11px;
+    padding-right: 11px;
+    border-width: 1px;
+    border-color: rgb(47, 47, 47);
+    border-radius: 13px;
+    background-color: rgb(43, 43, 43);
+    color: rgb(189, 189, 189);
+    font-size: 11px;
+}
+
+.molca-hub-rt-chip-item--selected {
+    border-color: var(--hub-primary);
+    background-color: var(--hub-primary);
+    color: white;
+}
+
+.molca-hub-rt-chip-item__name {
+    margin-left: 7px;
+    color: rgb(189, 189, 189);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.molca-hub-rt-chip-item--selected .molca-hub-rt-chip-item__name {
+    color: white;
+}
+
+.molca-hub-rt-detail {
+    background-color: rgb(48, 48, 48);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+}
+
+.molca-hub-rt-detail-header {
+    flex-direction: row;
+    align-items: center;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+    background-color: var(--hub-card-header);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--hub-border-soft);
+}
+
+.molca-hub-rt-detail-title {
+    color: rgb(220, 220, 220);
+    -unity-font-style: bold;
+    font-size: 12px;
+    margin-left: 8px;
+    margin-right: 8px;
+}
+
+.molca-hub-rt-detail-type {
+    color: rgb(111, 111, 111);
+    font-size: 10px;
+}
+
+.molca-hub-rt-detail-body {
+    padding: 12px;
+}
+
+.molca-hub-rt-inspector {
+    flex-grow: 1;
+}
+
+/* ----- Editor & MCP sections (Sprint 26.8) ----- */
+
+.molca-hub-editor-section {
+    flex-grow: 1;
+}
+
+.molca-hub-mcp-section {
+    flex-grow: 1;
+}
+
+.molca-hub-card-header-toggle {
+    margin-left: 4px;
+    margin-right: 2px;
+}
+
+.molca-hub-mcp-intro {
+    color: var(--hub-muted);
+    font-size: 11px;
+    white-space: normal;
+    background-color: rgb(47, 47, 47);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 2px;
+    padding: 8px;
+    margin-bottom: 12px;
+}
+
+.molca-hub-provider-row {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgb(44, 44, 44);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+    margin-bottom: 6px;
+}
+
+.molca-hub-provider-row__stack {
+    flex-grow: 1;
+    min-width: 0;
+    margin-left: 9px;
+}
+
+.molca-hub-provider-row__name {
+    color: rgb(220, 220, 220);
+    -unity-font-style: bold;
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.molca-hub-provider-row__status {
+    color: var(--hub-muted);
+    font-size: 10px;
+    margin-top: 1px;
+}
+
+.molca-hub-provider-row__assign {
+    width: 180px;
+    margin-right: 6px;
+}
+
+.molca-hub-mcp-token-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.molca-hub-mcp-token {
+    flex-grow: 1;
+    min-width: 0;
+    background-color: var(--hub-input);
+    border-width: 1px;
+    border-color: var(--hub-border);
+    border-radius: 2px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 7px;
+    padding-right: 7px;
+    margin-right: 4px;
+    color: var(--hub-text);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.molca-hub-mcp-log {
+    max-height: 120px;
+    margin-top: 6px;
+    background-color: rgb(40, 40, 40);
+    border-width: 1px;
+    border-color: var(--hub-border);
+    border-radius: 2px;
+}
+
+.molca-hub-mcp-log__text {
+    color: rgb(180, 180, 180);
+    font-size: 10px;
+    white-space: normal;
+    padding: 6px;
+}
+
+.molca-hub-mcp-allowlist {
+    margin-top: 6px;
+    background-color: rgb(43, 43, 43);
+    border-width: 1px;
+    border-color: var(--hub-border);
+    border-radius: 2px;
+    padding: 6px;
+}
+
+.molca-hub-mcp-allowlist--readonly {
+    min-height: 115px;
+}
+
+.molca-hub-mcp-allowlist--action {
+    min-height: 142px;
+}
+
+.molca-hub-mcp-allowlist__grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+
+.molca-hub-mcp-allowlist__cell {
+    width: 50%;
+    min-width: 0;
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 3px;
+    padding-right: 10px;
+}
+
+.molca-hub-allow-name {
+    flex-grow: 1;
+    min-width: 0;
+    color: var(--hub-text);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.molca-hub-allow-badges {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: 6px;
+    margin-right: 6px;
+}
+
+.molca-hub-allow-badge {
+    font-size: 8px;
+    -unity-font-style: bold;
+    border-radius: 2px;
+    border-width: 1px;
+    padding-left: 4px;
+    padding-right: 4px;
+    margin-left: 3px;
+    color: rgb(200, 200, 200);
+    background-color: rgb(58, 58, 58);
+    border-color: rgb(70, 70, 70);
+}
+
+.molca-hub-allow-badge--action {
+    color: rgb(224, 158, 130);
+    border-color: rgb(90, 58, 48);
+    background-color: rgb(58, 42, 38);
+}
+
+.molca-hub-allow-badge--undo {
+    color: rgb(150, 200, 150);
+    border-color: rgb(60, 80, 60);
+    background-color: rgb(42, 52, 42);
+}
+
+.molca-hub-allow-badge--play {
+    color: rgb(150, 180, 220);
+    border-color: rgb(58, 70, 90);
+    background-color: rgb(40, 48, 60);
+}
+
+.molca-hub-allow-toggle {
+    flex-shrink: 0;
+}
+
+.molca-hub-mcp-allowlist-nav {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 6px;
+}
+
+.molca-hub-mcp-allowlist-nav__label {
+    flex-grow: 1;
+    -unity-text-align: middle-center;
+    color: var(--hub-muted);
+    font-size: 10px;
+}
+
+/* ----- Integrations section stub (Sprint 26.9) ----- */
+
+.molca-hub-integrations-section {
+    flex-grow: 1;
+}
+
+.molca-hub-integrations-title {
+    color: var(--hub-heading);
+    font-size: 15px;
+    -unity-font-style: bold;
+    margin-bottom: 3px;
+}
+
+.molca-hub-integrations-subtitle {
+    color: var(--hub-muted);
+    font-size: 11px;
+    white-space: normal;
+    margin-bottom: 13px;
+}
+
+.molca-hub-integration-card {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgb(51, 51, 51);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    padding-left: 12px;
+    padding-right: 12px;
+    margin-bottom: 9px;
+}
+
+.molca-hub-integration-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    margin-right: 10px;
+    color: white;
+    -unity-font-style: bold;
+    font-size: 14px;
+    -unity-text-align: middle-center;
+}
+
+.molca-hub-integration-stack {
+    flex-grow: 0;
+}
+
+.molca-hub-integration-name {
+    color: rgb(220, 220, 220);
+    -unity-font-style: bold;
+    font-size: 12px;
+}
+
+.molca-hub-integration-desc {
+    color: var(--hub-muted);
+    font-size: 10px;
+    margin-top: 1px;
+}
+
+.molca-hub-integration-status {
+    flex-direction: row;
+    align-items: center;
+    margin-right: 10px;
+}
+
+.molca-hub-integration-status__label {
+    color: var(--hub-muted);
+    font-size: 10px;
+    margin-left: 6px;
+}
+
+.molca-hub-integration-add {
+    border-width: 1px;
+    border-color: rgb(74, 74, 74);
+    border-radius: 3px;
+    padding-top: 9px;
+    padding-bottom: 9px;
+    color: var(--hub-muted);
+    font-size: 11px;
+    -unity-text-align: middle-center;
+}
+
+/* ---- Tasks section (Sprint 31) ---- */
+
+.molca-hub-tasks-section {
+    flex-grow: 1;
+}
+
+.molca-hub-tasks-controls {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.molca-hub-tasks-controls Toggle {
+    margin-right: 12px;
+    font-size: 11px;
+}
+
+.molca-hub-tasks-list {
+    flex-grow: 1;
+}
+
+.molca-hub-task-row {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgb(51, 51, 51);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 10px;
+    padding-right: 10px;
+    margin-bottom: 6px;
+}
+
+.molca-hub-task-name {
+    color: rgb(220, 220, 220);
+    font-size: 12px;
+    white-space: normal;
+    flex-shrink: 1;
+}
+
+.molca-hub-task-name--link {
+    color: var(--hub-link);
+}
+
+.molca-hub-task-list-badge {
+    color: var(--hub-muted);
+    font-size: 9px;
+    margin-left: 8px;
+    padding-left: 5px;
+    padding-right: 5px;
+    padding-top: 1px;
+    padding-bottom: 1px;
+    background-color: rgb(64, 64, 64);
+    border-radius: 3px;
+}
+
+.molca-hub-task-status {
+    min-width: 130px;
+    margin-left: 8px;
+    font-size: 11px;
+}
+
+.molca-hub-task-status-static {
+    color: var(--hub-muted);
+    font-size: 11px;
+    margin-left: 8px;
+}
+
+/* ----- Network telemetry section (Sprint 36.8) ----- */
+
+.molca-hub-network-section {
+    flex-grow: 1;
+}
+
+.molca-hub-network-metric {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 3px;
+    padding-bottom: 3px;
+}
+
+.molca-hub-network-metric__label {
+    color: var(--hub-muted);
+    font-size: 11px;
+}
+
+.molca-hub-network-metric__value {
+    color: rgb(220, 220, 220);
+    -unity-font-style: bold;
+    font-size: 11px;
+}
+
+.molca-hub-network-row {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgb(44, 44, 44);
+    border-width: 1px;
+    border-color: var(--hub-border-soft);
+    border-radius: 3px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+    padding-left: 8px;
+    padding-right: 8px;
+    margin-bottom: 4px;
+}
+
+.molca-hub-network-row__url {
+    flex-grow: 1;
+    min-width: 0;
+    margin-left: 8px;
+    color: rgb(210, 210, 210);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.molca-hub-network-row__status {
+    color: var(--hub-muted);
+    font-size: 11px;
+    margin-left: 8px;
+    min-width: 56px;
+    -unity-text-align: middle-right;
+}
+
+.molca-hub-network-row__latency {
+    color: var(--hub-muted);
+    font-size: 11px;
+    margin-left: 8px;
+    min-width: 56px;
+    -unity-text-align: middle-right;
+}

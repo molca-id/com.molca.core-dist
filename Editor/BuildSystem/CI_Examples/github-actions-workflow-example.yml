@@ -1,0 +1,122 @@
+# Example GitHub Actions Workflow for Unity Builds
+# Save this as .github/workflows/build.yml in your repository
+
+name: Unity Build
+
+on:
+  # Trigger workflow manually or via API
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Build Profile'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+        default: 'development'
+
+jobs:
+  build:
+    name: Build for ${{ github.event.inputs.profile }}
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Checkout repository
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+      
+      # Cache Unity Library folder for faster builds
+      - name: Cache Unity Library
+        uses: actions/cache@v3
+        with:
+          path: Library
+          key: Library-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-
+      
+      # Free up disk space (optional, for large projects)
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+      
+      # Build with Unity
+      - name: Build Unity Project
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: StandaloneWindows64  # or StandaloneOSX, Android, iOS, WebGL
+          buildName: YourGameName
+          buildsPath: Builds
+          
+      # Upload build artifacts
+      - name: Upload Build
+        uses: actions/upload-artifact@v3
+        with:
+          name: Build-${{ github.event.inputs.profile }}-${{ github.run_number }}
+          path: Builds
+          retention-days: 14
+      
+      # Optional: Send Discord notification on completion
+      - name: Send Discord Notification
+        if: always()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            COLOR="3066993"
+            EMOJI="✅"
+          else
+            COLOR="15158332"
+            EMOJI="❌"
+          fi
+          
+          curl -H "Content-Type: application/json" \
+               -d "{
+                 \"embeds\": [{
+                   \"title\": \"$EMOJI Build ${{ job.status }}\",
+                   \"description\": \"Profile: **${{ github.event.inputs.profile }}**\\nCommit: \`${{ github.sha }}\`\",
+                   \"color\": $COLOR,
+                   \"fields\": [
+                     {
+                       \"name\": \"Repository\",
+                       \"value\": \"${{ github.repository }}\",
+                       \"inline\": true
+                     },
+                     {
+                       \"name\": \"Branch\",
+                       \"value\": \"${{ github.ref_name }}\",
+                       \"inline\": true
+                     }
+                   ],
+                   \"footer\": {
+                     \"text\": \"GitHub Actions\"
+                   },
+                   \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"
+                 }]
+               }" \
+               $DISCORD_WEBHOOK
+
+# Required Secrets (set in GitHub repository settings):
+# - UNITY_LICENSE: Your Unity license file content (for CI builds)
+# - UNITY_EMAIL: Unity account email
+# - UNITY_PASSWORD: Unity account password
+# - DISCORD_WEBHOOK (optional): Discord webhook URL for notifications
+
+# Notes:
+# 1. This uses game-ci/unity-builder action - see https://game.ci/docs/github/builder
+# 2. You may need to activate Unity license first - see https://game.ci/docs/github/activation
+# 3. Adjust targetPlatform based on your needs
+# 4. For more platforms, you can create multiple jobs or use a matrix strategy
+# 5. Build artifacts are stored for 14 days by default (adjust retention-days as needed)
+

@@ -1,0 +1,540 @@
+/*
+ * Styling for the Molca Assistant chat window (Sprint 25.1).
+ * The window's static layout lives in AssistantChatWindow.uxml; this sheet owns all cosmetic
+ * styling. The role palette is exposed as USS custom properties on .chat-root so row/title/accent
+ * rules and any future theming reference one source of truth instead of hardcoded C# Color literals.
+ */
+
+.chat-root {
+    /* Role accent colors (left bar / header label). Re-based on the shared Molca tokens
+       (MolcaEditorTokens.uss) so the Assistant wears the brand palette — the assistant accent is the
+       signature Molca lime, and status/link/neutral roles inherit the same vocabulary as the Hub. */
+    --user-accent: var(--molca-link);
+    --assistant-accent: var(--molca-accent);
+    --tool-accent: var(--molca-status-grey);
+    --error-accent: var(--molca-status-error);
+    --prompt-accent: var(--molca-status-warn);
+    --link-color: var(--molca-link);
+
+    /* Row backgrounds per role — kept as dark tints, nudged to harmonize with the role accent. */
+    --row-bg-user: rgb(41, 46, 54);
+    --row-bg-assistant: rgb(39, 43, 36);
+    --row-bg-tool: rgb(36, 36, 38);
+    --row-bg-error: rgb(54, 33, 31);
+    --row-bg-prompt: rgb(48, 43, 28);
+
+    /* Surfaces — neutral grays/borders pulled from the Molca tokens for editor-wide consistency. */
+    --scroll-bg: rgb(33, 33, 36);
+    --scroll-border: var(--molca-border);
+    --composer-bg: var(--molca-input);
+    --composer-edge: var(--molca-border-soft);
+    --chip-bg: rgb(51, 61, 77);
+    --chip-label: rgb(204, 219, 242);
+    --code-bg: rgb(26, 26, 28);
+    --muted-text: var(--molca-muted);
+    --warn-text: var(--molca-status-warn);
+
+    padding: 6px;
+    flex-direction: column;
+    flex-grow: 1;
+    min-height: 0;
+}
+
+/* ---- Header ------------------------------------------------------------------------------- */
+
+.chat-header {
+    flex-direction: row;
+    margin-bottom: 4px;
+    flex-shrink: 0;
+}
+
+.chat-status {
+    flex-grow: 1;
+    flex-shrink: 1;
+    -unity-text-align: middle-left;
+}
+
+.chat-icon-button {
+    width: 26px;
+    height: 22px;
+    padding: 0;
+    margin-left: 2px;
+    margin-right: 0;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    border-radius: 5px;
+    transition-property: background-color;
+    transition-duration: 0.08s;
+}
+
+.chat-icon-button:hover {
+    background-color: rgba(255, 255, 255, 0.09);
+}
+
+.chat-icon-button:active {
+    background-color: rgba(255, 255, 255, 0.16);
+}
+
+.chat-icon-button__image {
+    width: 15px;
+    height: 15px;
+    align-self: center;
+    opacity: 0.85;
+}
+
+.chat-icon-button:hover .chat-icon-button__image {
+    opacity: 1;
+}
+
+/* ---- Sticky last-question banner (Sprint 25.4) -------------------------------------------- */
+
+.chat-banner {
+    flex-shrink: 0;
+    margin-bottom: 4px;
+    padding: 4px 8px;
+    background-color: var(--row-bg-user);
+    border-left-width: 3px;
+    border-left-color: var(--user-accent);
+    border-radius: 3px;
+    font-size: 11px;
+    color: var(--chip-label);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ---- Live tool-call progress row (build/deploy) ------------------------------------------- */
+
+.chat-tool-progress {
+    flex-shrink: 0;
+    margin-bottom: 4px;
+    padding: 4px 8px;
+    background-color: var(--row-bg-tool);
+    border-left-width: 3px;
+    border-left-color: var(--tool-accent);
+    border-radius: 3px;
+}
+
+.chat-tool-progress__label {
+    font-size: 11px;
+    color: var(--chip-label);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 3px;
+}
+
+.chat-tool-progress__bar {
+    height: 12px;
+}
+
+/* ---- Transcript scroll -------------------------------------------------------------------- */
+
+.chat-scroll {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-height: 0;
+    margin-bottom: 4px;
+    border-width: 1px;
+    border-color: var(--scroll-border);
+    background-color: var(--scroll-bg);
+}
+
+/* ---- Composer ----------------------------------------------------------------------------- */
+
+.chat-composer {
+    flex-shrink: 0;
+    flex-direction: column;
+    background-color: var(--composer-bg);
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: var(--composer-edge);
+    padding: 5px 6px;
+}
+
+.chat-context-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.chat-add-context {
+    flex-shrink: 0;
+    margin-right: 4px;
+    margin-left: 0;
+    height: 18px;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 10px;
+}
+
+.chat-context-chips {
+    flex-direction: row;
+    flex-wrap: wrap;
+    flex-shrink: 1;
+    flex-grow: 1;
+}
+
+.chat-input {
+    flex-grow: 1;
+    flex-shrink: 1;
+    white-space: normal;
+    min-height: 40px;
+    max-height: 120px;
+    min-width: 0;
+    overflow: hidden;
+    margin: 0;
+}
+
+.chat-control-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 5px;
+}
+
+.chat-mode-field {
+    width: 70px;
+    flex-shrink: 0;
+    height: 18px;
+}
+
+.chat-token-estimate {
+    font-size: 10px;
+    flex-grow: 1;
+    flex-shrink: 1;
+    margin-left: 8px;
+    -unity-text-align: middle-left;
+    color: var(--muted-text);
+}
+
+.chat-token-estimate--warn {
+    color: var(--warn-text);
+}
+
+.chat-send,
+.chat-stop {
+    width: 64px;
+    flex-shrink: 0;
+    height: 20px;
+}
+
+/* Primary action wears the Molca lime with dark text for contrast. */
+.chat-send {
+    background-color: var(--molca-accent);
+    color: rgb(26, 28, 18);
+    -unity-font-style: bold;
+    border-width: 0;
+    border-radius: 4px;
+}
+
+.chat-send:hover {
+    background-color: rgb(210, 250, 90);
+}
+
+/* ---- Context chips ------------------------------------------------------------------------ */
+
+.chat-chip {
+    flex-direction: row;
+    align-items: center;
+    background-color: var(--chip-bg);
+    border-radius: 9px;
+    padding-left: 8px;
+    padding-right: 4px;
+    margin-right: 4px;
+    margin-bottom: 2px;
+    height: 18px;
+}
+
+.chat-chip__label {
+    font-size: 10px;
+    color: var(--chip-label);
+}
+
+.chat-chip__remove {
+    width: 16px;
+    height: 16px;
+    margin-left: 2px;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* ---- Transcript rows ---------------------------------------------------------------------- */
+
+.chat-row {
+    flex-direction: column;
+    margin-bottom: 2px;
+    padding: 8px 8px 8px 10px;
+    border-left-width: 3px;
+}
+
+.chat-row--continuation {
+    padding-top: 2px;
+    margin-top: -2px;
+}
+
+.chat-row--user {
+    border-left-color: var(--user-accent);
+    background-color: var(--row-bg-user);
+}
+
+.chat-row--assistant {
+    border-left-color: var(--assistant-accent);
+    background-color: var(--row-bg-assistant);
+}
+
+.chat-row--tool {
+    border-left-color: var(--tool-accent);
+    background-color: var(--row-bg-tool);
+}
+
+.chat-row--error {
+    border-left-color: var(--error-accent);
+    background-color: var(--row-bg-error);
+}
+
+.chat-row--prompt {
+    border-left-color: var(--prompt-accent);
+    background-color: var(--row-bg-prompt);
+}
+
+/* Work-row custom disclosure (replaces the Unity Foldout header so nothing paints the row pale). */
+.chat-work__header {
+    flex-direction: row;
+    align-items: center;
+}
+
+.chat-work__arrow {
+    width: 12px;
+    flex-shrink: 0;
+    font-size: 9px;
+    color: var(--muted-text);
+    -unity-text-align: middle-center;
+}
+
+.chat-work__label {
+    -unity-font-style: bold;
+    font-size: 11px;
+    color: var(--tool-accent);
+}
+
+.chat-work__content {
+    margin-top: 3px;
+    padding-left: 12px;
+}
+
+/* Nested tool-chain / raw-result foldouts inside the work content are still Unity Foldouts; force
+   their toggle transparent so the editor default header/focus highlight doesn't paint them pale. */
+.chat-row--tool .unity-foldout,
+.chat-row--tool .unity-foldout > .unity-toggle,
+.chat-row--tool .unity-foldout__toggle,
+.chat-row--tool .unity-foldout__toggle > .unity-toggle__input {
+    background-color: rgba(0, 0, 0, 0);
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.chat-row--tool .unity-foldout__toggle:focus,
+.chat-row--tool .unity-foldout__toggle:hover,
+.chat-row--tool .unity-foldout__toggle:checked {
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.chat-row__header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 3px;
+}
+
+.chat-row__header--continuation {
+    margin-bottom: 0;
+}
+
+.chat-row__title {
+    -unity-font-style: bold;
+    flex-grow: 1;
+    font-size: 11px;
+}
+
+.chat-row__title--user { color: var(--user-accent); }
+.chat-row__title--assistant { color: var(--assistant-accent); }
+.chat-row__title--tool { color: var(--tool-accent); }
+.chat-row__title--error { color: var(--error-accent); }
+.chat-row__title--prompt { color: var(--prompt-accent); }
+
+/* ---- Interactive prompt controls (Sprint 25.7) ------------------------------------------- */
+
+.chat-prompt-options {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+
+.chat-prompt-option {
+    flex-shrink: 0;
+    height: 20px;
+    margin-right: 4px;
+    margin-bottom: 4px;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+.chat-prompt-input-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+}
+
+.chat-prompt-input {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-right: 4px;
+}
+
+.chat-prompt-answer {
+    white-space: normal;
+    margin-top: 4px;
+    color: var(--prompt-accent);
+    -unity-font-style: bold;
+}
+
+/* Answered action-confirmation outcome — a compact one-liner standing in for the full ask. */
+.chat-confirm-outcome {
+    white-space: normal;
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+.chat-confirm-outcome--ok {
+    color: var(--assistant-accent);
+}
+
+.chat-confirm-outcome--declined {
+    color: var(--muted-text);
+}
+
+/* Docked prompt bar (Sprint 25.7 follow-up): the active molca_ask_user question anchored above the
+   composer with its option buttons, rather than buried inline in the transcript. */
+.chat-prompt-bar {
+    flex-shrink: 0;
+    flex-direction: column;
+    margin-bottom: 4px;
+    padding: 6px 8px;
+    background-color: var(--row-bg-prompt);
+    border-left-width: 3px;
+    border-left-color: var(--prompt-accent);
+    border-radius: 4px;
+}
+
+/* Cap the question height so a long batch-confirmation prompt scrolls internally instead of
+   pushing the options buttons and composer off-screen (the prompt bar is a sibling of the
+   composer and does not scroll as a whole). */
+.chat-prompt-bar__question-scroll {
+    flex-shrink: 0;
+    max-height: 180px;
+    margin-bottom: 4px;
+}
+
+.chat-prompt-bar__question {
+    white-space: normal;
+    -unity-font-style: bold;
+    color: var(--prompt-accent);
+}
+
+.chat-prompt-bar__options {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.chat-row__spacer {
+    flex-grow: 1;
+}
+
+.chat-live-text {
+    white-space: normal;
+    color: rgb(158, 158, 158);
+    -unity-font-style: italic;
+}
+
+/* Per-role body text tints (assistant/user use the default label color). */
+.chat-body--tool {
+    color: rgb(158, 158, 158);
+    font-size: 11px;
+}
+
+.chat-body--error {
+    color: rgb(255, 115, 102);
+}
+
+/* ---- Buttons ------------------------------------------------------------------------------ */
+
+.chat-mini-button {
+    font-size: 10px;
+    height: 16px;
+    margin-left: 3px;
+    padding-left: 5px;
+    padding-right: 5px;
+    flex-shrink: 0;
+}
+
+/* ---- Inline / block content --------------------------------------------------------------- */
+
+.chat-inline-container {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-bottom: 2px;
+    min-width: 0;
+}
+
+.chat-span {
+    white-space: normal;
+    flex-shrink: 1;
+}
+
+.chat-inline-code {
+    background-color: var(--code-bg);
+    padding-left: 3px;
+    padding-right: 3px;
+    font-size: 11px;
+}
+
+.chat-link {
+    color: var(--link-color);
+    margin-right: 3px;
+}
+
+.chat-link:hover {
+    color: rgb(255, 255, 255);
+}
+
+.chat-code-block {
+    white-space: normal;
+    background-color: var(--code-bg);
+    padding: 4px 6px;
+    font-size: 11px;
+    margin-bottom: 2px;
+}
+
+.chat-list-row {
+    flex-direction: row;
+    margin-bottom: 3px;
+    min-width: 0;
+}
+
+.chat-list-marker {
+    width: 22px;
+    flex-shrink: 0;
+    -unity-text-align: upper-left;
+}
+
+.chat-raw-payload {
+    white-space: normal;
+    font-size: 11px;
+    margin-top: 2px;
+    padding: 4px 6px;
+    background-color: rgb(26, 26, 26);
+}
