@@ -2,6 +2,18 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.9.0] - 2026-06-21
+
+### Changed
+- **`MolcaProjectSettings` relocated out of the Core package.** The live, editable settings instance now lives in consumer space (`Assets/_Molca/Settings/MolcaProjectSettings.asset`); the package ships a read-only default template that is cloned into the project on first access, and the editor never writes into the package. This lets Core be consumed as a read-only/binary UPM package. On upgrade the editor resolves (and migrates) the instance automatically — verify your `GlobalSettings` / `RuntimeManager` wiring afterward. Also resolves a prior split-brain where the editor and runtime could load different settings assets.
+- **Editor HTTP client `IsSuccess` now accepts only 2xx status codes.** Responses outside 200–299 are no longer treated as successful; review call sites that relied on the previous broader behavior.
+
+### Added
+- **ClickUp `molca_clickup_*` MCP tool family** (status, list_tasks/workspaces, set_task_status, create_task), plus cascading Workspace/Folder/List dropdowns and resolved-name display in the ClickUp inspector.
+
+### Removed
+- **Project-specific sample assets** under `Runtime/Networking/Data` — the `Example/` data sets and `JsonPreProcessor/SO/` sample processor instances. The `DataManager` system and the reusable JSON processor classes are unchanged; only the sample `ScriptableObject` instances were removed so they no longer ship to consumers.
+
 ## [1.8.9] - 2026-06-20
 
 ### Changed

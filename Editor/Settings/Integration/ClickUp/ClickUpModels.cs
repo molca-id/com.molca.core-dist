@@ -44,6 +44,28 @@ namespace Molca.Settings.Integration.ClickUp
             public string name;
         }
 
+        /// <summary>Envelope for <c>GET /api/v2/team/{team_id}/space</c>.</summary>
+        [Serializable]
+        public class SpacesResponse
+        {
+            public Space[] spaces;
+        }
+
+        /// <summary>A ClickUp space (the level between a workspace and its folders).</summary>
+        [Serializable]
+        public class Space
+        {
+            public string id;
+            public string name;
+        }
+
+        /// <summary>Envelope for <c>GET /api/v2/space/{space_id}/folder</c>.</summary>
+        [Serializable]
+        public class FoldersResponse
+        {
+            public Folder[] folders;
+        }
+
         /// <summary>Response from creating a task or comment that carries an id and url.</summary>
         [Serializable]
         public class CreatedResponse

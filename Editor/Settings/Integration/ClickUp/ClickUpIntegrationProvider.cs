@@ -331,6 +331,87 @@ namespace Molca.Settings.Integration.ClickUp
             return result;
         }
 
+        /// <summary>A list within a folder, for the inspector's list picker.</summary>
+        public readonly struct ListInfo
+        {
+            internal ListInfo(string id, string name)
+            {
+                Id = id;
+                Name = name;
+            }
+
+            /// <summary>The list id.</summary>
+            public string Id { get; }
+            /// <summary>The list display name.</summary>
+            public string Name { get; }
+        }
+
+        /// <summary>
+        /// A folder in the workspace, flattened across spaces, with its lists — for the inspector's folder
+        /// and list pickers.
+        /// </summary>
+        public readonly struct FolderInfo
+        {
+            internal FolderInfo(string id, string name, ListInfo[] lists)
+            {
+                Id = id;
+                Name = name;
+                Lists = lists ?? Array.Empty<ListInfo>();
+            }
+
+            /// <summary>The folder id.</summary>
+            public string Id { get; }
+            /// <summary>The display name, qualified by space as "Space / Folder" to disambiguate.</summary>
+            public string Name { get; }
+            /// <summary>The lists inside this folder.</summary>
+            public ListInfo[] Lists { get; }
+        }
+
+        /// <summary>
+        /// Fetches every folder in a workspace (flattened across its spaces), each carrying its lists, for the
+        /// inspector's cascading Workspace → Folder → List pickers.
+        /// </summary>
+        /// <param name="workspaceId">The workspace ("team") id to enumerate folders for.</param>
+        /// <param name="cancellationToken">Cancels the fetch; cancellation is not an error.</param>
+        /// <returns>
+        /// The folders qualified by their space name ("Space / Folder"), ordered by space then folder, or an
+        /// empty array when no token is set, the workspace id is empty, or the call failed.
+        /// </returns>
+        public async Awaitable<FolderInfo[]> FetchFoldersAsync(
+            string workspaceId, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(workspaceId)) return Array.Empty<FolderInfo>();
+
+            var client = CreateClient();
+            if (client == null) return Array.Empty<FolderInfo>();
+
+            var spaces = await client.GetSpacesAsync(workspaceId, cancellationToken);
+            var result = new System.Collections.Generic.List<FolderInfo>();
+
+            foreach (var space in spaces)
+            {
+                if (space == null) continue;
+                var folders = await client.GetFoldersAsync(space.id, cancellationToken);
+                foreach (var folder in folders)
+                {
+                    if (folder == null) continue;
+
+                    var lists = Array.Empty<ListInfo>();
+                    if (folder.lists != null)
+                    {
+                        lists = new ListInfo[folder.lists.Length];
+                        for (int i = 0; i < folder.lists.Length; i++)
+                            lists[i] = new ListInfo(folder.lists[i]?.id, folder.lists[i]?.name);
+                    }
+
+                    string display = string.IsNullOrEmpty(space.name) ? folder.name : $"{space.name} / {folder.name}";
+                    result.Add(new FolderInfo(folder.id, display, lists));
+                }
+            }
+
+            return result.ToArray();
+        }
+
         /// <summary>
         /// Changes a task's status in ClickUp.
         /// </summary>

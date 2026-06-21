@@ -19,6 +19,13 @@ namespace Molca.Modals
         private Action _onYes;
         private Action _onNo;
 
+        /// <summary>The confirm ("Yes") button, exposed so callers can toggle its
+        /// interactability or visibility (e.g. gating confirmation behind a delay).</summary>
+        public Button YesButton => yesButton;
+
+        /// <summary>The dismiss ("No") button, or <c>null</c> if the dialog has none.</summary>
+        public Button NoButton => noButton;
+
         /// <summary>Populates all dialog fields and subscribes button listeners.</summary>
         public void Setup(string title, string subtitle, string mainMessage, string details, string yesText, string noText, Action onYes, Action onNo, bool showNoButton = true)
         {

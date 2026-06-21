@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEngine.Networking;
 using Molca.Networking.Http;
 using Molca.Networking.Http.Models;
+using Molca.Networking.Utils;
 
 namespace Molca.Editor
 {
@@ -38,24 +39,30 @@ namespace Molca.Editor
             
             var webRequest = CreateWebRequest(request);
             
+            // Per-request send/success traces are gated by HttpModule.EnableLogging (consistent with the
+            // runtime HttpClient); failures are always logged regardless. Toggle it off to quiet the console.
+            bool verbose = _httpModule == null || _httpModule.EnableLogging;
+
             try
             {
-                Debug.Log($"[EditorHttpClient] Sending {request.method} request to {request.FullUrl}");
-                
+                if (verbose)
+                    Debug.Log($"[EditorHttpClient] Sending {request.method} request to {LogRedaction.RedactUrl(request.FullUrl)}");
+
                 // Send the request
                 var operation = webRequest.SendWebRequest();
-                
+
                 // Wait for completion
                 while (!operation.isDone)
                 {
                     await Awaitable.NextFrameAsync();
                 }
-                
+
                 var response = CreateHttpResponse(webRequest);
-                
+
                 if (response.isSuccess)
                 {
-                    Debug.Log($"[EditorHttpClient] Request completed successfully: {response.statusCode} {response.statusMessage}");
+                    if (verbose)
+                        Debug.Log($"[EditorHttpClient] Request completed successfully: {response.statusCode} {response.statusMessage}");
                 }
                 else
                 {
@@ -156,10 +163,15 @@ namespace Molca.Editor
         
         private static HttpResponse CreateHttpResponse(UnityWebRequest webRequest)
         {
+            int statusCode = (int)webRequest.responseCode;
+            // Success is driven by the HTTP status code, not by the transport error string: a 4xx/5xx with a
+            // body completes without a UnityWebRequest.error, so inferring success from the error alone reported
+            // failures as successes. statusCode == 0 means no HTTP status was produced (connection/protocol
+            // failure), which is never a success. Mirrors UnityWebRequestTransport (Sprint 36).
             var response = new HttpResponse
             {
-                isSuccess = string.IsNullOrEmpty(webRequest.error),
-                statusCode = (int)webRequest.responseCode,
+                isSuccess = HttpResponse.IsSuccessStatusCode(statusCode),
+                statusCode = statusCode,
                 statusMessage = webRequest.error ?? "OK",
                 responseTime = webRequest.downloadProgress,
                 contentLength = (long)webRequest.downloadedBytes,
@@ -195,9 +207,13 @@ namespace Molca.Editor
             
             if (!response.isSuccess)
             {
-                response.errorMessage = webRequest.error;
+                // Network/timeout/protocol failures carry webRequest.error; an HTTP error status (4xx/5xx)
+                // completes with no transport error, so fall back to the status line for a non-null message.
+                response.errorMessage = string.IsNullOrEmpty(webRequest.error)
+                    ? $"HTTP {statusCode}"
+                    : webRequest.error;
             }
-            
+
             return response;
         }
     }

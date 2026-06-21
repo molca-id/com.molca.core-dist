@@ -83,6 +83,38 @@ namespace Molca.Settings.Integration.ClickUp
         }
 
         /// <summary>
+        /// Fetches the spaces in a workspace (<c>GET /team/{teamId}/space</c>).
+        /// </summary>
+        /// <param name="teamId">The workspace ("team") id.</param>
+        /// <returns>The spaces, or an empty array on failure.</returns>
+        internal async Awaitable<ClickUpModels.Space[]> GetSpacesAsync(
+            string teamId, CancellationToken cancellationToken = default)
+        {
+            var response = await SendAsync(HttpMethod.GET, $"/team/{teamId}/space", null, cancellationToken);
+            if (response == null || !response.isSuccess || string.IsNullOrEmpty(response.text))
+                return Array.Empty<ClickUpModels.Space>();
+
+            var parsed = SafeFromJson<ClickUpModels.SpacesResponse>(response.text);
+            return parsed?.spaces ?? Array.Empty<ClickUpModels.Space>();
+        }
+
+        /// <summary>
+        /// Fetches the folders in a space, each with its lists (<c>GET /space/{spaceId}/folder</c>).
+        /// </summary>
+        /// <param name="spaceId">The space id.</param>
+        /// <returns>The folders (with their <see cref="ClickUpModels.Folder.lists"/>), or empty on failure.</returns>
+        internal async Awaitable<ClickUpModels.Folder[]> GetFoldersAsync(
+            string spaceId, CancellationToken cancellationToken = default)
+        {
+            var response = await SendAsync(HttpMethod.GET, $"/space/{spaceId}/folder", null, cancellationToken);
+            if (response == null || !response.isSuccess || string.IsNullOrEmpty(response.text))
+                return Array.Empty<ClickUpModels.Folder>();
+
+            var parsed = SafeFromJson<ClickUpModels.FoldersResponse>(response.text);
+            return parsed?.folders ?? Array.Empty<ClickUpModels.Folder>();
+        }
+
+        /// <summary>
         /// Creates a task in a list (<c>POST /list/{listId}/task</c>).
         /// </summary>
         /// <param name="listId">The destination ClickUp list id.</param>
