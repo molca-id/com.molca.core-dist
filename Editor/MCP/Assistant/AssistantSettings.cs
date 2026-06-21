@@ -47,6 +47,24 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("Maximum model→tool→model rounds per turn. A model that calls one tool per round hits roughly this many tool calls; multi-step authoring needs more headroom than read-only queries.")]
         [SerializeField] private int maxToolRounds = 25;
 
+        [Tooltip("Automatically summarize the oldest conversation turns when the estimated context size crosses the threshold, so long sessions keep working without manual pruning.")]
+        [SerializeField] private bool autoCompact = true;
+
+        [Tooltip("Estimated prompt-token size that triggers auto-compaction before the next turn is sent. Matches the manual context warning by default.")]
+        [SerializeField] private int autoCompactThreshold = 120000;
+
+        [Tooltip("When auto-compacting, first condense old tool-result payloads (no model call) before paying for a turn summary — often enough on its own.")]
+        [SerializeField] private bool compactToolResultsFirst = true;
+
+        [Tooltip("How many of the most recent turns keep their tool results verbatim during the digest pass. Lower digests more aggressively; usually below the turn-summary keep count.")]
+        [SerializeField] private int keepRecentToolResultTurns = 1;
+
+        [Tooltip("Before answering, query the project knowledge graph with the user's message and inject the top result as transient grounding context. Requires a built graph; no-ops silently otherwise.")]
+        [SerializeField] private bool proactiveRetrieval = true;
+
+        [Tooltip("Approximate maximum tokens of retrieved context to inject per turn. Kept modest so grounding can't blow the context it informs.")]
+        [SerializeField] private int retrievalTokenBudget = 4000;
+
         /// <summary>Whether the assistant is enabled.</summary>
         public bool Enabled { get => enabled; set => enabled = value; }
 
@@ -64,6 +82,41 @@ namespace Molca.Editor.Mcp.Assistant
 
         /// <summary>Maximum model→tool→model rounds per turn, clamped to a safe range.</summary>
         public int MaxToolRounds => Mathf.Clamp(maxToolRounds, 1, 100);
+
+        /// <summary>
+        /// Whether the assistant auto-summarizes the oldest turns once the estimated context size crosses
+        /// <see cref="AutoCompactThreshold"/> (Sprint 45). When off, context grows until the user prunes
+        /// manually or starts a new chat.
+        /// </summary>
+        public bool AutoCompact { get => autoCompact; set => autoCompact = value; }
+
+        /// <summary>
+        /// Estimated prompt-token size that triggers auto-compaction, clamped to a safe range. Compared
+        /// against <see cref="AssistantChatController.EstimateContextTokens(string)"/> before each turn.
+        /// </summary>
+        public int AutoCompactThreshold => Mathf.Clamp(autoCompactThreshold, 8000, 1000000);
+
+        /// <summary>
+        /// Whether auto-compaction first digests old tool-result payloads (a free, no-model-call pass) before
+        /// falling back to the paid turn-summary (Sprint 46). <see cref="AssistantChatController"/> tiers them.
+        /// </summary>
+        public bool CompactToolResultsFirst { get => compactToolResultsFirst; set => compactToolResultsFirst = value; }
+
+        /// <summary>
+        /// How many trailing turns keep their tool results verbatim during the digest pass, clamped to a safe
+        /// range (Sprint 46). Typically below <see cref="AutoCompactThreshold"/>'s keep count so the digest
+        /// reaches results the turn-summary would otherwise preserve.
+        /// </summary>
+        public int KeepRecentToolResultTurns => Mathf.Clamp(keepRecentToolResultTurns, 1, 10);
+
+        /// <summary>
+        /// Whether to query the knowledge graph with the user's message before answering and inject the
+        /// result as transient grounding context (Sprint 47). No-ops when no graph is built.
+        /// </summary>
+        public bool ProactiveRetrieval { get => proactiveRetrieval; set => proactiveRetrieval = value; }
+
+        /// <summary>Approximate maximum tokens of retrieved context to inject per turn, clamped (Sprint 47).</summary>
+        public int RetrievalTokenBudget => Mathf.Clamp(retrievalTokenBudget, 500, 32000);
 
         /// <summary>The default model id for a provider.</summary>
         public static string DefaultModelFor(LlmProviderKind p) => p switch

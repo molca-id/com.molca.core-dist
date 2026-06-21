@@ -18,8 +18,9 @@ namespace Molca.Editor.Mcp.Providers
             description: "Validates a SequenceController, applies safe fixes (regenerate empty/duplicate "
                        + "Ref Ids, re-enable inactive parents) in one undoable pass, then re-validates and "
                        + "returns before/after counts plus residual findings (each with fixHint and Ref Id "
-                       + "suggestions). Optionally apply one explicit fix via 'fix' (e.g. clear a broken "
-                       + "reference, or reassign a broken auxiliary type). Reference targets are never "
+                       + "suggestions). Optionally apply one explicit Unity-Undo fix via 'fix' (e.g. clear a broken "
+                       + "reference). File-snapshot fixes such as BrokenAuxiliary are handled by "
+                       + "molca_sequence_fix so this tool's undo metadata stays honest. Reference targets are never "
                        + "blindly rebound — use the suggestions to rebind via molca_sequence_set_step_fields, "
                        + "then re-run until valid. Revert with molca_undo_last_action / Ctrl+Z.",
             inputSchemaJson:
@@ -49,7 +50,7 @@ namespace Molca.Editor.Mcp.Providers
             bool requiresReload = false;
 
             // Explicit opt-in fix first (it references a finding from the current state). Reported as its
-            // own revert phase — we never fold a file-snapshot fix into the Unity-Undo group.
+            // own revert phase; file-snapshot fixes stay routed through molca_sequence_fix.
             var fixSpec = args["fix"] as JObject;
             if (fixSpec != null)
             {
@@ -140,6 +141,13 @@ namespace Molca.Editor.Mcp.Providers
                 return null;
             }
 
+            if (category == nameof(Molca.Editor.SequenceFindingType.BrokenAuxiliary))
+            {
+                error = "BrokenAuxiliary is a file-snapshot fix. Use molca_sequence_fix for that finding "
+                      + "so the assistant can track the MCP undo snapshot correctly.";
+                return null;
+            }
+
             var finding = findings.FirstOrDefault(f =>
                 f.Category == category
                 && (string.IsNullOrEmpty(stepRefId) || f.StepRefId == stepRefId)
@@ -158,20 +166,7 @@ namespace Molca.Editor.Mcp.Providers
             }
 
             var context = new SequenceValidationContext(target, target.GetComponentsInChildren<Step>(true));
-
-            // YAML-rewriting fixes aren't Unity-Undo revertible — snapshot the scene file first.
-            string snapshotId = null;
-            bool yamlFix = category == nameof(Molca.Editor.SequenceFindingType.BrokenAuxiliary);
-            if (yamlFix && finding.Step != null)
-            {
-                var scenePath = finding.Step.gameObject.scene.path;
-                snapshotId = McpUndoStack.Snapshot(scenePath, "molca_sequence_remediate",
-                    $"{category} fix on '{stepRefId}' ({System.IO.Path.GetFileName(scenePath)})");
-            }
-
             var outcome = fix.Apply(finding, context, fixArgs);
-            if (!outcome.Applied && snapshotId != null)
-                McpUndoStack.Discard(snapshotId); // no change — drop the redundant backup
 
             return new JObject
             {
@@ -181,7 +176,7 @@ namespace Molca.Editor.Mcp.Providers
                 ["applied"] = outcome.Applied,
                 ["destructive"] = fix.IsDestructive,
                 ["mechanism"] = fix.Reversibility.ToString(),
-                ["handle"] = yamlFix ? snapshotId : "editor-undo",
+                ["handle"] = "editor-undo",
                 ["requiresSceneReload"] = outcome.RequiresSceneReload,
                 ["message"] = outcome.Message
             };

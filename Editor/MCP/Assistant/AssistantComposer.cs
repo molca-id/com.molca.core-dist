@@ -28,6 +28,7 @@ namespace Molca.Editor.Mcp.Assistant
         private readonly Button _stop;
         private readonly EnumField _modeField;
         private readonly Label _tokenEstimate;
+        private readonly Button _compactionView;
         private readonly VisualElement _contextChips;
 
         /// <summary>Wires the composer slots under <paramref name="root"/> and their callbacks.</summary>
@@ -43,6 +44,13 @@ namespace Molca.Editor.Mcp.Assistant
             _tokenEstimate = root.Q<Label>("token-estimate");
             _contextChips = root.Q<VisualElement>("context-chips");
 
+            // A click-to-view affordance shown only after an auto-compaction this session (Sprint 46),
+            // sitting beside the token estimate. Opens the generated summary / digest detail.
+            _compactionView = new Button(ShowCompactionDetail);
+            _compactionView.AddToClassList("chat-compaction-view");
+            _compactionView.style.display = DisplayStyle.None;
+            _tokenEstimate.parent?.Add(_compactionView);
+
             root.Q<Button>("add-context").clicked += onAddContext;
             _send.clicked += onSend;
             _stop.clicked += onStop;
@@ -50,7 +58,7 @@ namespace Molca.Editor.Mcp.Assistant
             // The action-mode field needs the typed enum value, so it is built in code into its slot.
             _modeField = new EnumField(LoadActionMode())
             {
-                tooltip = "Action authorization:\n• Ask — confirm every mutating tool call.\n• Auto — run allowlisted actions without prompting.\nRead-only tools always run."
+                tooltip = "Action authorization:\n• Ask — confirm every mutating tool call.\n• Auto — run allowlisted actions without prompting.\n• Plan — approve a multi-step task once, then run its undoable steps under one whole-task undo (irreversible steps still confirm).\nRead-only tools always run."
             };
             _modeField.AddToClassList("chat-mode-field");
             _modeField.RegisterValueChangedCallback(OnActionModeChanged);
@@ -101,11 +109,56 @@ namespace Molca.Editor.Mcp.Assistant
         public void UpdateTokenEstimate()
         {
             var estimate = _controller.EstimateContextTokens(_input?.value);
-            var warn = estimate >= TokenWarnThreshold;
-            _tokenEstimate.text = warn
-                ? $"~{estimate:N0} tokens — large context; consider New chat or removing pinned items."
-                : $"~{estimate:N0} tokens in context";
-            _tokenEstimate.EnableInClassList("chat-token-estimate--warn", warn);
+
+            // When auto-compaction is on, gauge against its configured threshold and tell the user the
+            // Assistant will compact rather than asking them to prune manually (Sprint 46). Otherwise fall
+            // back to the static advisory warning.
+            if (_controller.AutoCompactEnabled)
+            {
+                var threshold = _controller.AutoCompactThreshold;
+                var warn = estimate >= threshold;
+                _tokenEstimate.text = warn
+                    ? $"~{estimate:N0} / {threshold:N0} tokens — over limit; auto-compacting."
+                    : $"~{estimate:N0} / {threshold:N0} tokens in context";
+                _tokenEstimate.EnableInClassList("chat-token-estimate--warn", warn);
+            }
+            else
+            {
+                var warn = estimate >= TokenWarnThreshold;
+                _tokenEstimate.text = warn
+                    ? $"~{estimate:N0} tokens — large context; consider New chat or removing pinned items."
+                    : $"~{estimate:N0} tokens in context";
+                _tokenEstimate.EnableInClassList("chat-token-estimate--warn", warn);
+            }
+
+            // Append the session's estimated spend so cost stays legible, not just a single end-of-session
+            // surprise (Sprint 49). Always labeled approximate.
+            var cost = _controller.SessionEstimatedCostUsd;
+            if (cost > 0)
+                _tokenEstimate.text += $"  ·  ~{AssistantCostTable.FormatCost(cost)} this session";
+
+            RefreshCompactionNotice();
+        }
+
+        /// <summary>Shows or hides the "context compacted" affordance based on the controller's last pass (Sprint 46).</summary>
+        private void RefreshCompactionNotice()
+        {
+            var summarized = !string.IsNullOrEmpty(_controller.LastCompactionSummary);
+            var digested = _controller.LastCompactionDigestedCount;
+            var any = summarized || digested > 0;
+            _compactionView.style.display = any ? DisplayStyle.Flex : DisplayStyle.None;
+            if (any)
+                _compactionView.text = summarized ? "context compacted ✓ — view" : $"condensed {digested} results ✓ — view";
+        }
+
+        /// <summary>Opens the generated summary (or the digest count) from the most recent auto-compaction.</summary>
+        private void ShowCompactionDetail()
+        {
+            var summary = _controller.LastCompactionSummary;
+            var body = !string.IsNullOrEmpty(summary)
+                ? "The earlier conversation was condensed to stay within the context limit. Summary kept in context:\n\n" + summary
+                : $"Condensed {_controller.LastCompactionDigestedCount} older tool result(s) to stay within the context limit. The conversation text is unchanged.";
+            EditorUtility.DisplayDialog("Context compacted", body, "Close");
         }
 
         private VisualElement BuildChip(AssistantContextItem item)

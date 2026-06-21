@@ -176,7 +176,9 @@ namespace Molca.Editor.Mcp.Assistant
                     Tools = new List<ToolSummaryDto>(),
                     WorkItems = t.WorkItems != null ? new List<string>(t.WorkItems) : new List<string>(),
                     PromptAnswer = t.PromptAnswer,
-                    IsConfirmation = t.IsConfirmation
+                    IsConfirmation = t.IsConfirmation,
+                    Detail = t.Detail,
+                    CanPin = t.CanPin
                 };
                 if (t.ToolSummaries != null)
                 {
@@ -215,7 +217,9 @@ namespace Molca.Editor.Mcp.Assistant
                 list.Add(new ChatTurn((ChatTurnKind)d.Kind, d.Text, summaries, -1, d.WorkItems)
                 {
                     PromptAnswer = d.PromptAnswer,
-                    IsConfirmation = d.IsConfirmation
+                    IsConfirmation = d.IsConfirmation,
+                    Detail = d.Detail,
+                    CanPin = d.CanPin
                 });
             }
             return list;
@@ -275,6 +279,8 @@ namespace Molca.Editor.Mcp.Assistant
             public List<string> WorkItems = new List<string>();
             public string PromptAnswer;
             public bool IsConfirmation;
+            public string Detail;
+            public bool CanPin;
         }
 
         [Serializable] private sealed class ToolSummaryDto

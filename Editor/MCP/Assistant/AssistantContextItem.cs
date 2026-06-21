@@ -17,7 +17,9 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>A compact snapshot of the live Framework Graph (subsystems/services/references).</summary>
         FrameworkGraph,
         /// <summary>The knowledge-graph build status (graphify installed / graph built).</summary>
-        KgStatus
+        KgStatus,
+        /// <summary>A snapshot of project context retrieved from the knowledge graph and pinned by the user (Sprint 47).</summary>
+        Retrieved
     }
 
     /// <summary>
@@ -74,6 +76,15 @@ namespace Molca.Editor.Mcp.Assistant
         public static AssistantContextItem ForKgStatus()
             => new AssistantContextItem { Kind = AssistantContextKind.KgStatus, DisplayLabel = "KG status" };
 
+        /// <summary>Pins a snapshot of retrieved project context so it persists across turns (Sprint 47).</summary>
+        public static AssistantContextItem ForRetrieved(string snapshot, string label)
+            => new AssistantContextItem
+            {
+                Kind = AssistantContextKind.Retrieved,
+                Snapshot = snapshot ?? string.Empty,
+                DisplayLabel = string.IsNullOrEmpty(label) ? "Retrieved context" : label
+            };
+
         /// <summary>A short, human-readable chip label for the context bar.</summary>
         public string ChipLabel => Kind switch
         {
@@ -82,6 +93,7 @@ namespace Molca.Editor.Mcp.Assistant
             AssistantContextKind.Asset => string.IsNullOrEmpty(DisplayLabel) ? "Asset" : DisplayLabel,
             AssistantContextKind.FrameworkGraph => "Framework Graph",
             AssistantContextKind.KgStatus => "KG status",
+            AssistantContextKind.Retrieved => string.IsNullOrEmpty(DisplayLabel) ? "Retrieved context" : DisplayLabel,
             _ => Kind.ToString()
         };
     }

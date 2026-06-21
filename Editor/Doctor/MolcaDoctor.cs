@@ -37,6 +37,13 @@ namespace Molca.Editor.Doctor
             new HttpUnredactedLoggingCheck(),
             new DataProviderLifetimeTokenCheck(),
             new SequenceValidationCheck(),
+            // Scene-performance audit (Sprint 50) — static scene-graph checks, ids prefixed "scene-".
+            new SceneStructureCheck(),
+            new ScenePolygonBudgetCheck(),
+            new SceneTextureBudgetCheck(),
+            new SceneInstancingBudgetCheck(),
+            new SceneLightingBudgetCheck(),
+            new SubsystemPlacementHintCheck(),
         };
 
         /// <summary>

@@ -55,8 +55,11 @@ namespace Molca.Editor.Mcp.Providers
                 return KgError($"Invalid path: {ex.Message}");
             }
 
-            var root = Path.GetFullPath(GraphifyCli.ProjectRoot);
-            if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            var root = Path.GetFullPath(GraphifyCli.ProjectRoot)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var rootPrefix = root + Path.DirectorySeparatorChar;
+            if (!fullPath.Equals(root, StringComparison.OrdinalIgnoreCase)
+                && !fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
                 return KgError("Path is outside the project root; refused.");
 
             if (!File.Exists(fullPath))

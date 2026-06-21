@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Molca.Editor.Mcp.Assistant
 {
     /// <summary>A single entry in the visible transcript.</summary>
-    public enum ChatTurnKind { User, Assistant, Tool, Error, Prompt, Work }
+    public enum ChatTurnKind { User, Assistant, Tool, Error, Prompt, Work, Notice }
 
     /// <summary>Structured details for a tool call shown in the visible transcript.</summary>
     public sealed class ChatToolSummary
@@ -84,13 +84,20 @@ namespace Molca.Editor.Mcp.Assistant
         /// when not anchored (Sprint 25.8). Set on real user-prompt turns so retry/edit can trim history
         /// precisely instead of scanning for "the last user message".
         /// </summary>
-        public int HistoryIndex { get; }
+        public int HistoryIndex { get; internal set; }
 
         /// <summary>
         /// The answer the user gave to a <see cref="ChatTurnKind.Prompt"/> turn, or <c>null</c> until
         /// answered (Sprint 25.7). Mutable because the prompt turn is recorded before the user responds.
         /// </summary>
         public string PromptAnswer { get; set; }
+
+        /// <summary>
+        /// Optional expandable detail for a turn — currently the generated summary text behind a
+        /// <see cref="ChatTurnKind.Notice"/> compaction line (Sprint 46), shown collapsed by default.
+        /// <c>null</c> when the turn has no expandable body. Persisted with the transcript.
+        /// </summary>
+        public string Detail { get; set; }
 
         /// <summary>
         /// True on the tool-round-cap notice (Sprint 25.8), so the view can offer a one-click "Continue"
@@ -104,6 +111,18 @@ namespace Molca.Editor.Mcp.Assistant
         /// one-line outcome, since the following Work row already lists what ran; real questions stay full.
         /// </summary>
         public bool IsConfirmation { get; set; }
+
+        /// <summary>
+        /// True on a retrieval <see cref="ChatTurnKind.Notice"/> (Sprint 47), so the view can offer a "Pin"
+        /// action that promotes the retrieved context (held in <see cref="Detail"/>) to a persistent pin.
+        /// </summary>
+        public bool CanPin { get; set; }
+
+        /// <summary>
+        /// True on the plan-completed <see cref="ChatTurnKind.Notice"/> (Sprint 48), so the view can offer a
+        /// single "Undo task" that reverts every reversible change the approved plan made this turn.
+        /// </summary>
+        public bool CanUndoTask { get; set; }
 
         /// <summary>Creates a transcript turn.</summary>
         public ChatTurn(ChatTurnKind kind, string text, ChatToolSummary toolSummary = null)
@@ -215,6 +234,31 @@ namespace Molca.Editor.Mcp.Assistant
         // Latest vendor-reported prompt token count (Sprint 25.8); 0 until a turn completes non-streaming.
         private int _lastReportedPromptTokens;
 
+        // Cumulative tokens billed across this session (Sprint 49): input is summed from each request's
+        // vendor-reported prompt size (you pay per call); output is estimated from the response text when the
+        // vendor doesn't report it. Restored from the session header on load, persisted on save.
+        private long _sessionInputTokens;
+        private long _sessionOutputTokens;
+
+        // Surfacing state for the most recent auto-compaction (Sprint 46): the generated summary text (null
+        // when the last relief was digest-only) and how many tool results were digested. Drives the composer
+        // "context compacted" affordance; reset to defaults the moment a new chat/session begins.
+        private string _lastCompactionSummary;
+        private int _lastCompactionDigestedCount;
+
+        // Transient grounding context retrieved for the in-flight turn (Sprint 47): injected into the request
+        // and counted in the estimate, but never stored in _history or persisted. Cleared when the turn ends.
+        private string _pendingRetrievedContext;
+
+        // Plan-mode state for the in-flight turn (Sprint 48): set once the user approves the plan, with the
+        // undo bracket captured at that moment so the whole task reverts in one click. Reset each turn.
+        private bool _planApprovedThisTurn;
+        private string _planUndoIdBefore;
+        private int _planUndoGroupBefore = -1;
+        // The bracket of the most recently executed approved plan, for the "Undo task" affordance.
+        private string _lastPlanUndoFileId;
+        private int _lastPlanUndoGroup = -1;
+
         // The session this conversation is persisted under (Sprint 35). Assigned on construction (restored,
         // migrated, or freshly minted) and rotated by NewChat / SwitchToSession.
         private string _sessionId;
@@ -312,6 +356,7 @@ namespace Molca.Editor.Mcp.Assistant
             {
                 _sessionId = mostRecent.Id;
                 _sessionTitle = meta?.Title ?? string.Empty;
+                RestoreSessionTokens(meta);
                 _transcript.AddRange(turns);
                 _history.AddRange(history);
                 _pinnedContext.AddRange(context);
@@ -322,6 +367,13 @@ namespace Molca.Editor.Mcp.Assistant
             }
         }
 
+        /// <summary>Restores the cumulative token counters from a loaded session header (Sprint 49).</summary>
+        private void RestoreSessionTokens(SessionMeta meta)
+        {
+            _sessionInputTokens = meta?.InputTokens ?? 0;
+            _sessionOutputTokens = meta?.OutputTokens ?? 0;
+        }
+
         /// <summary>Clears the conversation history and transcript, but keeps the pinned context.</summary>
         public void Reset()
         {
@@ -329,6 +381,9 @@ namespace Molca.Editor.Mcp.Assistant
             _transcript.Clear();
             _sessionTitle = string.Empty;
             _lastReportedPromptTokens = 0;
+            _sessionInputTokens = 0;
+            _sessionOutputTokens = 0;
+            ResetCompactionState();
             // Persist skips a fully-empty session, so drop its file outright to avoid restoring stale
             // content on reload; if pinned context remains, Persist still saves that.
             if (_pinnedContext.Count == 0 && !string.IsNullOrEmpty(_sessionId))
@@ -351,6 +406,9 @@ namespace Molca.Editor.Mcp.Assistant
             _pinnedContext.Clear();
             _sessionTitle = string.Empty;
             _lastReportedPromptTokens = 0;
+            _sessionInputTokens = 0;
+            _sessionOutputTokens = 0;
+            ResetCompactionState();
             _sessionId = AssistantSessionLibrary.NewId();
             Changed?.Invoke();
             SessionsChanged?.Invoke();
@@ -376,9 +434,11 @@ namespace Molca.Editor.Mcp.Assistant
             _transcript.Clear();
             _pinnedContext.Clear();
             _lastReportedPromptTokens = 0;
+            ResetCompactionState();
 
             _sessionId = id;
             _sessionTitle = meta?.Title ?? string.Empty;
+            RestoreSessionTokens(meta);
             _transcript.AddRange(turns);
             _history.AddRange(history);
             _pinnedContext.AddRange(context);
@@ -404,6 +464,7 @@ namespace Molca.Editor.Mcp.Assistant
                 {
                     _sessionId = next.Id;
                     _sessionTitle = meta?.Title ?? string.Empty;
+                    RestoreSessionTokens(meta);
                     _history.Clear(); _history.AddRange(history);
                     _transcript.Clear(); _transcript.AddRange(turns);
                     _pinnedContext.Clear(); _pinnedContext.AddRange(context);
@@ -415,8 +476,11 @@ namespace Molca.Editor.Mcp.Assistant
                     _pinnedContext.Clear();
                     _sessionTitle = string.Empty;
                     _sessionId = AssistantSessionLibrary.NewId();
+                    _sessionInputTokens = 0;
+                    _sessionOutputTokens = 0;
                 }
                 _lastReportedPromptTokens = 0;
+                ResetCompactionState();
                 Changed?.Invoke();
             }
 
@@ -468,10 +532,14 @@ namespace Molca.Editor.Mcp.Assistant
             // Prefer the vendor-reported prompt size from the last turn (Sprint 25.8) — a real count for the
             // committed context — plus a cheap heuristic for the not-yet-sent input. Falls back to the pure
             // character heuristic before the first turn or when the provider didn't report usage.
-            if (_lastReportedPromptTokens > 0)
-                return _lastReportedPromptTokens + (pendingUserText?.Length ?? 0) / 4;
+            // Transient retrieved context (Sprint 47) is injected into the request but not stored in history,
+            // so add it explicitly on both paths to keep the threshold check (and the composer readout) honest.
+            var retrievedChars = _pendingRetrievedContext?.Length ?? 0;
 
-            var chars = SystemPrompt.Length;
+            if (_lastReportedPromptTokens > 0)
+                return _lastReportedPromptTokens + (pendingUserText?.Length ?? 0) / 4 + retrievedChars / 4;
+
+            var chars = SystemPrompt.Length + retrievedChars;
             foreach (var m in _history)
             {
                 chars += m.Text?.Length ?? 0;
@@ -502,7 +570,8 @@ namespace Molca.Editor.Mcp.Assistant
             // Pass the stored title (empty until the chat is auto-named); Save preserves the on-disk title
             // when none is given, so autosaves never clobber an LLM-generated name.
             AssistantSessionLibrary.Save(_sessionId, _transcript, _history, _pinnedContext,
-                title: string.IsNullOrWhiteSpace(_sessionTitle) ? null : _sessionTitle);
+                title: string.IsNullOrWhiteSpace(_sessionTitle) ? null : _sessionTitle,
+                inputTokens: _sessionInputTokens, outputTokens: _sessionOutputTokens);
             SessionsChanged?.Invoke();
         }
 
@@ -522,6 +591,10 @@ namespace Molca.Editor.Mcp.Assistant
             }
 
             IsBusy = true;
+            // Plan approval and its undo bracket are per-turn (Sprint 48); reset before this turn begins.
+            _planApprovedThisTurn = false;
+            _planUndoIdBefore = null;
+            _planUndoGroupBefore = -1;
             // Anchor the visible user turn to the history message it produces, so retry/edit can trim both
             // precisely later (Sprint 25.8) without scanning for "the last user message".
             var userHistoryIndex = _history.Count;
@@ -546,6 +619,17 @@ namespace Molca.Editor.Mcp.Assistant
                 Func<McpToolDefinition, string, CancellationToken, Awaitable<bool>> confirmActionAsync = ConfirmActionInModeAsync;
 
                 var maxToolRounds = _settings.MaxToolRounds > 0 ? _settings.MaxToolRounds : DefaultMaxToolRounds;
+
+                // Proactively ground this turn in the project (Sprint 47): query the knowledge graph with the
+                // user's message and inject the result as transient context for the turn (regenerated each
+                // turn, never pinned or persisted). Best-effort — degrades to nothing when no graph is built.
+                // Done before compaction so the added size is accounted for in the threshold check.
+                await RetrieveTurnContextAsync(userText, cancellationToken);
+
+                // Before spending tokens on this turn, summarize the oldest turns if the running context has
+                // grown past the configured threshold (Sprint 45). Keeps long sessions usable without the
+                // user manually pruning. Best-effort: a failed summary leaves the history untouched.
+                await MaybeCompactAsync(provider, cancellationToken);
 
                 // Tool activity is shown inline, in execution order: each run of same-kind tool calls
                 // (a read run or an action run) collapses into one Work turn that is committed at the
@@ -575,7 +659,7 @@ namespace Molca.Editor.Mcp.Assistant
                     var request = new LlmRequest
                     {
                         System = SystemPrompt,
-                        Messages = new List<LlmMessage>(_history),
+                        Messages = BuildRequestMessages(),
                         Tools = tools,
                         Model = _settings.Model,
                         MaxTokens = _settings.MaxTokens
@@ -598,6 +682,12 @@ namespace Molca.Editor.Mcp.Assistant
                     // instead of the character heuristic (Sprint 25.8). Streaming responses report 0; the
                     // last non-zero value is kept.
                     if (response.PromptTokens > 0) _lastReportedPromptTokens = response.PromptTokens;
+
+                    // Accumulate session token spend (Sprint 49): input is the vendor-reported prompt size of
+                    // this request (billed per call), output is estimated from the response text when the
+                    // vendor doesn't report it. Both feed the read-only telemetry and cost estimate.
+                    _sessionInputTokens += response.PromptTokens;
+                    _sessionOutputTokens += EstimateTokenCount(response.Text);
 
                     // Record the assistant turn (text + any tool calls) in history.
                     var assistantMsg = new LlmMessage { Role = LlmRole.Assistant, Text = response.Text, ToolCalls = response.ToolCalls };
@@ -632,14 +722,19 @@ namespace Molca.Editor.Mcp.Assistant
                                 // it is undoable; if any is irreversible, fall back to the single "Run all /
                                 // Cancel" prompt (irreversible actions always confirm, even in Auto). Ask mode
                                 // always prompts. Confirmed batches still execute as one undo group below.
-                                var autoApprove = ActionMode == AssistantActionMode.Auto
-                                    && actionCalls.All(c => IsUndoable(c.Tool));
-                                var confirmed = autoApprove
+                                var allUndoable = actionCalls.All(c => IsUndoable(c.Tool));
+                                var autoApprove = ActionMode == AssistantActionMode.Auto && allUndoable;
+                                // Plan mode runs an all-undoable batch under one task approval; a batch with an
+                                // irreversible action falls through to the explicit "Run all / Cancel" prompt.
+                                var planApprove = ActionMode == AssistantActionMode.Plan && allUndoable
+                                    && await EnsurePlanApprovedAsync(cancellationToken);
+                                var confirmed = autoApprove || planApprove
                                     || await ConfirmActionsAsync(actionCalls, cancellationToken);
-                                if (autoApprove)
+                                if (autoApprove || planApprove)
                                 {
+                                    var disposition = planApprove ? "plan-approved" : "auto-approved";
                                     foreach (var actionCall in actionCalls)
-                                        McpActionAuditLog.Record(actionCall.Tool.Name, actionCall.Call.ArgumentsJson, "chat", "auto-approved");
+                                        McpActionAuditLog.Record(actionCall.Tool.Name, actionCall.Call.ArgumentsJson, "chat", disposition);
                                 }
                                 if (!confirmed)
                                 {
@@ -661,6 +756,8 @@ namespace Molca.Editor.Mcp.Assistant
                                         cancellationToken, isActionAllowed, confirmAction, confirmActionAsync, approvedActionBatch: true);
                                     resultMsg.ToolResults.Add(grouped.Result);
                                     Append(grouped.Summary, isAction: true);
+                                    // A failed step re-gates the plan: the next action confirms again (Sprint 48).
+                                    if (grouped.Result.IsError) _planApprovedThisTurn = false;
                                 }
                                 callIndex += actionCalls.Count - 1;
                                 continue;
@@ -701,6 +798,8 @@ namespace Molca.Editor.Mcp.Assistant
 
                         var summary = BuildToolSummary(registry, call, result, undoId, undoGroup);
                         Append(summary, summary.Kind == nameof(McpToolKind.Action));
+                        // A failed step re-gates the plan: the next action confirms again (Sprint 48).
+                        if (isAction && result.IsError) _planApprovedThisTurn = false;
                     }
                     _history.Add(resultMsg);
 
@@ -716,6 +815,10 @@ namespace Molca.Editor.Mcp.Assistant
                 }
 
                 FlushToolGroup();
+
+                // If an approved plan ran reversible actions this turn, offer a single "Undo task" that
+                // reverts the whole bracket captured at approval (Sprint 48).
+                MaybeAddPlanUndoNotice();
 
                 // Once the chat has had its first exchange, ask the model for a short title so the switcher
                 // and header show a meaningful name instead of the truncated first message. Best-effort and
@@ -736,6 +839,8 @@ namespace Molca.Editor.Mcp.Assistant
                 StreamingText = string.Empty;
                 ActiveToolName = null;
                 ActiveToolProgress = null;
+                // The retrieved block is transient — drop it so it never persists or leaks into the next turn.
+                _pendingRetrievedContext = null;
                 Persist();
                 Changed?.Invoke();
             }
@@ -784,6 +889,352 @@ namespace Molca.Editor.Mcp.Assistant
             {
                 Debug.LogWarning($"[Molca] Assistant chat auto-title failed: {ex.Message}");
             }
+        }
+
+        /// <summary>Real user prompts kept verbatim at the tail of history when auto-compacting (Sprint 45).</summary>
+        private const int KeepRecentUserTurns = 2;
+
+        /// <summary>
+        /// Summarizes the oldest turns into a single compact note when the estimated context size has grown
+        /// past <see cref="AssistantSettings.AutoCompactThreshold"/> (Sprint 45). No-op when auto-compaction
+        /// is disabled, the context is still small, or there are too few turns to safely trim.
+        /// </summary>
+        /// <param name="provider">The active provider, reused for the tool-free summary request.</param>
+        /// <param name="cancellationToken">The turn's bootstrap-lifetime token.</param>
+        /// <remarks>
+        /// Cuts only on a real user-prompt boundary so a tool_use/tool_result pair is never split (which
+        /// every vendor rejects), and re-anchors the surviving transcript turns' <see cref="ChatTurn.HistoryIndex"/>
+        /// so retry/edit keeps working. Best-effort: a failed or empty summary leaves history untouched.
+        /// </remarks>
+        private async Awaitable MaybeCompactAsync(ILlmProvider provider, CancellationToken cancellationToken)
+        {
+            if (!_settings.AutoCompact) return;
+            if (EstimateContextTokens() < _settings.AutoCompactThreshold) return;
+
+            // Tier 1 (cheap, no LLM call): digest tool-result payloads older than the most-recent turn(s)
+            // into one-line stubs. These age fastest and dominate token cost, so this alone often drops the
+            // context back under threshold — preserving the user/assistant reasoning the summary would lose.
+            if (_settings.CompactToolResultsFirst)
+            {
+                if (TryDigestOldToolResults(_history, _settings.KeepRecentToolResultTurns, out var digestedCount))
+                {
+                    _lastReportedPromptTokens = 0; // digested payloads change the prompt size; re-estimate fresh
+                    _lastCompactionDigestedCount = digestedCount;
+                    _transcript.Add(new ChatTurn(ChatTurnKind.Notice, DigestNoticeText(digestedCount)));
+                    Persist();
+                    Changed?.Invoke();
+
+                    // If digesting alone brought us under the threshold, skip the (paid) turn-summary entirely.
+                    if (EstimateContextTokens() < _settings.AutoCompactThreshold) return;
+                }
+            }
+
+            // Tier 2 (paid): summarize the oldest turns into a single compact note.
+            if (!TryPlanCompaction(_history, KeepRecentUserTurns, out var cut)) return;
+
+            var older = _history.GetRange(0, cut);
+            string summary;
+            try
+            {
+                summary = await SummarizeHistoryAsync(provider, older, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw; // honor cancellation; the outer turn handler reports it
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Molca] Assistant auto-compaction failed; keeping full history: {ex.Message}");
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(summary)) return;
+
+            ApplyCompaction(_history, _transcript, cut, summary);
+            _lastCompactionSummary = summary;
+
+            // The vendor token count is now stale (it measured the pre-compaction prompt); force the estimate
+            // back to the heuristic until the next response reports a fresh number.
+            _lastReportedPromptTokens = 0;
+
+            Persist();
+            Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// The generated summary of the most recent turn-summary compaction, or <c>null</c> when the last
+        /// relief was digest-only or none has occurred (Sprint 46). Drives the composer's "view" affordance.
+        /// </summary>
+        public string LastCompactionSummary => _lastCompactionSummary;
+
+        /// <summary>How many tool results the most recent digest pass condensed (Sprint 46); 0 if none.</summary>
+        public int LastCompactionDigestedCount => _lastCompactionDigestedCount;
+
+        /// <summary>Whether auto-compaction is enabled, for the composer's threshold readout (Sprint 46).</summary>
+        public bool AutoCompactEnabled => _settings.AutoCompact;
+
+        /// <summary>The configured auto-compaction threshold in tokens, for the composer readout (Sprint 46).</summary>
+        public int AutoCompactThreshold => _settings.AutoCompactThreshold;
+
+        /// <summary>Cumulative input (prompt) tokens billed across this session (Sprint 49).</summary>
+        public long SessionInputTokens => _sessionInputTokens;
+
+        /// <summary>Cumulative output (completion) tokens across this session, estimated where unreported (Sprint 49).</summary>
+        public long SessionOutputTokens => _sessionOutputTokens;
+
+        /// <summary>Estimated USD spend for this session under the configured model's pricing (Sprint 49).</summary>
+        public double SessionEstimatedCostUsd =>
+            AssistantCostTable.EstimateCost(_settings.Model, _sessionInputTokens, _sessionOutputTokens);
+
+        /// <summary>Rough token count (~4 chars/token) for text the vendor didn't report usage for (Sprint 49).</summary>
+        private static long EstimateTokenCount(string text) => string.IsNullOrEmpty(text) ? 0 : text.Length / 4;
+
+        /// <summary>Clears the last-compaction surfacing state when the conversation changes (Sprint 46).</summary>
+        private void ResetCompactionState()
+        {
+            _lastCompactionSummary = null;
+            _lastCompactionDigestedCount = 0;
+        }
+
+        /// <summary>The transcript notice text shown when proactive retrieval injects grounding context (Sprint 47).</summary>
+        internal const string RetrievalNoticeText = "Retrieved project context for this question.";
+
+        /// <summary>
+        /// Runs the proactive retrieval pass for the current turn (Sprint 47): when enabled, queries the
+        /// knowledge graph and stores the result in <see cref="_pendingRetrievedContext"/> for injection,
+        /// recording a pinnable <see cref="ChatTurnKind.Notice"/> so the user can see (and keep) what was
+        /// injected. Best-effort: a no-result/failed/disabled pass leaves the turn ungrounded.
+        /// </summary>
+        private async Awaitable RetrieveTurnContextAsync(string userText, CancellationToken cancellationToken)
+        {
+            if (!_settings.ProactiveRetrieval) return;
+
+            var retrieved = await AssistantContextRetriever.RetrieveAsync(
+                userText, _settings.RetrievalTokenBudget, cancellationToken);
+            if (!retrieved.HasContent) return;
+
+            _pendingRetrievedContext = retrieved.Text;
+            _transcript.Add(new ChatTurn(ChatTurnKind.Notice, RetrievalNoticeText)
+            {
+                Detail = retrieved.Text,
+                CanPin = true
+            });
+            Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// Builds the request message list (Sprint 47): a copy of <see cref="_history"/> with the current
+        /// turn's user message prefixed by the transient retrieved context, if any. The prefix lives only in
+        /// the request copy so it is never persisted and does not accumulate across turns.
+        /// </summary>
+        private List<LlmMessage> BuildRequestMessages()
+        {
+            var messages = new List<LlmMessage>(_history);
+            if (string.IsNullOrEmpty(_pendingRetrievedContext)) return messages;
+
+            // Prefix the most recent genuine user prompt (the current turn) — a fresh message instance so the
+            // stored history is untouched.
+            for (var i = messages.Count - 1; i >= 0; i--)
+            {
+                var m = messages[i];
+                if (m.Role != LlmRole.User || (m.ToolResults != null && m.ToolResults.Count > 0)) continue;
+                messages[i] = new LlmMessage
+                {
+                    Role = LlmRole.User,
+                    Text = AssistantContextRetriever.RetrievedContextHeader + "\n" + _pendingRetrievedContext +
+                           "\n\n" + m.Text,
+                    ToolCalls = m.ToolCalls
+                };
+                break;
+            }
+            return messages;
+        }
+
+        /// <summary>
+        /// Promotes the transient retrieved context behind a retrieval notice to a persistent pinned item
+        /// (Sprint 47), so it survives future turns instead of being regenerated. Invoked from the view's
+        /// "Pin" affordance on a <see cref="ChatTurnKind.Notice"/> with <see cref="ChatTurn.CanPin"/>.
+        /// </summary>
+        public void PinRetrievedContext(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+            AddContext(AssistantContextItem.ForRetrieved(text, "Retrieved context"));
+        }
+
+        /// <summary>Prefix prepended to the synthesized summary message that replaces the compacted slice.</summary>
+        internal const string CompactionSummaryPrefix =
+            "[Summary of the earlier conversation, condensed to save context]\n";
+
+        /// <summary>The one-line assistant acknowledgement inserted after the summary to keep roles alternating.</summary>
+        internal const string CompactionAckText = "Understood — continuing from that summary.";
+
+        /// <summary>The transcript notice line recorded when a turn is auto-compacted.</summary>
+        internal const string CompactionNoticeText =
+            "Compacted earlier turns into a summary to stay within the context limit.";
+
+        /// <summary>Prefix marking an already-digested tool result so the digest pass never re-digests it (Sprint 46).</summary>
+        internal const string ToolResultDigestPrefix = "[digested] ";
+
+        /// <summary>Tool results shorter than this are left alone — digesting them would not reclaim tokens (Sprint 46).</summary>
+        internal const int ToolResultDigestMinChars = 200;
+
+        /// <summary>The transcript notice line for a digest-only relief pass (Sprint 46).</summary>
+        internal static string DigestNoticeText(int digestedCount) =>
+            $"Condensed {digestedCount} older tool result{(digestedCount == 1 ? "" : "s")} to stay within the context limit.";
+
+        /// <summary>
+        /// Finds the cut index for a relief pass: the start of the <paramref name="keepRecentUserTurns"/>-th
+        /// most recent genuine user prompt (Sprint 45/46). User-role text turns are boundaries; tool-result
+        /// user turns are excluded so a cut never lands between an assistant's tool call and its result.
+        /// </summary>
+        /// <returns>The boundary index, or <c>0</c> when there is no slice old enough to act on.</returns>
+        private static int ComputeUserPromptCut(IReadOnlyList<LlmMessage> history, int keepRecentUserTurns)
+        {
+            if (history == null || keepRecentUserTurns < 1) return 0;
+
+            var userTurns = new List<int>();
+            for (var i = 0; i < history.Count; i++)
+            {
+                var m = history[i];
+                if (m.Role == LlmRole.User && (m.ToolResults == null || m.ToolResults.Count == 0))
+                    userTurns.Add(i);
+            }
+            if (userTurns.Count <= keepRecentUserTurns) return 0;
+            return userTurns[userTurns.Count - keepRecentUserTurns];
+        }
+
+        /// <summary>
+        /// Chooses where to cut <paramref name="history"/> for the turn-summary (Sprint 45): the start of the
+        /// <paramref name="keepRecentUserTurns"/>-th most recent genuine user prompt. Cutting on a user-prompt
+        /// boundary guarantees the kept tail starts cleanly and no tool_use/tool_result pair is split — which
+        /// every vendor rejects.
+        /// </summary>
+        /// <param name="history">The full LLM message history.</param>
+        /// <param name="keepRecentUserTurns">How many trailing user prompts (and their turns) to keep verbatim.</param>
+        /// <param name="cut">The index to summarize up to (exclusive); valid only when this returns <c>true</c>.</param>
+        /// <returns><c>true</c> when there is an older slice worth summarizing; otherwise <c>false</c>.</returns>
+        internal static bool TryPlanCompaction(IReadOnlyList<LlmMessage> history, int keepRecentUserTurns, out int cut)
+        {
+            cut = ComputeUserPromptCut(history, keepRecentUserTurns);
+            return cut > 0;
+        }
+
+        /// <summary>
+        /// Condenses tool-result payloads older than the most recent <paramref name="keepRecentUserTurns"/>
+        /// user turns into one-line stubs, in place (Sprint 46). The tool call/result ids and message
+        /// structure are preserved (only <see cref="LlmToolResult.Content"/> is shortened), so no vendor
+        /// rejects the rewritten history. Already-digested and short results are skipped. This is a pure
+        /// transform with no LLM call — the cheap first tier of context relief.
+        /// </summary>
+        /// <param name="history">The history to rewrite in place.</param>
+        /// <param name="keepRecentUserTurns">Trailing user turns whose tool results stay verbatim (typically &lt; the summary keep count, so the digest reaches results the summary would otherwise preserve).</param>
+        /// <param name="digestedCount">The number of tool results condensed; valid only when this returns <c>true</c>.</param>
+        /// <returns><c>true</c> when at least one tool result was condensed; otherwise <c>false</c>.</returns>
+        internal static bool TryDigestOldToolResults(List<LlmMessage> history, int keepRecentUserTurns, out int digestedCount)
+        {
+            digestedCount = 0;
+            var cut = ComputeUserPromptCut(history, keepRecentUserTurns);
+            if (cut <= 0) return false;
+
+            for (var i = 0; i < cut; i++)
+            {
+                var results = history[i].ToolResults;
+                if (results == null) continue;
+                for (var r = 0; r < results.Count; r++)
+                {
+                    var result = results[r];
+                    var content = result.Content ?? string.Empty;
+                    if (content.StartsWith(ToolResultDigestPrefix, StringComparison.Ordinal)) continue;
+                    if (content.Length < ToolResultDigestMinChars) continue;
+
+                    var digest = $"{ToolResultDigestPrefix}{(result.IsError ? "error" : "ok")}, {content.Length} chars elided";
+                    results[r] = new LlmToolResult(result.ToolCallId, digest, result.IsError);
+                    digestedCount++;
+                }
+            }
+            return digestedCount > 0;
+        }
+
+        /// <summary>
+        /// Replaces <paramref name="history"/>[0..<paramref name="cut"/>) with a summary note plus an assistant
+        /// acknowledgement, re-anchors the surviving <paramref name="transcript"/> turns' history indices, and
+        /// records a <see cref="ChatTurnKind.Notice"/> line (Sprint 45).
+        /// </summary>
+        /// <param name="history">The history to rewrite in place; messages before <paramref name="cut"/> are removed.</param>
+        /// <param name="transcript">The visible transcript whose anchors are remapped and that receives the notice.</param>
+        /// <param name="cut">The exclusive upper bound of the slice being summarized (from <see cref="TryPlanCompaction"/>).</param>
+        /// <param name="summary">The model-produced summary of the removed slice.</param>
+        internal static void ApplyCompaction(List<LlmMessage> history, List<ChatTurn> transcript, int cut, string summary)
+        {
+            // The ack keeps roles alternating so the kept slice (which begins with a user prompt) stays valid
+            // for every provider, and it marks the boundary clearly for the model.
+            var replacement = new List<LlmMessage>
+            {
+                LlmMessage.UserText(CompactionSummaryPrefix + summary),
+                new LlmMessage { Role = LlmRole.Assistant, Text = CompactionAckText }
+            };
+            history.RemoveRange(0, cut);
+            history.InsertRange(0, replacement);
+
+            // The kept slice shifted by (replacement.Count - cut); turns that lived inside the summarized slice
+            // are no longer addressable, so drop their anchor.
+            var delta = replacement.Count - cut;
+            if (transcript != null)
+            {
+                foreach (var turn in transcript)
+                {
+                    if (turn.HistoryIndex < 0) continue;
+                    turn.HistoryIndex = turn.HistoryIndex >= cut ? turn.HistoryIndex + delta : -1;
+                }
+                transcript.Add(new ChatTurn(ChatTurnKind.Notice, CompactionNoticeText) { Detail = summary });
+            }
+        }
+
+        /// <summary>
+        /// Asks the model to condense a slice of conversation history into a compact, faithful summary
+        /// (Sprint 45). Sends a small, tool-free, non-streaming request so compaction never recurses into
+        /// tool use or streaming bookkeeping.
+        /// </summary>
+        /// <param name="provider">The active provider to send the summary request through.</param>
+        /// <param name="messages">The oldest history slice being replaced.</param>
+        /// <param name="cancellationToken">The turn's bootstrap-lifetime token.</param>
+        /// <returns>The summary text, or <c>null</c> if the model returned nothing usable.</returns>
+        private async Awaitable<string> SummarizeHistoryAsync(
+            ILlmProvider provider, IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken)
+        {
+            var request = new LlmRequest
+            {
+                System =
+                    "You compress an editor assistant's conversation history. Produce a concise but faithful " +
+                    "summary the assistant can rely on to continue the session: preserve the user's goals, key " +
+                    "decisions, facts established, file/asset names, and any unfinished work or open questions. " +
+                    "Use short bullet points. Do not invent details. Output only the summary.",
+                Messages = new List<LlmMessage> { LlmMessage.UserText(RenderHistoryForSummary(messages)) },
+                Model = _settings.Model,
+                MaxTokens = 1024
+            };
+
+            var response = await provider.SendAsync(request, cancellationToken);
+            return response?.Text?.Trim();
+        }
+
+        /// <summary>Renders a history slice into a plain-text transcript for the summary prompt, bounding each part.</summary>
+        private static string RenderHistoryForSummary(IReadOnlyList<LlmMessage> messages)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var m in messages)
+            {
+                if (!string.IsNullOrWhiteSpace(m.Text))
+                    sb.Append(m.Role == LlmRole.User ? "User: " : "Assistant: ")
+                      .AppendLine(Truncate(m.Text, 1500));
+
+                foreach (var call in m.ToolCalls)
+                    sb.Append("Assistant called tool ").Append(call.Name).Append(' ')
+                      .AppendLine(Truncate(call.ArgumentsJson, 300));
+
+                foreach (var result in m.ToolResults)
+                    sb.Append("Tool result: ").AppendLine(Truncate(result.Content, 600));
+            }
+            return sb.ToString();
         }
 
         /// <summary>
@@ -900,7 +1351,126 @@ namespace Molca.Editor.Mcp.Assistant
                 McpActionAuditLog.Record(tool.Name, args, "chat", "auto-approved");
                 return true;
             }
+            if (ActionMode == AssistantActionMode.Plan && IsUndoable(tool))
+            {
+                // Plan mode: confirm the whole task once, then run its undoable actions unprompted.
+                if (!await EnsurePlanApprovedAsync(cancellationToken)) return false;
+                McpActionAuditLog.Record(tool.Name, args, "chat", "plan-approved");
+                return true;
+            }
+            // Ask mode, or an irreversible action under Auto/Plan — always confirm individually.
             return await ConfirmActionAsync(tool, args, cancellationToken);
+        }
+
+        /// <summary>
+        /// Surfaces the Approve / Edit / Cancel plan prompt once per turn and, on approval, captures the undo
+        /// bracket so the whole task can be reverted in one click (Sprint 48). Subsequent calls in the same
+        /// turn return the cached approval. <c>Edit</c> and <c>Cancel</c> both decline; <c>Edit</c> also flags
+        /// the view to refocus the composer so the user can revise and resend.
+        /// </summary>
+        private async Awaitable<bool> EnsurePlanApprovedAsync(CancellationToken cancellationToken)
+        {
+            if (_planApprovedThisTurn) return true;
+
+            var prompt = new AssistantUserPrompt(
+                "Approve this plan and run its steps? The actions above run without further prompts; "
+                + "irreversible steps still confirm individually, and you can undo the whole task afterward.",
+                new[] { "Approve", "Edit", "Cancel" });
+            var answer = await PromptUserAsync(prompt, cancellationToken, isConfirmation: true);
+
+            if (string.Equals(answer, "Edit", StringComparison.OrdinalIgnoreCase))
+            {
+                // Let the user revise: surface the proposed plan back into the composer for editing.
+                PlanEditRequested?.Invoke(LastAssistantText);
+                return false;
+            }
+            if (!string.Equals(answer, "Approve", StringComparison.OrdinalIgnoreCase))
+                return false; // Cancel / dismissed
+
+            _planApprovedThisTurn = true;
+            _planUndoIdBefore = CurrentTopUndoId();
+            _planUndoGroupBefore = Undo.GetCurrentGroup();
+            return true;
+        }
+
+        /// <summary>The text of the most recent assistant turn (the proposed plan), or empty (Sprint 48).</summary>
+        private string LastAssistantText
+        {
+            get
+            {
+                for (var i = _transcript.Count - 1; i >= 0; i--)
+                    if (_transcript[i].Kind == ChatTurnKind.Assistant)
+                        return _transcript[i].Text ?? string.Empty;
+                return string.Empty;
+            }
+        }
+
+        /// <summary>Raised when the user picks "Edit" on a plan prompt, to refill the composer (Sprint 48).</summary>
+        public event Action<string> PlanEditRequested;
+
+        /// <summary>The transcript notice text shown when an approved plan finishes running (Sprint 48).</summary>
+        internal const string PlanCompletedNoticeText = "Plan complete. Undo the whole task if needed.";
+
+        /// <summary>
+        /// After an approved plan ran, records a single "Undo task" notice that brackets every reversible
+        /// change since approval (Sprint 48): the first <see cref="McpUndoStack"/> entry created after the
+        /// captured top, plus the first Unity Undo group after the captured one. No-op when nothing reversible
+        /// was produced.
+        /// </summary>
+        private void MaybeAddPlanUndoNotice()
+        {
+            if (!_planApprovedThisTurn) return;
+
+            // First file-snapshot entry created after approval (entries are oldest-first).
+            var fileId = FirstUndoIdAfter(McpUndoStack.Entries, _planUndoIdBefore);
+
+            // First Unity Undo group created after approval.
+            var group = Undo.GetCurrentGroup() > _planUndoGroupBefore ? _planUndoGroupBefore + 1 : -1;
+
+            if (string.IsNullOrEmpty(fileId) && group < 0) return; // nothing reversible ran
+
+            _lastPlanUndoFileId = fileId;
+            _lastPlanUndoGroup = group;
+            _transcript.Add(new ChatTurn(ChatTurnKind.Notice, PlanCompletedNoticeText) { CanUndoTask = true });
+            Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// The id of the first undo entry created after <paramref name="afterId"/> (Sprint 48): entries are
+        /// oldest-first, so this is the entry just past the captured bracket top — or the oldest entry when
+        /// <paramref name="afterId"/> is null/absent (the stack was empty at approval). Returns <c>null</c>
+        /// when nothing was created after the bracket. Pure and testable.
+        /// </summary>
+        internal static string FirstUndoIdAfter(IReadOnlyList<McpUndoStack.Entry> entries, string afterId)
+        {
+            if (entries == null || entries.Count == 0) return null;
+
+            var startIndex = 0;
+            if (!string.IsNullOrEmpty(afterId))
+            {
+                startIndex = entries.Count; // afterId not found → treat as "nothing after"
+                for (var i = 0; i < entries.Count; i++)
+                    if (entries[i].Id == afterId) { startIndex = i + 1; break; }
+            }
+            return startIndex < entries.Count ? entries[startIndex].Id : null;
+        }
+
+        /// <summary>
+        /// Reverts every reversible change made by the most recent approved plan (Sprint 48), using the
+        /// bracket captured at approval — file snapshots via <see cref="McpUndoStack.UndoTo"/> and Unity
+        /// changes via <see cref="UnityEditor.Undo.RevertAllDownToGroup"/>. Invoked by the "Undo task" button.
+        /// </summary>
+        public void UndoApprovedPlan()
+        {
+            if (!string.IsNullOrEmpty(_lastPlanUndoFileId) && McpUndoStack.Contains(_lastPlanUndoFileId))
+                McpUndoStack.UndoTo(_lastPlanUndoFileId);
+            if (_lastPlanUndoGroup >= 0 && Undo.GetCurrentGroup() >= _lastPlanUndoGroup)
+                Undo.RevertAllDownToGroup(_lastPlanUndoGroup);
+
+            _lastPlanUndoFileId = null;
+            _lastPlanUndoGroup = -1;
+            Persist();
+            Changed?.Invoke();
         }
 
         /// <summary>True if the tool's effect can be reverted (a file snapshot or a Unity Undo group).</summary>

@@ -209,7 +209,7 @@ namespace Molca.Networking.Data
             {
                 _isConnecting = true;
                 _connectionStartTime = Time.time;
-                _connectionStatus = $"Connecting (Attempt {reconnectAttemptCount + 1})";
+                _connectionStatus = $"Connecting (Attempt {_reconnectAttemptCount + 1})";
                 
                 string finalUrl = BuildConnectionUrl();
                 
@@ -482,9 +482,9 @@ namespace Molca.Networking.Data
             try
             {
                 // Simple JSON parsing to check message type
-                if (message.Contains($"\"{messageTypeFieldName}\""))
+                if (message.Contains($"\"{_messageTypeFieldName}\""))
                 {
-                    var startIndex = message.IndexOf($"\"{messageTypeFieldName}\"") + _messageTypeFieldName.Length + 3;
+                    var startIndex = message.IndexOf($"\"{_messageTypeFieldName}\"") + _messageTypeFieldName.Length + 3;
                     var endIndex = message.IndexOf("\"", startIndex);
                     if (endIndex > startIndex)
                     {

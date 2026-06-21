@@ -172,6 +172,12 @@ namespace Molca.Editor.Mcp.Assistant
                 AddUndoButtonIfAny(headerRow, turn);
             if (!isLive && turn.Kind == ChatTurnKind.Error && turn.CanContinue && !_controller.IsBusy)
                 headerRow.Add(CreateMiniButton("Continue", () => _onContinue?.Invoke()));
+            // A retrieval notice (Sprint 47) offers Pin to promote its transient context to a persistent pin.
+            if (!isLive && turn.Kind == ChatTurnKind.Notice && turn.CanPin && !string.IsNullOrWhiteSpace(turn.Detail))
+                headerRow.Add(CreateMiniButton("Pin", () => _controller.PinRetrievedContext(turn.Detail)));
+            // A plan-completed notice (Sprint 48) offers a single "Undo task" reverting the whole bracket.
+            if (!isLive && turn.Kind == ChatTurnKind.Notice && turn.CanUndoTask && !_controller.IsBusy)
+                headerRow.Add(CreateMiniButton("Undo task", () => _controller.UndoApprovedPlan()));
 
             // Work turns drop the separate header row entirely and host their Copy/Undo buttons on the
             // foldout's own toggle line, so the whole step collapses to a single line.
@@ -218,6 +224,14 @@ namespace Molca.Editor.Mcp.Assistant
                 var firstLine = FirstLine(text);
                 var content = AddDisclosure(row, firstLine, startExpanded: false);
                 RenderFormattedText(content, text, turn.Kind);
+            }
+            else if (turn.Kind == ChatTurnKind.Notice && !string.IsNullOrWhiteSpace(turn.Detail))
+            {
+                // A compaction Notice carries the generated summary in Detail (Sprint 46): show the one-line
+                // notice and tuck the summary behind a collapsed "View summary" disclosure.
+                RenderFormattedText(row, text, turn.Kind);
+                var content = AddDisclosure(row, "View summary", startExpanded: false);
+                RenderFormattedText(content, turn.Detail, turn.Kind);
             }
             else
             {
@@ -420,6 +434,7 @@ namespace Molca.Editor.Mcp.Assistant
             ChatTurnKind.Error => "Error",
             ChatTurnKind.Prompt => "Assistant asks",
             ChatTurnKind.Work => "Worked",
+            ChatTurnKind.Notice => "Context",
             _ => "Assistant"
         };
 
@@ -438,6 +453,7 @@ namespace Molca.Editor.Mcp.Assistant
             ChatTurnKind.Error => "error",
             ChatTurnKind.Prompt => "prompt",
             ChatTurnKind.Work => "tool",
+            ChatTurnKind.Notice => "tool",
             _ => "assistant"
         };
 

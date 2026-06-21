@@ -62,6 +62,9 @@ namespace Molca.Editor.Mcp.Assistant
             AssistantContextKind.Asset => DescribeAsset(item.AssetGuid),
             AssistantContextKind.FrameworkGraph => DescribeFrameworkGraph(),
             AssistantContextKind.KgStatus => DescribeKgStatus(),
+            AssistantContextKind.Retrieved => string.IsNullOrEmpty(item.Snapshot)
+                ? string.Empty
+                : "Retrieved project context:\n" + item.Snapshot,
             _ => string.Empty
         };
 

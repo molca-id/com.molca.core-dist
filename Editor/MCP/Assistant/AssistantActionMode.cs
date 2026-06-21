@@ -11,6 +11,13 @@ namespace Molca.Editor.Mcp.Assistant
         Ask = 0,
 
         /// <summary>Run allowlisted mutating actions immediately, with no per-action prompt.</summary>
-        Auto = 1
+        Auto = 1,
+
+        /// <summary>
+        /// Approve a multi-step task once, then run its allowlisted, undoable actions without further
+        /// per-action prompts under a single whole-task undo bracket (Sprint 48). Irreversible actions still
+        /// confirm individually; a failed action re-gates the remainder.
+        /// </summary>
+        Plan = 2
     }
 }

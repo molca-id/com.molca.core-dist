@@ -33,6 +33,7 @@
     --code-bg: rgb(26, 26, 28);
     --muted-text: var(--molca-muted);
     --warn-text: var(--molca-status-warn);
+    --accent-text: var(--molca-status-ok, rgb(166, 226, 46));
 
     padding: 6px;
     flex-direction: column;
@@ -213,6 +214,18 @@
 
 .chat-token-estimate--warn {
     color: var(--warn-text);
+}
+
+.chat-compaction-view {
+    font-size: 10px;
+    flex-shrink: 0;
+    margin-left: 8px;
+    padding-left: 6px;
+    padding-right: 6px;
+    background-color: transparent;
+    border-width: 0;
+    color: var(--accent-text);
+    -unity-text-align: middle-left;
 }
 
 .chat-send,

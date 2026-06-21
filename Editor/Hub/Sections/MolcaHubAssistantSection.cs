@@ -81,6 +81,12 @@ namespace Molca.Editor.Hub.Sections
             configCard.Body.Add(BoundRow(so, "maxTokens", "Max Tokens"));
             configCard.Body.Add(BoundRow(so, "maxToolRounds", "Max Tool Rounds"));
             configCard.Body.Add(BoundRow(so, "streamResponses", "Stream Responses"));
+            configCard.Body.Add(BoundRow(so, "autoCompact", "Auto Compact"));
+            configCard.Body.Add(BoundRow(so, "autoCompactThreshold", "Auto Compact Threshold"));
+            configCard.Body.Add(BoundRow(so, "compactToolResultsFirst", "Compact Tool Results First"));
+            configCard.Body.Add(BoundRow(so, "keepRecentToolResultTurns", "Keep Recent Tool-Result Turns"));
+            configCard.Body.Add(BoundRow(so, "proactiveRetrieval", "Proactive Retrieval"));
+            configCard.Body.Add(BoundRow(so, "retrievalTokenBudget", "Retrieval Token Budget"));
 
             // Provider change flips the Base-URL row and the key env-var, so the card is rebuilt — but only
             // on a real change. PropertyField fires SerializedPropertyChangeEvent on every bind too; without

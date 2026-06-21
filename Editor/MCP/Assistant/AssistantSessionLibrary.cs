@@ -24,6 +24,10 @@ namespace Molca.Editor.Mcp.Assistant
         public string UpdatedUtc;
         /// <summary>Number of transcript turns at the last save (for a quick size hint).</summary>
         public int TurnCount;
+        /// <summary>Cumulative prompt (input) tokens billed across this session (Sprint 49); 0 on legacy files.</summary>
+        public long InputTokens;
+        /// <summary>Cumulative completion (output) tokens across this session (Sprint 49); 0 on legacy files.</summary>
+        public long OutputTokens;
 
         /// <summary>Parses <see cref="UpdatedUtc"/>, falling back to <see cref="DateTime.MinValue"/>.</summary>
         public DateTime UpdatedAt =>
@@ -57,7 +61,9 @@ namespace Molca.Editor.Mcp.Assistant
             IReadOnlyList<ChatTurn> transcript,
             IReadOnlyList<LlmMessage> history,
             IReadOnlyList<AssistantContextItem> context,
-            string title)
+            string title,
+            long inputTokens = 0,
+            long outputTokens = 0)
         {
             if (string.IsNullOrEmpty(id)) return;
 
@@ -83,7 +89,9 @@ namespace Molca.Editor.Mcp.Assistant
                 Title = resolvedTitle,
                 CreatedUtc = createdUtc,
                 UpdatedUtc = DateTime.UtcNow.ToString("o"),
-                TurnCount = transcript?.Count ?? 0
+                TurnCount = transcript?.Count ?? 0,
+                InputTokens = inputTokens,
+                OutputTokens = outputTokens
             };
             AssistantSessionStore.SaveToPath(PathFor(id), transcript, history, context, meta);
         }

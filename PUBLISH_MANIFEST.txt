@@ -1,7 +1,7 @@
-﻿com.molca.core@1.9.3
-Published: 2026-06-21 22:54:24Z
-Source commit: 6cda49d9
-Files: 1264
+﻿com.molca.core@1.9.4
+Published: 2026-06-22 02:35:31Z
+Source commit: 8d63f370
+Files: 1287
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -128,6 +128,23 @@ Editor/Doctor/Checks/NetworkingCheckScope.cs
 Editor/Doctor/Checks/NetworkingCheckScope.cs.meta
 Editor/Doctor/Checks/RuntimeSoWriteCheck.cs
 Editor/Doctor/Checks/RuntimeSoWriteCheck.cs.meta
+Editor/Doctor/Checks/Scene.meta
+Editor/Doctor/Checks/Scene/BudgetSettingsResolver.cs
+Editor/Doctor/Checks/Scene/BudgetSettingsResolver.cs.meta
+Editor/Doctor/Checks/Scene/SceneBudgetContext.cs
+Editor/Doctor/Checks/Scene/SceneBudgetContext.cs.meta
+Editor/Doctor/Checks/Scene/SceneInstancingBudgetCheck.cs
+Editor/Doctor/Checks/Scene/SceneInstancingBudgetCheck.cs.meta
+Editor/Doctor/Checks/Scene/SceneLightingBudgetCheck.cs
+Editor/Doctor/Checks/Scene/SceneLightingBudgetCheck.cs.meta
+Editor/Doctor/Checks/Scene/ScenePolygonBudgetCheck.cs
+Editor/Doctor/Checks/Scene/ScenePolygonBudgetCheck.cs.meta
+Editor/Doctor/Checks/Scene/SceneStructureCheck.cs
+Editor/Doctor/Checks/Scene/SceneStructureCheck.cs.meta
+Editor/Doctor/Checks/Scene/SceneTextureBudgetCheck.cs
+Editor/Doctor/Checks/Scene/SceneTextureBudgetCheck.cs.meta
+Editor/Doctor/Checks/Scene/SubsystemPlacementHintCheck.cs
+Editor/Doctor/Checks/Scene/SubsystemPlacementHintCheck.cs.meta
 Editor/Doctor/Checks/SceneObjectReferenceCheck.cs
 Editor/Doctor/Checks/SceneObjectReferenceCheck.cs.meta
 Editor/Doctor/Checks/SequenceValidationCheck.cs
@@ -287,6 +304,10 @@ Editor/MCP/Assistant/AssistantComposer.cs
 Editor/MCP/Assistant/AssistantComposer.cs.meta
 Editor/MCP/Assistant/AssistantContextItem.cs
 Editor/MCP/Assistant/AssistantContextItem.cs.meta
+Editor/MCP/Assistant/AssistantContextRetriever.cs
+Editor/MCP/Assistant/AssistantContextRetriever.cs.meta
+Editor/MCP/Assistant/AssistantCostTable.cs
+Editor/MCP/Assistant/AssistantCostTable.cs.meta
 Editor/MCP/Assistant/AssistantEditorContext.cs
 Editor/MCP/Assistant/AssistantEditorContext.cs.meta
 Editor/MCP/Assistant/AssistantSessionLibrary.cs
@@ -396,6 +417,8 @@ Editor/MCP/Providers/CoreMcpToolProvider.RefIds.cs
 Editor/MCP/Providers/CoreMcpToolProvider.RefIds.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Remediate.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Remediate.cs.meta
+Editor/MCP/Providers/CoreMcpToolProvider.SceneAudit.cs
+Editor/MCP/Providers/CoreMcpToolProvider.SceneAudit.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Sequence.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Sequence.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.SequenceConfig.cs

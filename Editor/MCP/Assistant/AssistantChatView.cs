@@ -55,6 +55,8 @@ namespace Molca.Editor.Mcp.Assistant
             _settings = AssistantSettings.GetOrCreateSettings();
             _controller = new AssistantChatController(_settings) { ActionMode = AssistantComposer.LoadActionMode() };
             _controller.Changed += RefreshTranscript;
+            // Plan-mode "Edit" refills the composer with the proposed plan so the user can revise (Sprint 48).
+            _controller.PlanEditRequested += BeginEdit;
 
             AddToClassList("chat-root");
             style.flexGrow = 1;
@@ -131,7 +133,11 @@ namespace Molca.Editor.Mcp.Assistant
             _cts?.Dispose();
             _cts = null;
             _assetPicker.Dispose();
-            if (_controller != null) _controller.Changed -= RefreshTranscript;
+            if (_controller != null)
+            {
+                _controller.Changed -= RefreshTranscript;
+                _controller.PlanEditRequested -= BeginEdit;
+            }
         }
 
         private static T LoadAsset<T>(string fileName) where T : UnityEngine.Object =>
@@ -410,7 +416,10 @@ namespace Molca.Editor.Mcp.Assistant
                 foreach (var s in sessions)
                 {
                     var id = s.Id;
-                    var label = $"{SanitizeMenuLabel(s.Title)}  ·  {RelativeTime(s.UpdatedAt)}";
+                    var tokens = s.InputTokens + s.OutputTokens;
+                    // Show a per-session token total so spend is visible at a glance (Sprint 49).
+                    var tokenSuffix = tokens > 0 ? $"  ·  {tokens / 1000.0:0.#}k tok" : string.Empty;
+                    var label = $"{SanitizeMenuLabel(s.Title)}  ·  {RelativeTime(s.UpdatedAt)}{tokenSuffix}";
                     menu.AddItem(new GUIContent(label), id == current, () => _controller.SwitchToSession(id));
                 }
                 menu.AddSeparator(string.Empty);

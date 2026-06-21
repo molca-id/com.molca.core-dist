@@ -2,6 +2,20 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.9.4] - 2026-06-22
+
+### Added
+- **Assistant Plan mode.** Approve a multi-step task once and let the assistant run undoable steps unprompted under a single whole-task undo bracket, with irreversible actions still re-confirmed.
+- **Assistant proactive knowledge-graph retrieval.** The assistant grounds its answers by retrieving relevant project context from the graphify graph before responding.
+- **Assistant tiered auto-compaction.** Conversation context is compacted automatically as it grows large — old tool results are digested first, and a turn summary is produced only when digesting alone does not bring the context back under the threshold.
+- **Assistant session token/cost telemetry** plus a prompt-contract harness for the turn engine.
+- **Scene performance audit** in Doctor (six scene-perf checks with a platform-aware budget resolver) and the `molca_scene_audit` MCP tool.
+
+### Fixed
+- **`WebSocketDataProvider` failed to compile** when the NativeWebSocket package is present — it referenced the renamed fields without the underscore prefix. Like the SocketIO sibling, the `Molca.Networking.WebSocket` assembly is gated behind the `MOLCA_WEBSOCKET` define, so this shipped undetected in projects without `com.endel.nativewebsocket`.
+- **Sequence validator** now offers a fix action for the issues it reports.
+- Hardened several Core MCP audit findings.
+
 ## [1.9.3] - 2026-06-21
 
 ### Fixed
