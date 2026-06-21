@@ -1,0 +1,6 @@
+# OS / editor cruft only. This repo is a generated package mirror — package
+# contents are produced by tools/publish-core.ps1 in the framework repo.
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
