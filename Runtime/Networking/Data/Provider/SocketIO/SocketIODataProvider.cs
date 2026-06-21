@@ -228,7 +228,7 @@ namespace Molca.Networking.Data
 
                 if (_logMessages)
                 {
-                    Debug.Log($"[SocketIODataProvider] {name}: Connected to {serverUrl}");
+                    Debug.Log($"[SocketIODataProvider] {name}: Connected to {_serverUrl}");
                 }
             };
 
@@ -478,7 +478,7 @@ namespace Molca.Networking.Data
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SocketIODataProvider] {name}: Invalid server URL '{serverUrl}'. {ex.Message}");
+                Debug.LogError($"[SocketIODataProvider] {name}: Invalid server URL '{_serverUrl}'. {ex.Message}");
                 return null;
             }
         }

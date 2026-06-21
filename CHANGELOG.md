@@ -2,6 +2,11 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.9.3] - 2026-06-21
+
+### Fixed
+- **`SocketIODataProvider` failed to compile (CS0103)** when the SocketIO package is present: two log statements referenced the renamed field as `serverUrl` instead of `_serverUrl`. The `Molca.Networking.SocketIO` assembly is gated behind the `MOLCA_SOCKETIO` define, so this never compiled in a project without `com.itisnajim.socketiounity` and shipped undetected. Consumers using SocketIO need this fix.
+
 ## [1.9.2] - 2026-06-21
 
 ### Fixed
