@@ -37,9 +37,11 @@ commit it was built from).
 
 Core is extended by **subclassing**, never by editing the package. Fork/SDK code lives
 outside the package (e.g. `Assets/_MolcaSDK/[Layer]/…` or your project's `Assets/`). Runtime
-systems extend `RuntimeSubsystem`; use the Molca registration/bootstrap conventions. See the
-fork-facing documentation for the supported extension surface and how to request a new Core
-extension point.
+systems extend `RuntimeSubsystem`; use the Molca registration/bootstrap conventions.
+
+See **[FORK_GUIDE.md](FORK_GUIDE.md)** for the full consumer/fork guide: where settings live,
+the supported extension surface, migrating an existing fork onto this package, and how to
+request a new Core extension point.
 
 ## Support / changelog
 
