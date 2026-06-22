@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Molca.Editor.UI;
 using Molca.Editor.UI.Components;
 using Molca.Sequence;
 using UnityEditor;
@@ -338,7 +339,7 @@ namespace Molca.Editor
                     _ => InactiveColor,
                 };
             }
-            return step.gameObject.activeInHierarchy && step.enabled ? Color.white : InactiveColor;
+            return step.gameObject.activeInHierarchy && step.enabled ? MolcaEditorColors.Heading : InactiveColor;
         }
 
         #endregion

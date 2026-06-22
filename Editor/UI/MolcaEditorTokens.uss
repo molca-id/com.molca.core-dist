@@ -44,6 +44,14 @@
     --molca-link: rgb(91, 155, 213);
     --molca-accent: rgb(198, 242, 58);
 
+    /* Neutral control surface — default (non-primary) button/segment/chip fill. Distinct from the
+       panel/card surfaces: it sits *above* them as an interactive affordance. Mirrors the Unity
+       editor's own button gray on the dark skin and flips to a light control fill on the light skin. */
+    --molca-control: rgb(77, 77, 77);
+    /* Foreground for text sitting on a selected row (`--molca-row-selected`). White reads on the dark
+       selection; the light skin needs near-black so the row label does not wash out. */
+    --molca-on-row-selected: rgb(245, 245, 245);
+
     /* ---- Status ---- */
     --molca-status-green: rgb(87, 200, 74);
     --molca-status-grey: rgb(107, 107, 107);
@@ -66,6 +74,8 @@
     --hub-row-selected: var(--molca-row-selected);
     --hub-link: var(--molca-link);
     --hub-accent: var(--molca-accent);
+    --hub-control: var(--molca-control);
+    --hub-on-row-selected: var(--molca-on-row-selected);
     --hub-status-green: var(--molca-status-green);
     --hub-status-grey: var(--molca-status-grey);
     --hub-status-warn: var(--molca-status-warn);
@@ -92,4 +102,6 @@
     --molca-label: rgb(56, 56, 56);
     --molca-row-selected: rgb(140, 170, 205);
     --molca-link: rgb(38, 96, 158);
+    --molca-control: rgb(225, 225, 225);
+    --molca-on-row-selected: rgb(20, 20, 20);
 }

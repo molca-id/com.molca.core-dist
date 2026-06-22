@@ -14,7 +14,7 @@
     padding-top: 3px;
     padding-bottom: 3px;
     background-color: var(--molca-status-warn);
-    color: rgb(28, 28, 28);
+    color: rgb(28, 28, 28); /* doctor:ignore — near-black foreground on the fixed warn fill, legible in both skins */
     font-size: 11px;
 }
 

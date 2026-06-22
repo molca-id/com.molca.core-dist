@@ -1,7 +1,7 @@
-﻿com.molca.core@1.9.5
-Published: 2026-06-22 09:47:11Z
-Source commit: b7bde79b
-Files: 1293
+﻿com.molca.core@1.9.6
+Published: 2026-06-22 11:09:50Z
+Source commit: 90933762
+Files: 1314
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -131,6 +131,21 @@ Editor/Doctor/Checks/RuntimeSoWriteCheck.cs.meta
 Editor/Doctor/Checks/Scene.meta
 Editor/Doctor/Checks/Scene/BudgetSettingsResolver.cs
 Editor/Doctor/Checks/Scene/BudgetSettingsResolver.cs.meta
+Editor/Doctor/Checks/Scene/Fixes.meta
+Editor/Doctor/Checks/Scene/Fixes/AddLodGroupFix.cs
+Editor/Doctor/Checks/Scene/Fixes/AddLodGroupFix.cs.meta
+Editor/Doctor/Checks/Scene/Fixes/ContributeGiFix.cs
+Editor/Doctor/Checks/Scene/Fixes/ContributeGiFix.cs.meta
+Editor/Doctor/Checks/Scene/Fixes/EnableInstancingFix.cs
+Editor/Doctor/Checks/Scene/Fixes/EnableInstancingFix.cs.meta
+Editor/Doctor/Checks/Scene/Fixes/ISceneFix.cs
+Editor/Doctor/Checks/Scene/Fixes/ISceneFix.cs.meta
+Editor/Doctor/Checks/Scene/Fixes/SceneFixRegistry.cs
+Editor/Doctor/Checks/Scene/Fixes/SceneFixRegistry.cs.meta
+Editor/Doctor/Checks/Scene/Fixes/SceneFixTargets.cs
+Editor/Doctor/Checks/Scene/Fixes/SceneFixTargets.cs.meta
+Editor/Doctor/Checks/Scene/Fixes/TextureMaxSizeFix.cs
+Editor/Doctor/Checks/Scene/Fixes/TextureMaxSizeFix.cs.meta
 Editor/Doctor/Checks/Scene/SceneBudgetContext.cs
 Editor/Doctor/Checks/Scene/SceneBudgetContext.cs.meta
 Editor/Doctor/Checks/Scene/SceneInstancingBudgetCheck.cs
@@ -316,6 +331,8 @@ Editor/MCP/Assistant/AssistantSessionStore.cs
 Editor/MCP/Assistant/AssistantSessionStore.cs.meta
 Editor/MCP/Assistant/AssistantSettings.cs
 Editor/MCP/Assistant/AssistantSettings.cs.meta
+Editor/MCP/Assistant/AssistantSubAgent.cs
+Editor/MCP/Assistant/AssistantSubAgent.cs.meta
 Editor/MCP/Assistant/AssistantSystemPrompt.txt
 Editor/MCP/Assistant/AssistantSystemPrompt.txt.meta
 Editor/MCP/Assistant/AssistantToolBridge.cs
@@ -421,6 +438,8 @@ Editor/MCP/Providers/CoreMcpToolProvider.Remediate.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Remediate.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.SceneAudit.cs
 Editor/MCP/Providers/CoreMcpToolProvider.SceneAudit.cs.meta
+Editor/MCP/Providers/CoreMcpToolProvider.SceneFix.cs
+Editor/MCP/Providers/CoreMcpToolProvider.SceneFix.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Sequence.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Sequence.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.SequenceConfig.cs
@@ -439,6 +458,8 @@ Editor/MCP/Providers/CoreMcpToolProvider.Settings.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Settings.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Status.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Status.cs.meta
+Editor/MCP/Providers/CoreMcpToolProvider.SubAgent.cs
+Editor/MCP/Providers/CoreMcpToolProvider.SubAgent.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Subsystems.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Subsystems.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.ValidateAll.cs

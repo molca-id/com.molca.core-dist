@@ -2,6 +2,18 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.9.6] - 2026-06-22
+
+### Added
+- **Assistant read-only research sub-agents ("swarm").** The assistant can fan out read-only research sub-agents to offload context-heavy exploration without mutating the project.
+- **Doctor scene-audit closed loop.** Scene-audit findings can now apply safe automatic fixes, closing the loop from detection to remediation.
+
+### Changed
+- **Theme-aware editor UI.** The assistant, Hub, and sequence tree now render correctly in both light and dark editor themes.
+
+### Fixed
+- Added generated `.meta` files and USS tweaks for the Sprint 55–56 editor UI.
+
 ## [1.9.5] - 2026-06-22
 
 ### Added

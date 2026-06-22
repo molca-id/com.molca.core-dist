@@ -43,7 +43,14 @@ namespace Molca.Editor.ContentPackage
         // ── Layout ───────────────────────────────────────────────────────────
         private const int  LeftPanelWidth = 210;
         private const int  ColumnGap      = 8;
-        private float      _rightPanelWidth;
+
+        // Width available to the right detail panel. It must be measured from the actual layout
+        // (currentViewWidth reports the host EditorWindow width, not the IMGUIContainer pane width
+        // when this editor is embedded in the Hub). _pendingRightPanelWidth is captured during the
+        // Repaint pass and promoted to _rightPanelWidth at the start of the next Layout pass, so both
+        // passes of any single frame use an identical value (a mid-frame change throws GUILayout errors).
+        private float      _rightPanelWidth        = 360f;
+        private float      _pendingRightPanelWidth = 360f;
 
         private void OnEnable()
         {
@@ -115,14 +122,25 @@ namespace Molca.Editor.ContentPackage
             DrawTopBar();
             EditorGUILayout.Space(6);
 
-            // Two-column layout.
-            // The right panel must be width-constrained: when this editor is hosted inside the Hub's
+            // Promote the last measured width at the start of the Layout pass so both passes of this
+            // frame share one value. The right panel must be width-constrained: hosted inside the Hub's
             // InspectorElement (an IMGUIContainer), an unbounded BeginVertical grows to its content's
-            // intrinsic width and overflows the panel. currentViewWidth is identical across the Layout
-            // and Repaint passes, so deriving the width from it keeps both passes in sync.
-            const float rightPanelPadding = 14f; // column gap + detail-body inset
-            _rightPanelWidth = Mathf.Max(220f,
-                EditorGUIUtility.currentViewWidth - LeftPanelWidth - ColumnGap - rightPanelPadding);
+            // intrinsic width and overflows the pane.
+            if (Event.current.type == EventType.Layout)
+                _rightPanelWidth = _pendingRightPanelWidth;
+
+            // Measure the real available width by reserving a full-width, zero-height rect. During the
+            // Layout pass its width is unknown (0); only the Repaint pass yields the true pane width.
+            Rect widthProbe = GUILayoutUtility.GetRect(0f, 0f, GUILayout.ExpandWidth(true));
+            if (Event.current.type == EventType.Repaint && widthProbe.width > 1f)
+            {
+                float measured = Mathf.Max(160f, widthProbe.width - LeftPanelWidth - ColumnGap - 6f);
+                if (Mathf.Abs(measured - _pendingRightPanelWidth) > 0.5f)
+                {
+                    _pendingRightPanelWidth = measured;
+                    Repaint(); // re-layout next frame with the corrected width
+                }
+            }
 
             EditorGUILayout.BeginHorizontal();
             DrawLeftPanel(settings);

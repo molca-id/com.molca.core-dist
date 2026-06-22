@@ -80,7 +80,8 @@ namespace Molca.Editor.Mcp.Assistant
             Func<AssistantUserPrompt, CancellationToken, Awaitable<string>> askUser = null,
             Func<McpToolDefinition, string, CancellationToken, Awaitable<bool>> confirmActionAsync = null,
             Action<McpProgressReport> onProgress = null,
-            Func<IReadOnlyList<PlanStep>, CancellationToken, Awaitable<string>> proposePlan = null)
+            Func<IReadOnlyList<PlanStep>, CancellationToken, Awaitable<string>> proposePlan = null,
+            Func<IReadOnlyList<SubtaskRequest>, CancellationToken, Awaitable<string>> spawnSubtasks = null)
         {
             if (registry == null || !registry.TryGet(call.Name, out var tool))
                 return new LlmToolResult(call.Id, $"{{\"error\":\"Unknown tool '{call.Name}'.\"}}", isError: true);
@@ -100,6 +101,17 @@ namespace Molca.Editor.Mcp.Assistant
                 var planResult = await proposePlan(steps, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 return new LlmToolResult(call.Id, planResult ?? "{}");
+            }
+
+            // Research sub-agents (Sprint 56): delegate to the read-only sub-agent runner, which returns only
+            // the digest(s) so verbose tool output never enters the main history.
+            if ((call.Name == Providers.CoreMcpToolProvider.SpawnSubtaskToolName
+                 || call.Name == Providers.CoreMcpToolProvider.SpawnSubtasksToolName) && spawnSubtasks != null)
+            {
+                var requests = ParseSubtasks(call.Name, args);
+                var digest = await spawnSubtasks(requests, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                return new LlmToolResult(call.Id, digest ?? "{}");
             }
 
             // Interactive prompt (Sprint 25.6): pause the turn and surface the question as choices, then
@@ -190,6 +202,36 @@ namespace Molca.Editor.Mcp.Assistant
                 // Malformed arguments — fall back to whatever question we parsed (possibly empty).
             }
             return new AssistantUserPrompt(question, options);
+        }
+
+        /// <summary>Parses sub-task arguments for the single/batch spawn tools into requests; tolerant of missing fields.</summary>
+        private static List<SubtaskRequest> ParseSubtasks(string toolName, string argsJson)
+        {
+            var requests = new List<SubtaskRequest>();
+            try
+            {
+                var o = JObject.Parse(argsJson);
+                if (toolName == Providers.CoreMcpToolProvider.SpawnSubtasksToolName)
+                {
+                    if (o["tasks"] is JArray arr)
+                        foreach (var t in arr)
+                        {
+                            if (t is not JObject task) continue;
+                            var p = (string)task["prompt"];
+                            if (!string.IsNullOrWhiteSpace(p)) requests.Add(new SubtaskRequest(p.Trim(), (string)task["focus"]));
+                        }
+                }
+                else
+                {
+                    var p = (string)o["prompt"];
+                    if (!string.IsNullOrWhiteSpace(p)) requests.Add(new SubtaskRequest(p.Trim(), (string)o["focus"]));
+                }
+            }
+            catch
+            {
+                // Malformed arguments — return whatever parsed (possibly none).
+            }
+            return requests;
         }
 
         /// <summary>Parses the <c>molca_propose_plan</c> arguments into an ordered step list; tolerant of missing fields.</summary>

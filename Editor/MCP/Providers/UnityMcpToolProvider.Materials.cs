@@ -476,7 +476,7 @@ namespace Molca.Editor.Mcp.Providers
                     return null;
                 }
 
-                return new Color(
+                return new Color( // doctor:ignore — constructs a material color from user-supplied rgba JSON, not editor chrome
                     rgba[0].Value<float>(),
                     rgba[1].Value<float>(),
                     rgba[2].Value<float>(),

@@ -313,23 +313,37 @@ namespace Molca.Editor.Mcp.Assistant
             if (_toolProgressRow == null) return;
 
             var progress = busy ? _controller.ActiveToolProgress : null;
-            _toolProgressRow.style.display = progress.HasValue ? DisplayStyle.Flex : DisplayStyle.None;
-            if (!progress.HasValue) return;
+            var toolName = busy ? _controller.ActiveToolName : null;
 
-            var report = progress.Value;
-            var toolName = _controller.ActiveToolName;
-            _toolProgressLabel.text = string.IsNullOrEmpty(toolName)
-                ? report.Message
-                : $"{toolName}  ·  {report.Message}";
+            // Show the row whenever a tool is running — not only when it reports progress. Most tools never
+            // call McpProgress.Report, so without this the indicator only ever appeared for build/deploy/kg.
+            var show = progress.HasValue || !string.IsNullOrEmpty(toolName);
+            _toolProgressRow.style.display = show ? DisplayStyle.Flex : DisplayStyle.None;
+            if (!show) return;
 
-            if (report.Fraction.HasValue)
+            if (progress.HasValue)
             {
-                _toolProgressBar.value = report.Fraction.Value * 100f;
-                _toolProgressBar.title = $"{Mathf.RoundToInt(report.Fraction.Value * 100f)}%";
+                var report = progress.Value;
+                _toolProgressLabel.text = string.IsNullOrEmpty(toolName)
+                    ? report.Message
+                    : $"{toolName}  ·  {report.Message}";
+
+                if (report.Fraction.HasValue)
+                {
+                    _toolProgressBar.value = report.Fraction.Value * 100f;
+                    _toolProgressBar.title = $"{Mathf.RoundToInt(report.Fraction.Value * 100f)}%";
+                }
+                else
+                {
+                    // Indeterminate: no meaningful fill, just a working indicator.
+                    _toolProgressBar.value = 0f;
+                    _toolProgressBar.title = "working…";
+                }
             }
             else
             {
-                // Indeterminate: no meaningful fill, just a working indicator.
+                // A running tool that doesn't report progress — an indeterminate "Running <tool>…" indicator.
+                _toolProgressLabel.text = $"Running {toolName}…";
                 _toolProgressBar.value = 0f;
                 _toolProgressBar.title = "working…";
             }

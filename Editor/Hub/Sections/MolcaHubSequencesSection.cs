@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Molca.Editor.UI;
 using Molca.Editor.Validation;
 using Molca.Sequence;
 using UnityEditor;
@@ -185,9 +186,9 @@ namespace Molca.Editor.Hub.Sections
                 {
                     width = 8, height = 8, borderTopLeftRadius = 4, borderTopRightRadius = 4,
                     borderBottomLeftRadius = 4, borderBottomRightRadius = 4, marginRight = 8,
-                    backgroundColor = errors > 0 ? new Color(0.86f, 0.30f, 0.30f)
-                        : warnings > 0 ? new Color(0.90f, 0.74f, 0.25f)
-                        : new Color(0.40f, 0.80f, 0.45f)
+                    backgroundColor = errors > 0 ? MolcaEditorColors.StatusError
+                        : warnings > 0 ? MolcaEditorColors.StatusWarn
+                        : MolcaEditorColors.StatusOk
                 }
             };
         }
@@ -211,9 +212,9 @@ namespace Molca.Editor.Hub.Sections
 
         private static Color SeverityColor(SequenceValidationSeverity severity) => severity switch
         {
-            SequenceValidationSeverity.Error => new Color(0.86f, 0.30f, 0.30f),
-            SequenceValidationSeverity.Warning => new Color(0.90f, 0.74f, 0.25f),
-            _ => new Color(0.55f, 0.70f, 0.85f),
+            SequenceValidationSeverity.Error => MolcaEditorColors.StatusError,
+            SequenceValidationSeverity.Warning => MolcaEditorColors.StatusWarn,
+            _ => MolcaEditorColors.Link,
         };
     }
 }

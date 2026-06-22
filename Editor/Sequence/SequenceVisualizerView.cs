@@ -314,15 +314,18 @@ namespace Molca.Editor
             
             if (!_stepNameCache.TryGetValue(stepId, out var cachedName))
             {
-                Color baseColor = Application.isPlaying ? GetStepColorInternal(step) : (step.gameObject.activeInHierarchy && step.enabled ? Color.white : InactiveColor);
+                // An enabled step's name uses the skin-aware heading color (white-on-light would be
+                // invisible under the light editor skin); the type/status suffixes use the muted token.
+                Color baseColor = Application.isPlaying ? GetStepColorInternal(step) : (step.gameObject.activeInHierarchy && step.enabled ? MolcaEditorColors.Heading : InactiveColor);
                 string colorHex = ColorUtility.ToHtmlStringRGB(baseColor);
+                string mutedHex = ColorUtility.ToHtmlStringRGB(MolcaEditorColors.Muted);
                 string typeName = GetStepTypeName(step);
-                
-                string name = $"<color=#{colorHex}>{step.name}</color> <color=#A0A0A0><i>({typeName})</i></color>";
+
+                string name = $"<color=#{colorHex}>{step.name}</color> <color=#{mutedHex}><i>({typeName})</i></color>";
 
                 if (Application.isPlaying)
                 {
-                    name += $" <color=#B0B0B0><i>({step.CurrentStatus})</i></color>";
+                    name += $" <color=#{mutedHex}><i>({step.CurrentStatus})</i></color>";
                 }
                 
                 _stepNameCache[stepId] = name;

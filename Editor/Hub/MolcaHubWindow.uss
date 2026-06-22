@@ -24,7 +24,7 @@
     padding-bottom: 5px;
     padding-left: 8px;
     padding-right: 8px;
-    background-color: rgb(57, 57, 57);
+    background-color: var(--hub-card-header);
     border-bottom-width: 1px;
     border-bottom-color: var(--hub-border);
 }
@@ -39,7 +39,7 @@
     border-width: 0;
     border-radius: 3px;
     background-color: rgba(0, 0, 0, 0);
-    color: rgb(189, 189, 189);
+    color: var(--hub-text);
     font-size: 11px;
 }
 
@@ -58,10 +58,10 @@
     padding-left: 10px;
     padding-right: 10px;
     border-width: 1px;
-    border-color: rgb(47, 47, 47);
+    border-color: var(--hub-card);
     border-radius: 2px;
-    background-color: rgb(77, 77, 77);
-    color: rgb(189, 189, 189);
+    background-color: var(--hub-control);
+    color: var(--hub-text);
     font-size: 10px;
 }
 
@@ -76,9 +76,9 @@
 }
 
 .molca-hub-rail {
-    background-color: rgb(46, 46, 46);
+    background-color: var(--hub-panel);
     border-right-width: 1px;
-    border-right-color: rgb(35, 35, 35);
+    border-right-color: var(--hub-border);
     padding-top: 8px;
     padding-bottom: 8px;
     padding-left: 0;
@@ -93,8 +93,8 @@
 
 .molca-hub-search TextInput {
     -unity-text-align: middle-left;
-    background-color: rgb(37, 37, 37);
-    border-color: rgb(28, 28, 28);
+    background-color: var(--hub-input);
+    border-color: var(--hub-border);
     border-radius: 3px;
     padding-top: 4px;
     padding-bottom: 4px;
@@ -107,7 +107,7 @@
     position: absolute;
     left: 17px;
     top: 4px;
-    color: rgb(119, 119, 119);
+    color: var(--hub-muted);
     font-size: 11px;
 }
 
@@ -130,7 +130,7 @@
     border-left-color: rgba(0, 0, 0, 0);
     border-radius: 0;
     background-color: rgba(0, 0, 0, 0);
-    color: rgb(189, 189, 189);
+    color: var(--hub-text);
     -unity-text-align: middle-left;
     font-size: 11px;
 }
@@ -138,7 +138,7 @@
 .molca-hub-rail-item--selected {
     background-color: var(--hub-row-selected);
     border-left-color: var(--hub-accent);
-    color: white;
+    color: var(--hub-on-row-selected);
 }
 
 .molca-hub-detail-scroll {
@@ -163,7 +163,7 @@
     border-radius: 6px;
     border-width: 1px;
     border-color: var(--hub-border);
-    background-color: rgb(42, 42, 42);
+    background-color: var(--hub-input);
     align-items: center;
     justify-content: center;
     margin-right: 9px;
@@ -212,7 +212,7 @@
     border-radius: 7px;
     border-width: 1px;
     border-color: var(--hub-border);
-    background-color: rgb(42, 42, 42);
+    background-color: var(--hub-input);
     align-items: center;
     justify-content: center;
     margin-right: 12px;
@@ -241,7 +241,7 @@
 }
 
 .molca-hub-project-subtitle {
-    color: rgb(127, 127, 127);
+    color: var(--hub-muted);
     font-size: 11px;
 }
 
@@ -249,7 +249,7 @@
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
-    background-color: rgb(51, 51, 51);
+    background-color: var(--hub-card);
     margin-bottom: 14px;
 }
 
@@ -271,7 +271,7 @@
 }
 
 .molca-hub-section-card__title {
-    color: rgb(207, 207, 207);
+    color: var(--hub-heading);
     -unity-font-style: bold;
     font-size: 12px;
 }
@@ -375,7 +375,7 @@
 
 .molca-hub-project-id-text {
     flex-grow: 1;
-    color: rgb(127, 127, 127);
+    color: var(--hub-muted);
     font-size: 11px;
 }
 
@@ -391,7 +391,7 @@
     border-width: 1px;
     border-color: var(--hub-border);
     border-radius: 4px;
-    background-color: rgb(42, 42, 42);
+    background-color: var(--hub-input);
     align-items: center;
     justify-content: center;
     margin-right: 9px;
@@ -445,7 +445,7 @@
 
 .molca-hub-divider {
     height: 1px;
-    background-color: rgb(42, 42, 42);
+    background-color: var(--hub-border-soft);
     margin-top: 7px;
     margin-bottom: 7px;
 }
@@ -467,7 +467,7 @@
 .molca-hub-bv-context {
     flex-direction: row;
     align-items: center;
-    background-color: rgb(51, 51, 51);
+    background-color: var(--hub-card);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
@@ -487,14 +487,14 @@
 }
 
 .molca-hub-bv-context__asset {
-    color: rgb(201, 201, 201);
+    color: var(--hub-text);
     font-size: 11px;
 }
 
 .molca-hub-bv-context__sep {
     width: 1px;
     height: 14px;
-    background-color: rgb(74, 74, 74);
+    background-color: var(--hub-border-soft);
     margin-left: 10px;
     margin-right: 10px;
 }
@@ -528,9 +528,9 @@
     margin-left: 0;
     margin-right: 1px;
     border-width: 1px;
-    border-color: rgb(42, 42, 42);
+    border-color: var(--hub-border-soft);
     border-radius: 2px;
-    background-color: rgb(85, 85, 85);
+    background-color: var(--hub-control);
     color: var(--hub-text);
     font-size: 11px;
     padding-top: 6px;
@@ -551,7 +551,7 @@
     flex-shrink: 0;
     width: 182px;
     margin-right: 10px;
-    background-color: rgb(48, 48, 48);
+    background-color: var(--hub-panel);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
@@ -586,10 +586,10 @@
     margin-left: 4px;
     padding: 0;
     border-width: 1px;
-    border-color: rgb(47, 47, 47);
+    border-color: var(--hub-card);
     border-radius: 2px;
-    background-color: rgb(77, 77, 77);
-    color: rgb(189, 189, 189);
+    background-color: var(--hub-control);
+    color: var(--hub-text);
     font-size: 12px;
     -unity-text-align: middle-center;
 }
@@ -623,7 +623,7 @@
 }
 
 .molca-hub-bv-profile-row__name {
-    color: rgb(220, 220, 220);
+    color: var(--hub-heading);
     font-size: 11px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -632,7 +632,7 @@
 }
 
 .molca-hub-bv-profile-row__target {
-    color: rgb(127, 127, 127);
+    color: var(--hub-muted);
     font-size: 9px;
     -unity-text-align: middle-left;
 }
@@ -650,7 +650,7 @@
 .molca-hub-bv-profile-detail {
     flex-grow: 1;
     min-width: 0;
-    background-color: rgb(48, 48, 48);
+    background-color: var(--hub-panel);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
@@ -677,14 +677,14 @@
 }
 
 .molca-hub-bv-detail-title {
-    color: rgb(220, 220, 220);
+    color: var(--hub-heading);
     -unity-font-style: bold;
     font-size: 12px;
     margin-right: 8px;
 }
 
 .molca-hub-bv-detail-sub {
-    color: rgb(111, 111, 111);
+    color: var(--hub-muted);
     font-size: 10px;
 }
 
@@ -700,7 +700,7 @@
 }
 
 .molca-hub-bv-card {
-    background-color: rgb(44, 44, 44);
+    background-color: var(--hub-input);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
@@ -715,7 +715,7 @@
     padding-bottom: 6px;
     padding-left: 9px;
     padding-right: 9px;
-    background-color: rgb(51, 51, 51);
+    background-color: var(--hub-card);
     border-bottom-width: 1px;
     border-bottom-color: var(--hub-border-soft);
 }
@@ -736,7 +736,7 @@
 }
 
 .molca-hub-bv-option-heading {
-    color: rgb(127, 127, 127);
+    color: var(--hub-muted);
     font-size: 9px;
     -unity-font-style: bold;
     margin-bottom: 4px;
@@ -763,7 +763,7 @@
     margin-bottom: 4px;
     padding-left: 8px;
     border-left-width: 2px;
-    border-left-color: rgb(58, 58, 58);
+    border-left-color: var(--hub-card-header);
 }
 
 .molca-hub-bv-actions {
@@ -776,9 +776,9 @@
     margin-left: 0;
     margin-right: 6px;
     border-width: 1px;
-    border-color: rgb(42, 42, 42);
+    border-color: var(--hub-border-soft);
     border-radius: 2px;
-    background-color: rgb(77, 77, 77);
+    background-color: var(--hub-control);
     color: var(--hub-text);
     font-size: 11px;
     padding-top: 6px;
@@ -802,9 +802,9 @@
     margin-left: 0;
     margin-right: 0;
     border-width: 1px;
-    border-color: rgb(42, 42, 42);
+    border-color: var(--hub-border-soft);
     border-radius: 2px;
-    background-color: rgb(77, 77, 77);
+    background-color: var(--hub-control);
     color: var(--hub-text);
     font-size: 11px;
     padding-top: 7px;
@@ -819,7 +819,7 @@
 .molca-hub-bv-summary {
     flex-direction: row;
     align-items: center;
-    background-color: rgb(51, 51, 51);
+    background-color: var(--hub-card);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
@@ -867,7 +867,7 @@
 .molca-hub-bv-warning {
     flex-direction: row;
     align-items: flex-start;
-    background-color: rgb(47, 47, 47);
+    background-color: var(--hub-card);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
@@ -910,9 +910,9 @@
     margin-left: 0;
     margin-right: 0;
     border-width: 1px;
-    border-color: rgb(42, 42, 42);
+    border-color: var(--hub-border-soft);
     border-radius: 2px;
-    background-color: rgb(77, 77, 77);
+    background-color: var(--hub-control);
     color: var(--hub-text);
     font-size: 11px;
     padding-top: 7px;
@@ -921,7 +921,7 @@
 
 .molca-hub-bv-footer__note {
     -unity-text-align: middle-center;
-    color: rgb(111, 111, 111);
+    color: var(--hub-muted);
     font-size: 10px;
     margin-top: 4px;
 }
@@ -935,7 +935,7 @@
 .molca-hub-rt-context {
     flex-direction: row;
     align-items: center;
-    background-color: rgb(51, 51, 51);
+    background-color: var(--hub-card);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
@@ -959,7 +959,7 @@
 }
 
 .molca-hub-rt-context__marker--runtime {
-    background-color: rgb(90, 122, 168);
+    background-color: var(--hub-primary);
 }
 
 .molca-hub-rt-context__marker--global {
@@ -967,12 +967,12 @@
 }
 
 .molca-hub-rt-context__label {
-    color: rgb(201, 201, 201);
+    color: var(--hub-text);
     font-size: 11px;
 }
 
 .molca-hub-rt-context__sep {
-    color: rgb(95, 95, 95);
+    color: var(--hub-muted);
     font-size: 13px;
     margin-left: 8px;
     margin-right: 8px;
@@ -985,7 +985,7 @@
     padding: 0;
     border-width: 0;
     background-color: rgba(0, 0, 0, 0);
-    color: rgb(122, 122, 122);
+    color: var(--hub-muted);
     font-size: 12px;
     -unity-text-align: middle-center;
 }
@@ -998,10 +998,10 @@
 
 .molca-hub-rt-chip {
     border-width: 1px;
-    border-color: rgb(47, 47, 47);
+    border-color: var(--hub-card);
     border-radius: 2px;
-    background-color: rgb(85, 85, 85);
-    color: rgb(189, 189, 189);
+    background-color: var(--hub-control);
+    color: var(--hub-text);
     font-size: 10px;
     padding-top: 3px;
     padding-bottom: 3px;
@@ -1029,9 +1029,9 @@
 .molca-hub-rt-modules-count {
     color: var(--hub-muted);
     font-size: 10px;
-    background-color: rgb(43, 43, 43);
+    background-color: var(--hub-input);
     border-width: 1px;
-    border-color: rgb(35, 35, 35);
+    border-color: var(--hub-border);
     border-radius: 9px;
     padding-left: 7px;
     padding-right: 7px;
@@ -1056,10 +1056,10 @@
     padding-left: 11px;
     padding-right: 11px;
     border-width: 1px;
-    border-color: rgb(47, 47, 47);
+    border-color: var(--hub-card);
     border-radius: 13px;
-    background-color: rgb(43, 43, 43);
-    color: rgb(189, 189, 189);
+    background-color: var(--hub-input);
+    color: var(--hub-text);
     font-size: 11px;
 }
 
@@ -1071,7 +1071,7 @@
 
 .molca-hub-rt-chip-item__name {
     margin-left: 7px;
-    color: rgb(189, 189, 189);
+    color: var(--hub-text);
     font-size: 11px;
     white-space: nowrap;
 }
@@ -1081,7 +1081,7 @@
 }
 
 .molca-hub-rt-detail {
-    background-color: rgb(48, 48, 48);
+    background-color: var(--hub-panel);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
@@ -1100,7 +1100,7 @@
 }
 
 .molca-hub-rt-detail-title {
-    color: rgb(220, 220, 220);
+    color: var(--hub-heading);
     -unity-font-style: bold;
     font-size: 12px;
     margin-left: 8px;
@@ -1108,7 +1108,7 @@
 }
 
 .molca-hub-rt-detail-type {
-    color: rgb(111, 111, 111);
+    color: var(--hub-muted);
     font-size: 10px;
 }
 
@@ -1139,7 +1139,7 @@
     color: var(--hub-muted);
     font-size: 11px;
     white-space: normal;
-    background-color: rgb(47, 47, 47);
+    background-color: var(--hub-card);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 2px;
@@ -1150,7 +1150,7 @@
 .molca-hub-provider-row {
     flex-direction: row;
     align-items: center;
-    background-color: rgb(44, 44, 44);
+    background-color: var(--hub-input);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
@@ -1168,7 +1168,7 @@
 }
 
 .molca-hub-provider-row__name {
-    color: rgb(220, 220, 220);
+    color: var(--hub-heading);
     -unity-font-style: bold;
     font-size: 11px;
     overflow: hidden;
@@ -1215,14 +1215,14 @@
 .molca-hub-mcp-log {
     max-height: 120px;
     margin-top: 6px;
-    background-color: rgb(40, 40, 40);
+    background-color: var(--hub-input);
     border-width: 1px;
     border-color: var(--hub-border);
     border-radius: 2px;
 }
 
 .molca-hub-mcp-log__text {
-    color: rgb(180, 180, 180);
+    color: var(--hub-label);
     font-size: 10px;
     white-space: normal;
     padding: 6px;
@@ -1230,7 +1230,7 @@
 
 .molca-hub-mcp-allowlist {
     margin-top: 6px;
-    background-color: rgb(43, 43, 43);
+    background-color: var(--hub-input);
     border-width: 1px;
     border-color: var(--hub-border);
     border-radius: 2px;
@@ -1286,27 +1286,27 @@
     padding-left: 4px;
     padding-right: 4px;
     margin-left: 3px;
-    color: rgb(200, 200, 200);
-    background-color: rgb(58, 58, 58);
-    border-color: rgb(70, 70, 70);
+    color: var(--hub-text);
+    background-color: rgba(128, 128, 128, 0.18);
+    border-color: rgba(128, 128, 128, 0.40);
 }
 
 .molca-hub-allow-badge--action {
-    color: rgb(224, 158, 130);
-    border-color: rgb(90, 58, 48);
-    background-color: rgb(58, 42, 38);
+    color: var(--hub-status-error);
+    border-color: rgba(224, 112, 58, 0.45);
+    background-color: rgba(224, 112, 58, 0.16);
 }
 
 .molca-hub-allow-badge--undo {
-    color: rgb(150, 200, 150);
-    border-color: rgb(60, 80, 60);
-    background-color: rgb(42, 52, 42);
+    color: var(--hub-status-green);
+    border-color: rgba(87, 200, 74, 0.45);
+    background-color: rgba(87, 200, 74, 0.15);
 }
 
 .molca-hub-allow-badge--play {
-    color: rgb(150, 180, 220);
-    border-color: rgb(58, 70, 90);
-    background-color: rgb(40, 48, 60);
+    color: var(--hub-link);
+    border-color: rgba(91, 155, 213, 0.45);
+    background-color: rgba(91, 155, 213, 0.15);
 }
 
 .molca-hub-allow-toggle {
@@ -1349,7 +1349,7 @@
 .molca-hub-integration-card {
     flex-direction: row;
     align-items: center;
-    background-color: rgb(51, 51, 51);
+    background-color: var(--hub-card);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
@@ -1376,7 +1376,7 @@
 }
 
 .molca-hub-integration-name {
-    color: rgb(220, 220, 220);
+    color: var(--hub-heading);
     -unity-font-style: bold;
     font-size: 12px;
 }
@@ -1401,12 +1401,13 @@
 
 .molca-hub-integration-add {
     border-width: 1px;
-    border-color: rgb(74, 74, 74);
+    border-color: var(--hub-border-soft);
     border-radius: 3px;
     padding-top: 9px;
     padding-bottom: 9px;
     color: var(--hub-muted);
     font-size: 11px;
+    border-color: var(--hub-border-soft);
     -unity-text-align: middle-center;
 }
 
@@ -1434,7 +1435,7 @@
 .molca-hub-task-row {
     flex-direction: row;
     align-items: center;
-    background-color: rgb(51, 51, 51);
+    background-color: var(--hub-card);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
@@ -1446,7 +1447,7 @@
 }
 
 .molca-hub-task-name {
-    color: rgb(220, 220, 220);
+    color: var(--hub-heading);
     font-size: 12px;
     white-space: normal;
     flex-shrink: 1;
@@ -1464,7 +1465,7 @@
     padding-right: 5px;
     padding-top: 1px;
     padding-bottom: 1px;
-    background-color: rgb(64, 64, 64);
+    background-color: var(--hub-card-header);
     border-radius: 3px;
 }
 
@@ -1500,7 +1501,7 @@
 }
 
 .molca-hub-network-metric__value {
-    color: rgb(220, 220, 220);
+    color: var(--hub-heading);
     -unity-font-style: bold;
     font-size: 11px;
 }
@@ -1508,7 +1509,7 @@
 .molca-hub-network-row {
     flex-direction: row;
     align-items: center;
-    background-color: rgb(44, 44, 44);
+    background-color: var(--hub-input);
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
@@ -1523,7 +1524,7 @@
     flex-grow: 1;
     min-width: 0;
     margin-left: 8px;
-    color: rgb(210, 210, 210);
+    color: var(--hub-text);
     font-size: 11px;
     overflow: hidden;
     text-overflow: ellipsis;

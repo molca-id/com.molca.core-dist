@@ -17,7 +17,7 @@
     border-width: 1px;
     border-color: var(--molca-border-soft);
     border-radius: 3px;
-    background-color: rgb(51, 51, 51);
+    background-color: var(--molca-card);
     margin-bottom: 14px;
 }
 
@@ -208,7 +208,7 @@
     border-width: 1px;
     border-color: var(--molca-card);
     border-radius: 2px;
-    background-color: rgb(77, 77, 77);
+    background-color: var(--molca-control);
     color: var(--molca-text);
     font-size: 10px;
 }

@@ -10,17 +10,22 @@ namespace Molca.Editor.Doctor
 {
     /// <summary>
     /// Enforces the Molca editor design language (Sprint 27.8). Flags editor-only UI code that drifts
-    /// from <c>Documentation~/EDITOR_DESIGN_LANGUAGE.md</c>: raw hex colors where a shared token
-    /// exists, unscoped <c>EditorPrefs</c> instead of <c>MolcaEditorPrefs</c>, nested section cards,
-    /// hardcoded settings-asset paths instead of <c>MolcaEditorSettingsAsset.GetOrCreate</c>, and USS
-    /// class names that are not domain-scoped.
+    /// from <c>Documentation~/EDITOR_DESIGN_LANGUAGE.md</c>: raw hex colors in C# where a shared token
+    /// exists, raw <c>rgb()</c>/<c>#hex</c> color literals in USS that should reference a
+    /// <c>--molca-*</c> token (the gap that let the Hub sheet drift dark-only), unscoped
+    /// <c>EditorPrefs</c> instead of <c>MolcaEditorPrefs</c>, nested section cards, hardcoded
+    /// settings-asset paths instead of <c>MolcaEditorSettingsAsset.GetOrCreate</c>, and USS class names
+    /// that are not domain-scoped.
     /// </summary>
     /// <remarks>
-    /// All findings are <see cref="DoctorSeverity.Warning"/> (USS scope is <see cref="DoctorSeverity.Info"/>)
-    /// — text analysis cannot prove intent, and forks must not be CI-broken by a styling heuristic.
-    /// Suppress an intentional case with a <c>doctor:ignore</c> comment. Domain color (ColorID theming,
-    /// color-field drawers) and the shared palette/component files are excluded by design. Surfaced to
-    /// the assistant through the <c>molca_doctor</c> MCP tool because it runs the same check registry.
+    /// Findings are <see cref="DoctorSeverity.Warning"/> except the non-domain-scoped USS class-name
+    /// advisory, which is <see cref="DoctorSeverity.Info"/> — text analysis cannot prove intent, and
+    /// forks must not be CI-broken by a styling heuristic. The USS color scan exempts translucent
+    /// <c>rgba()</c> washes (they composite over a themed surface and already track the skin). Suppress
+    /// an intentional case (e.g. a near-black foreground on a fixed status fill) with a
+    /// <c>doctor:ignore</c> comment. Domain color (ColorID theming, color-field drawers) and the shared
+    /// palette/component files under <c>Editor/UI/</c> are excluded by design. Surfaced to the assistant
+    /// through the <c>molca_doctor</c> MCP tool because it runs the same check registry.
     /// </remarks>
     public class DesignLanguageCheck : IDoctorCheck
     {
@@ -41,6 +46,11 @@ namespace Molca.Editor.Doctor
             new Regex(@"AssetDatabase\s*\.\s*CreateAsset\s*\([^)]*,\s*\$?""Assets/[^""]+\.asset""");
         // USS class selector at the start of a rule, e.g. ".molca-card {".
         private static readonly Regex UssClass = new Regex(@"^\s*\.([A-Za-z_][\w-]*)");
+        // Opaque color literal in USS — an `rgb(...)` or `#hex`. Translucent `rgba(...)` washes are
+        // deliberately exempt: layered over a themed surface they already track the skin (negative
+        // lookahead on the `a` keeps `rgba(` from matching). Hex is bounded so it is not part of an id.
+        private static readonly Regex UssRawColor =
+            new Regex(@"(?<![\w-])(#[0-9a-fA-F]{3,8}\b|rgb\s*\()");
 
         // USS class prefixes that count as domain-scoped (design-language compliant).
         private static readonly string[] ScopedPrefixes = { "molca", "unity", "chat" };
@@ -100,11 +110,25 @@ namespace Molca.Editor.Doctor
                 try { lines = File.ReadAllLines(ussPath); }
                 catch (Exception) { continue; }
 
+                // The shared palette/component sheets under Editor/UI/ legitimately define raw color;
+                // every other editor sheet must reference the tokens instead.
+                bool allowRawColor = IsDomainColorFile(ussPath);
+
                 for (int i = 0; i < lines.Length; i++)
                 {
-                    var match = UssClass.Match(lines[i]);
+                    var line = lines[i];
+                    if (DoctorContext.IsSuppressed(line)) continue;
+
+                    var trimmed = line.TrimStart();
+                    bool isComment = trimmed.StartsWith("*") || trimmed.StartsWith("/*") || trimmed.StartsWith("//");
+
+                    if (!allowRawColor && !isComment && UssRawColor.IsMatch(line))
+                        issues.Add(new DoctorIssue(Id, DoctorSeverity.Warning,
+                            "Raw color literal in USS — reference a --molca-* token so the surface tracks the light/dark skin (translucent rgba() washes and an intentional fixed-accent value marked doctor:ignore are exempt).",
+                            ussPath, i + 1));
+
+                    var match = UssClass.Match(line);
                     if (!match.Success) continue;
-                    if (DoctorContext.IsSuppressed(lines[i])) continue;
 
                     var name = match.Groups[1].Value;
                     if (ScopedPrefixes.Any(p => name.StartsWith(p, StringComparison.OrdinalIgnoreCase)))

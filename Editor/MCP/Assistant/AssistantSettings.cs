@@ -69,6 +69,19 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("Per-model USD-per-million-token price overrides for the session cost estimate. Model is substring-matched (e.g. 'claude-opus'); shipped defaults apply to anything not overridden.")]
         [SerializeField] private List<ModelPriceOverride> modelPriceOverrides = new List<ModelPriceOverride>();
 
+        [Header("Research Sub-Agents (Sprint 56)")]
+        [Tooltip("Maximum read-only research sub-agents the model may spawn per turn. A hard cap so a runaway swarm can't cost more than it saves.")]
+        [SerializeField] private int maxSubAgentsPerTurn = 4;
+
+        [Tooltip("How many concurrently-running sub-agents are kicked off together (the rest queue in batches).")]
+        [SerializeField] private int subAgentConcurrency = 3;
+
+        [Tooltip("Round (model→tool→model) cap per sub-agent. On reaching it the sub-agent returns its partial digest with a truncation note.")]
+        [SerializeField] private int subAgentMaxRounds = 6;
+
+        [Tooltip("Per-response output-token ceiling for a sub-agent (kept modest — a sub-agent returns a short digest).")]
+        [SerializeField] private int subAgentMaxTokens = 2048;
+
         /// <summary>Whether the assistant is enabled.</summary>
         public bool Enabled { get => enabled; set => enabled = value; }
 
@@ -128,6 +141,18 @@ namespace Molca.Editor.Mcp.Assistant
         /// </summary>
         public IReadOnlyList<ModelPriceOverride> ModelPriceOverrides =>
             modelPriceOverrides ?? (modelPriceOverrides = new List<ModelPriceOverride>());
+
+        /// <summary>Hard cap on read-only research sub-agents spawned per turn, clamped (Sprint 56).</summary>
+        public int MaxSubAgentsPerTurn => Mathf.Clamp(maxSubAgentsPerTurn, 1, 16);
+
+        /// <summary>How many sub-agents run concurrently within a batch, clamped (Sprint 56).</summary>
+        public int SubAgentConcurrency => Mathf.Clamp(subAgentConcurrency, 1, 8);
+
+        /// <summary>Per-sub-agent round cap, clamped (Sprint 56).</summary>
+        public int SubAgentMaxRounds => Mathf.Clamp(subAgentMaxRounds, 1, 25);
+
+        /// <summary>Per-response output-token ceiling for a sub-agent, clamped (Sprint 56).</summary>
+        public int SubAgentMaxTokens => Mathf.Clamp(subAgentMaxTokens, 256, 16000);
 
         /// <summary>The default model id for a provider.</summary>
         public static string DefaultModelFor(LlmProviderKind p) => p switch

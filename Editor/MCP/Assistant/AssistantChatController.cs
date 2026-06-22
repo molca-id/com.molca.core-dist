@@ -346,6 +346,10 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>The tool-result payload returned for plan calls left unrun after the user aborts (Sprint 52).</summary>
         private const string PlanAbortedResultJson = "{\"error\":\"Plan aborted by the user; this step was not run.\"}";
 
+        // Count of read-only research sub-agents spawned this turn (Sprint 56), enforced against
+        // AssistantSettings.MaxSubAgentsPerTurn. Reset each turn.
+        private int _subAgentsThisTurn;
+
         // The session this conversation is persisted under (Sprint 35). Assigned on construction (restored,
         // migrated, or freshly minted) and rotated by NewChat / SwitchToSession.
         private string _sessionId;
@@ -732,6 +736,7 @@ namespace Molca.Editor.Mcp.Assistant
             // The structured plan turn (Sprint 52) is likewise per-turn.
             _activePlanTurn = null;
             _planAbortRequested = false;
+            _subAgentsThisTurn = 0;
             // Anchor the visible user turn to the history message it produces, so retry/edit can trim both
             // precisely later (Sprint 25.8) without scanning for "the last user message".
             var userHistoryIndex = _history.Count;
@@ -941,12 +946,14 @@ namespace Molca.Editor.Mcp.Assistant
 
                         ActiveToolName = call.Name;
                         ActiveToolProgress = null;
+                        Changed?.Invoke(); // paint the "Running <tool>…" indicator before the call blocks
                         // Correlate this call to the active plan's next pending step (Sprint 52), so the
                         // checklist advances live as execution proceeds. Order-based mapping keeps the action
                         // tool schemas untouched (no injected planStepId arg).
                         var planStep = isAction && _planApprovedThisTurn ? BeginNextPlanStep() : null;
 
-                        var result = await AssistantToolBridge.ExecuteAsync(registry, call, cancellationToken, isActionAllowed, confirmAction, AskUserAsync, confirmActionAsync, ReportToolProgress, ProposePlanAsync);
+                        var result = await AssistantToolBridge.ExecuteAsync(registry, call, cancellationToken, isActionAllowed, confirmAction, AskUserAsync, confirmActionAsync, ReportToolProgress, ProposePlanAsync,
+                            (reqs, ct) => RunSubtasksAsync(reqs, registry, ct));
                         ActiveToolName = null;
                         ActiveToolProgress = null;
 
@@ -1626,6 +1633,72 @@ namespace Molca.Editor.Mcp.Assistant
             return "{\"disposition\":\"cancelled\"}";
         }
 
+        /// <summary>
+        /// Runs read-only research sub-agents (Sprint 56) for <c>molca_spawn_subtask(s)</c>: enforces the
+        /// per-turn cap, fans them out with bounded concurrency, folds their tokens into session telemetry,
+        /// surfaces an auditable transcript row per sub-task, and returns only the digests as the tool result
+        /// — so the verbose tool output the sub-agents read never enters the main history.
+        /// </summary>
+        private async Awaitable<string> RunSubtasksAsync(
+            IReadOnlyList<SubtaskRequest> requests, McpToolRegistry registry, CancellationToken cancellationToken)
+        {
+            if (requests == null || requests.Count == 0)
+                return new JObject { ["error"] = "No sub-task prompt provided." }.ToString(Newtonsoft.Json.Formatting.None);
+
+            var remaining = _settings.MaxSubAgentsPerTurn - _subAgentsThisTurn;
+            if (remaining <= 0)
+                return new JObject
+                {
+                    ["error"] = $"Sub-agent limit reached for this turn ({_settings.MaxSubAgentsPerTurn}). " +
+                                "Answer from the digests already returned."
+                }.ToString(Newtonsoft.Json.Formatting.None);
+
+            var capped = requests.Count > remaining ? requests.Take(remaining).ToList() : requests;
+            _subAgentsThisTurn += capped.Count;
+
+            var tuples = capped.Select(r => (r.Prompt, r.Focus)).ToList();
+            var subResults = await AssistantSubAgent.RunManyAsync(
+                tuples, _providerFactory, registry, _settings.Model,
+                _settings.SubAgentMaxRounds, _settings.SubAgentMaxTokens, _settings.SubAgentConcurrency, cancellationToken);
+
+            var digests = new JArray();
+            for (var i = 0; i < subResults.Length; i++)
+            {
+                var r = subResults[i];
+                // Sub-agent tokens are real spend — roll them into the session telemetry (Sprint 49/53).
+                _sessionInputTokens += r.InputTokens;
+                _sessionOutputTokens += r.OutputTokens;
+
+                // Auditable transcript row: the prompt as the line, the digest (+ tool steps) behind a disclosure.
+                var stepsText = r.Steps.Count > 0 ? "\n\nSteps:\n• " + string.Join("\n• ", r.Steps) : string.Empty;
+                _transcript.Add(new ChatTurn(ChatTurnKind.Notice, $"Sub-task: {SubtaskHeadline(capped[i].Prompt)}")
+                {
+                    Detail = r.Digest + stepsText
+                });
+
+                digests.Add(new JObject
+                {
+                    ["prompt"] = capped[i].Prompt,
+                    ["digest"] = r.Digest,
+                    ["truncated"] = r.Truncated
+                });
+            }
+            Changed?.Invoke();
+
+            var payload = new JObject { ["subtasks"] = digests };
+            if (capped.Count < requests.Count)
+                payload["note"] = $"Ran {capped.Count} of {requests.Count} sub-tasks (per-turn cap).";
+            return payload.ToString(Newtonsoft.Json.Formatting.None);
+        }
+
+        /// <summary>A one-line headline for a sub-task prompt, for its transcript row.</summary>
+        private static string SubtaskHeadline(string prompt)
+        {
+            if (string.IsNullOrWhiteSpace(prompt)) return "(empty)";
+            var line = prompt.Replace("\r", " ").Replace("\n", " ").Trim();
+            return line.Length <= 80 ? line : line.Substring(0, 79).TrimEnd() + "…";
+        }
+
         /// <summary>Builds the <c>molca_propose_plan</c> tool result describing the user's disposition and (edited) steps.</summary>
         private static string BuildPlanDisposition(string disposition, IReadOnlyList<PlanStep> steps)
         {
@@ -1926,6 +1999,7 @@ namespace Molca.Editor.Mcp.Assistant
 
             ActiveToolName = call.Name;
             ActiveToolProgress = null;
+            Changed?.Invoke(); // paint the "Running <tool>…" indicator before the call blocks
             var result = await AssistantToolBridge.ExecuteAsync(
                 registry, call, cancellationToken, isActionAllowed,
                 approvedActionBatch ? (_, __) => true : confirmAction,

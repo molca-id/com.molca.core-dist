@@ -16,29 +16,55 @@
     --prompt-accent: var(--molca-status-warn);
     --link-color: var(--molca-link);
 
-    /* Row backgrounds per role — kept as dark tints, nudged to harmonize with the role accent. */
-    --row-bg-user: rgb(41, 46, 54);
-    --row-bg-assistant: rgb(39, 43, 36);
-    --row-bg-tool: rgb(36, 36, 38);
-    --row-bg-error: rgb(54, 33, 31);
-    --row-bg-prompt: rgb(48, 43, 28);
+    /* Row backgrounds per role — translucent accent washes composited over the themed card surface,
+       so they track the active skin instead of baking dark RGB. The card shows through, the role's hue
+       only faintly tints it. Light-skin alphas are nudged up in the `.molca-light` block below. */
+    --row-bg-user: rgba(91, 155, 213, 0.10);
+    --row-bg-assistant: rgba(198, 242, 58, 0.09);
+    --row-bg-tool: rgba(107, 107, 107, 0.10);
+    --row-bg-error: rgba(224, 112, 58, 0.12);
+    --row-bg-prompt: rgba(216, 178, 74, 0.12);
 
-    /* Surfaces — neutral grays/borders pulled from the Molca tokens for editor-wide consistency. */
-    --scroll-bg: rgb(33, 33, 36);
+    /* Surfaces — all neutral grays/borders pulled from the Molca tokens for editor-wide consistency
+       and automatic light-skin response. */
+    --scroll-bg: var(--molca-panel);
     --scroll-border: var(--molca-border);
     --composer-bg: var(--molca-input);
     --composer-edge: var(--molca-border-soft);
-    --chip-bg: rgb(51, 61, 77);
-    --chip-label: rgb(204, 219, 242);
-    --code-bg: rgb(26, 26, 28);
+    --chip-bg: var(--molca-row-selected);
+    --chip-label: var(--molca-text);
+    --code-bg: var(--molca-input);
     --muted-text: var(--molca-muted);
     --warn-text: var(--molca-status-warn);
-    --accent-text: var(--molca-status-ok, rgb(166, 226, 46));
+    --accent-text: var(--molca-status-green);
+
+    /* Primary (Send) button on the fixed lime accent. The accent hue is skin-invariant, so these are
+       named once here rather than recolored per skin: dark foreground for contrast on lime, and a
+       lighter lime for the hover lift. */
+    --send-bg: var(--molca-accent);
+    --send-fg: rgb(26, 28, 18); /* doctor:ignore — dark foreground on the fixed lime accent, legible in both skins */
+    --send-hover: rgb(210, 250, 90); /* doctor:ignore — lighter lime hover on the skin-invariant accent */
 
     padding: 6px;
     flex-direction: column;
     flex-grow: 1;
     min-height: 0;
+}
+
+/*
+ * Light-skin overrides. The translucent role washes need a touch more alpha to read against the
+ * lighter panel surface; the surface/text tokens themselves already track the skin through the
+ * shared `--molca-*` vocabulary, so only the role tints are restated here. Mirrors the pattern in
+ * MolcaEditorTokens.uss (`.molca-editor.molca-light`). The `molca-light` class is applied to the
+ * root by MolcaEditorUi.Apply when EditorGUIUtility.isProSkin is false. `molca-light` and `chat-root`
+ * are applied to the same root element, so this is a compound selector (no descendant space).
+ */
+.molca-light.chat-root {
+    --row-bg-user: rgba(38, 96, 158, 0.14);
+    --row-bg-assistant: rgba(120, 150, 30, 0.16);
+    --row-bg-tool: rgba(107, 107, 107, 0.14);
+    --row-bg-error: rgba(224, 112, 58, 0.16);
+    --row-bg-prompt: rgba(216, 178, 74, 0.20);
 }
 
 /* ---- Header ------------------------------------------------------------------------------- */
@@ -77,6 +103,16 @@
 
 .chat-icon-button:active {
     background-color: rgba(255, 255, 255, 0.16);
+}
+
+/* A white overlay all but vanishes on the light panel — darken the lift instead so the hover/active
+   affordance stays visible under the light skin. */
+.molca-light .chat-icon-button:hover {
+    background-color: rgba(0, 0, 0, 0.07);
+}
+
+.molca-light .chat-icon-button:active {
+    background-color: rgba(0, 0, 0, 0.13);
 }
 
 .chat-icon-button__image {
@@ -141,6 +177,7 @@
     margin-bottom: 4px;
     border-width: 1px;
     border-color: var(--scroll-border);
+    border-radius: 4px;
     background-color: var(--scroll-bg);
 }
 
@@ -150,10 +187,10 @@
     flex-shrink: 0;
     flex-direction: column;
     background-color: var(--composer-bg);
-    border-radius: 8px;
+    border-radius: 6px;
     border-width: 1px;
     border-color: var(--composer-edge);
-    padding: 5px 6px;
+    padding: 7px 8px;
 }
 
 .chat-context-row {
@@ -237,15 +274,15 @@
 
 /* Primary action wears the Molca lime with dark text for contrast. */
 .chat-send {
-    background-color: var(--molca-accent);
-    color: rgb(26, 28, 18);
+    background-color: var(--send-bg);
+    color: var(--send-fg);
     -unity-font-style: bold;
     border-width: 0;
     border-radius: 4px;
 }
 
 .chat-send:hover {
-    background-color: rgb(210, 250, 90);
+    background-color: var(--send-hover);
 }
 
 /* ---- Context chips ------------------------------------------------------------------------ */
@@ -529,18 +566,18 @@
 
 .chat-live-text {
     white-space: normal;
-    color: rgb(158, 158, 158);
+    color: var(--muted-text);
     -unity-font-style: italic;
 }
 
 /* Per-role body text tints (assistant/user use the default label color). */
 .chat-body--tool {
-    color: rgb(158, 158, 158);
+    color: var(--muted-text);
     font-size: 11px;
 }
 
 .chat-body--error {
-    color: rgb(255, 115, 102);
+    color: var(--error-accent);
 }
 
 /* ---- Buttons ------------------------------------------------------------------------------ */
@@ -581,7 +618,7 @@
 }
 
 .chat-link:hover {
-    color: rgb(255, 255, 255);
+    color: var(--molca-heading);
 }
 
 .chat-code-block {
@@ -609,5 +646,5 @@
     font-size: 11px;
     margin-top: 2px;
     padding: 4px 6px;
-    background-color: rgb(26, 26, 26);
+    background-color: var(--code-bg);
 }
