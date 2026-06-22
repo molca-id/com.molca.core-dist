@@ -4,6 +4,24 @@ using System.Collections.Generic;
 namespace Molca.Editor.Mcp.Assistant
 {
     /// <summary>
+    /// A project-authored price override for a model (Sprint 53), so a project can correct drifted or
+    /// contracted pricing without a code change. <see cref="Model"/> is substring-matched against the model
+    /// id (case-insensitive), exactly like the shipped table, and the first match wins.
+    /// </summary>
+    [Serializable]
+    public sealed class ModelPriceOverride
+    {
+        /// <summary>Model id (or substring) this override applies to, e.g. "claude-opus" or a dated variant.</summary>
+        public string Model;
+
+        /// <summary>USD per million input (prompt) tokens.</summary>
+        public double InputPerMillion;
+
+        /// <summary>USD per million output (completion) tokens.</summary>
+        public double OutputPerMillion;
+    }
+
+    /// <summary>
     /// A small, best-effort price table for estimating assistant API spend from token counts (Sprint 49).
     /// Prices are USD per million tokens and are <b>estimates only</b> — they drift as vendors change pricing,
     /// and an unknown model falls back to a conservative default. Cost is always presented as approximate.
@@ -52,10 +70,35 @@ namespace Molca.Editor.Mcp.Assistant
             return Default;
         }
 
+        /// <summary>
+        /// Resolves the price for a model id (Sprint 53), consulting project <paramref name="overrides"/>
+        /// first (substring-matched, first match wins) before the shipped table and the default.
+        /// </summary>
+        public static Price PriceFor(string model, IReadOnlyList<ModelPriceOverride> overrides)
+        {
+            if (overrides != null && !string.IsNullOrEmpty(model))
+            {
+                foreach (var o in overrides)
+                {
+                    if (o == null || string.IsNullOrWhiteSpace(o.Model)) continue;
+                    if (model.IndexOf(o.Model, StringComparison.OrdinalIgnoreCase) >= 0)
+                        return new Price(o.InputPerMillion, o.OutputPerMillion);
+                }
+            }
+            return PriceFor(model);
+        }
+
         /// <summary>Estimated USD cost for the given token counts under <paramref name="model"/>'s pricing.</summary>
         public static double EstimateCost(string model, long inputTokens, long outputTokens)
+            => EstimateCost(model, inputTokens, outputTokens, null);
+
+        /// <summary>
+        /// Estimated USD cost for the given token counts (Sprint 53), preferring a matching project
+        /// <paramref name="overrides"/> entry over the shipped table.
+        /// </summary>
+        public static double EstimateCost(string model, long inputTokens, long outputTokens, IReadOnlyList<ModelPriceOverride> overrides)
         {
-            var price = PriceFor(model);
+            var price = PriceFor(model, overrides);
             return Math.Max(0, inputTokens) / 1_000_000.0 * price.InputPerMillion
                  + Math.Max(0, outputTokens) / 1_000_000.0 * price.OutputPerMillion;
         }

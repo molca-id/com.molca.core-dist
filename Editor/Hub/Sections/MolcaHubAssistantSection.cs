@@ -104,6 +104,76 @@ namespace Molca.Editor.Hub.Sections
             var privacy = new Label("Project data (questions, tool results) leaves the editor to the configured LLM provider.");
             privacy.AddToClassList("molca-hub-muted");
             configCard.Body.Add(privacy);
+
+            AddUsageCard(settings);
+        }
+
+        /// <summary>
+        /// A read-only, disk-backed usage panel (Sprint 53): lists recent sessions (title · tokens · estimated
+        /// cost) from <see cref="AssistantSessionLibrary"/> metadata with a totals row — no live controller
+        /// needed, so it fits the settings-only Hub section. Cost is estimated at the current model's pricing.
+        /// </summary>
+        private void AddUsageCard(AssistantSettings settings)
+        {
+            var sessions = AssistantSessionLibrary.ListSessions();
+            var card = new MolcaSectionCard("Usage", $"{sessions.Count} session{(sessions.Count == 1 ? "" : "s")}",
+                MolcaStatusKind.Idle, "Estimated");
+
+            var refresh = new Button(Rebuild) { text = "Refresh", tooltip = "Re-read session usage from disk." };
+            refresh.AddToClassList("molca-hub-mini-button");
+            card.AddHeaderAction(refresh);
+            Add(card);
+
+            if (sessions.Count == 0)
+            {
+                var empty = new Label("No saved sessions yet.");
+                empty.AddToClassList("molca-hub-muted");
+                card.Body.Add(empty);
+                return;
+            }
+
+            card.Body.Add(UsageRow("Session", "Tokens (in / out)", "Est. cost", header: true));
+
+            long totalIn = 0, totalOut = 0;
+            double totalCost = 0;
+            foreach (var s in sessions)
+            {
+                totalIn += s.InputTokens;
+                totalOut += s.OutputTokens;
+                var cost = AssistantCostTable.EstimateCost(settings.Model, s.InputTokens, s.OutputTokens, settings.ModelPriceOverrides);
+                totalCost += cost;
+                card.Body.Add(UsageRow(
+                    string.IsNullOrWhiteSpace(s.Title) ? "(untitled)" : s.Title,
+                    $"{s.InputTokens:n0} / {s.OutputTokens:n0}",
+                    AssistantCostTable.FormatCost(cost)));
+            }
+
+            card.Body.Add(UsageRow("Total", $"{totalIn:n0} / {totalOut:n0}", AssistantCostTable.FormatCost(totalCost), header: true));
+
+            var note = new Label("Estimated from stored token counts at the current model's pricing; actual billing may differ.");
+            note.AddToClassList("molca-hub-muted");
+            card.Body.Add(note);
+        }
+
+        private static VisualElement UsageRow(string title, string tokens, string cost, bool header = false)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("molca-hub-field-row");
+
+            var titleLabel = new Label(title) { style = { flexGrow = 1, flexShrink = 1 } };
+            var tokensLabel = new Label(tokens) { style = { flexGrow = 0, width = 150 } };
+            var costLabel = new Label(cost) { style = { flexGrow = 0, width = 80 } };
+            if (header)
+            {
+                titleLabel.AddToClassList("molca-hub-bv-option-heading");
+                tokensLabel.AddToClassList("molca-hub-bv-option-heading");
+                costLabel.AddToClassList("molca-hub-bv-option-heading");
+            }
+
+            row.Add(titleLabel);
+            row.Add(tokensLabel);
+            row.Add(costLabel);
+            return row;
         }
 
         private VisualElement BuildKeyRow(AssistantSettings settings)

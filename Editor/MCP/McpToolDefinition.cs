@@ -109,6 +109,12 @@ namespace Molca.Editor.Mcp
         public bool IsAsync => ExecuteAsync != null;
 
         /// <summary>
+        /// Optional bridge invocation timeout override in milliseconds. Values less than or equal to zero
+        /// use the bridge default for synchronous/asynchronous tools.
+        /// </summary>
+        public int InvocationTimeoutMs { get; }
+
+        /// <summary>
         /// Constructs an immutable tool definition.
         /// </summary>
         /// <param name="name">Fully-qualified unique tool name. See <see cref="Name"/>.</param>
@@ -117,6 +123,8 @@ namespace Molca.Editor.Mcp
         /// <param name="execute">Main-thread execution delegate. See <see cref="Execute"/>.</param>
         /// <param name="mode">Editor state required to run. Defaults to <see cref="McpToolMode.Any"/>.</param>
         /// <param name="kind">Read-only vs. action. Defaults to <see cref="McpToolKind.ReadOnly"/>.</param>
+        /// <param name="reversibility">How an Action tool can be reverted. Ignored for read-only tools.</param>
+        /// <param name="invocationTimeoutMs">Optional bridge invocation timeout override in milliseconds.</param>
         /// <exception cref="ArgumentException">Thrown if <paramref name="name"/> is null or whitespace.</exception>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="execute"/> is null.</exception>
         public McpToolDefinition(
@@ -126,7 +134,8 @@ namespace Molca.Editor.Mcp
             Func<string, string> execute,
             McpToolMode mode = McpToolMode.Any,
             McpToolKind kind = McpToolKind.ReadOnly,
-            McpToolReversibility reversibility = McpToolReversibility.Irreversible)
+            McpToolReversibility reversibility = McpToolReversibility.Irreversible,
+            int invocationTimeoutMs = 0)
         {
             if (string.IsNullOrWhiteSpace(name))
                 throw new ArgumentException("Tool name must be non-empty.", nameof(name));
@@ -141,6 +150,7 @@ namespace Molca.Editor.Mcp
             Mode = mode;
             Kind = kind;
             Reversibility = reversibility;
+            InvocationTimeoutMs = invocationTimeoutMs;
         }
 
         /// <summary>
@@ -152,6 +162,8 @@ namespace Molca.Editor.Mcp
         /// <param name="executeAsync">Main-thread async execution delegate. See <see cref="ExecuteAsync"/>.</param>
         /// <param name="mode">Editor state required to run. Defaults to <see cref="McpToolMode.Any"/>.</param>
         /// <param name="kind">Read-only vs. action. Defaults to <see cref="McpToolKind.ReadOnly"/>.</param>
+        /// <param name="reversibility">How an Action tool can be reverted. Ignored for read-only tools.</param>
+        /// <param name="invocationTimeoutMs">Optional bridge invocation timeout override in milliseconds.</param>
         /// <exception cref="ArgumentException">Thrown if <paramref name="name"/> is null or whitespace.</exception>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="executeAsync"/> is null.</exception>
         public McpToolDefinition(
@@ -161,7 +173,8 @@ namespace Molca.Editor.Mcp
             Func<string, Awaitable<string>> executeAsync,
             McpToolMode mode = McpToolMode.Any,
             McpToolKind kind = McpToolKind.ReadOnly,
-            McpToolReversibility reversibility = McpToolReversibility.Irreversible)
+            McpToolReversibility reversibility = McpToolReversibility.Irreversible,
+            int invocationTimeoutMs = 0)
         {
             if (string.IsNullOrWhiteSpace(name))
                 throw new ArgumentException("Tool name must be non-empty.", nameof(name));
@@ -175,6 +188,7 @@ namespace Molca.Editor.Mcp
             Mode = mode;
             Kind = kind;
             Reversibility = reversibility;
+            InvocationTimeoutMs = invocationTimeoutMs;
         }
     }
 }

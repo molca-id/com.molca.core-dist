@@ -145,20 +145,26 @@ namespace Molca.Editor.Mcp.Providers
             description: "Builds (or incrementally updates) the project knowledge graph with graphify over "
                        + "the Assets tree, so molca_kg_query/path/explain can answer questions about the "
                        + "project. Writes graphify-out/graph.json and incurs LLM cost. Pass 'full':true to "
-                       + "rebuild from scratch instead of --update.",
+                       + "rebuild from scratch instead of --update. Optional 'timeoutMinutes' overrides "
+                       + "the default graphify build budget for very large projects.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
-                "\"full\":{\"type\":\"boolean\",\"description\":\"Rebuild from scratch instead of incremental --update.\"}}," +
+                "\"full\":{\"type\":\"boolean\",\"description\":\"Rebuild from scratch instead of incremental --update.\"}," +
+                "\"timeoutMinutes\":{\"type\":\"integer\",\"description\":\"Build timeout in minutes. Defaults to 30; clamped to 5-180.\"}}," +
                 "\"additionalProperties\":false}",
             executeAsync: ExecuteKgBuild,
             mode: McpToolMode.Any,
             kind: McpToolKind.Action,
-            reversibility: McpToolReversibility.Irreversible);
+            reversibility: McpToolReversibility.Irreversible,
+            invocationTimeoutMs: GraphifyCli.ResolveBuildTimeoutMs(GraphifyCli.MaxBuildTimeoutMinutes) + 60_000);
 
         private static async Awaitable<string> ExecuteKgBuild(string argumentsJson)
         {
             var args = ParseArgs(argumentsJson);
             bool full = args.Value<bool?>("full") == true;
+            var timeoutMs = GraphifyCli.ResolveBuildTimeoutMs(args.Value<int?>("timeoutMinutes"));
+
+            McpProgress.Report("Exporting Unity facts...", 0.05f, "kg-build");
 
             // Refresh the Unity facts corpus (asset + type wiring graphify can't see in raw source) so the
             // build indexes Unity structure, not just C# text. Best-effort: a corpus failure shouldn't
@@ -168,11 +174,23 @@ namespace Molca.Editor.Mcp.Providers
             try { export = UnityFactsExporter.ExportAll(); }
             catch (System.Exception ex) { exportError = ex.Message; }
 
+            McpProgress.Report(exportError == null
+                ? $"Unity facts exported ({export.TypeCount} types, {export.AssetCount} assets)."
+                : "Unity facts export failed; continuing with source/docs graph.",
+                0.15f,
+                "kg-build");
+
             // Index the Assets tree (project + SDK), the Core package source, and the facts corpus.
             var cmd = GraphifyCli.BuildIndexArgs(full);
 
             // Builds can be long (LLM extraction over the whole project); allow a generous timeout.
-            var result = await GraphifyCli.RunAsync(cmd, CancellationToken.None, timeoutMs: 600_000);
+            McpProgress.Report("Starting graphify build...", 0.2f, "kg-build");
+            var result = await GraphifyCli.RunAsync(
+                cmd,
+                CancellationToken.None,
+                timeoutMs: timeoutMs,
+                onProgressLine: line => McpProgress.Report("graphify: " + line, null, "kg-build"));
+            McpProgress.Report(result.Ok ? "Knowledge graph build complete." : "Knowledge graph build failed.", 1f, "kg-build");
             return ShapeBuildResult(result, export, exportError);
         }
 

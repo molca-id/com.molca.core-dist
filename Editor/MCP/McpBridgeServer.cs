@@ -255,9 +255,14 @@ namespace Molca.Editor.Mcp
             try
             {
                 // Async tools are awaited on the main thread without blocking it; sync tools run inline.
+                var timeoutMs = tool.InvocationTimeoutMs > 0 ? tool.InvocationTimeoutMs : (int?)null;
                 var result = tool.IsAsync
-                    ? McpMainThreadDispatcher.InvokeAsync(() => tool.ExecuteAsync(argumentsJson))
-                    : McpMainThreadDispatcher.Invoke(() => tool.Execute(argumentsJson));
+                    ? timeoutMs.HasValue
+                        ? McpMainThreadDispatcher.InvokeAsync(() => tool.ExecuteAsync(argumentsJson), timeoutMs.Value)
+                        : McpMainThreadDispatcher.InvokeAsync(() => tool.ExecuteAsync(argumentsJson))
+                    : timeoutMs.HasValue
+                        ? McpMainThreadDispatcher.Invoke(() => tool.Execute(argumentsJson), timeoutMs.Value)
+                        : McpMainThreadDispatcher.Invoke(() => tool.Execute(argumentsJson));
 
                 if (tool.Kind == McpToolKind.Action)
                     McpActionAuditLog.Record(tool.Name, argumentsJson, "bridge", "executed");

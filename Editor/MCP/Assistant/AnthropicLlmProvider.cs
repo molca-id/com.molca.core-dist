@@ -154,13 +154,15 @@ namespace Molca.Editor.Mcp.Assistant
             };
         }
 
-        private static LlmResponse ParseResponse(string json)
+        /// <summary>Parses a non-streaming Anthropic Messages response; internal for usage-parsing tests (Sprint 53).</summary>
+        internal static LlmResponse ParseResponse(string json)
         {
             var root = JObject.Parse(json);
             var response = new LlmResponse
             {
                 StopReason = root.Value<string>("stop_reason"),
-                PromptTokens = root["usage"]?.Value<int>("input_tokens") ?? 0
+                PromptTokens = root["usage"]?.Value<int>("input_tokens") ?? 0,
+                CompletionTokens = root["usage"]?.Value<int>("output_tokens") ?? 0
             };
 
             var sb = new StringBuilder();
@@ -210,6 +212,8 @@ namespace Molca.Editor.Mcp.Assistant
             private readonly System.Collections.Generic.Dictionary<int, PendingTool> _tools =
                 new System.Collections.Generic.Dictionary<int, PendingTool>();
             private string _stopReason;
+            private int _promptTokens;
+            private int _completionTokens;
 
             public AnthropicStreamAccumulator(IProgress<string> onTextDelta) { _onTextDelta = onTextDelta; }
 
@@ -225,6 +229,16 @@ namespace Molca.Editor.Mcp.Assistant
 
                 switch (evt.Value<string>("type"))
                 {
+                    case "message_start":
+                        // The opening event carries input usage; output usage trickles in via message_delta.
+                        var startUsage = evt["message"]?["usage"];
+                        if (startUsage != null)
+                        {
+                            _promptTokens = startUsage.Value<int?>("input_tokens") ?? _promptTokens;
+                            _completionTokens = startUsage.Value<int?>("output_tokens") ?? _completionTokens;
+                        }
+                        break;
+
                     case "content_block_start":
                         var block = evt["content_block"];
                         if (block?.Value<string>("type") == "tool_use")
@@ -252,13 +266,23 @@ namespace Molca.Editor.Mcp.Assistant
                     case "message_delta":
                         var reason = evt["delta"]?.Value<string>("stop_reason");
                         if (!string.IsNullOrEmpty(reason)) _stopReason = reason;
+                        // Cumulative output usage is reported on the closing message_delta event.
+                        var deltaUsage = evt["usage"];
+                        if (deltaUsage != null)
+                            _completionTokens = deltaUsage.Value<int?>("output_tokens") ?? _completionTokens;
                         break;
                 }
             }
 
             public LlmResponse Build()
             {
-                var response = new LlmResponse { Text = _text.ToString(), StopReason = _stopReason };
+                var response = new LlmResponse
+                {
+                    Text = _text.ToString(),
+                    StopReason = _stopReason,
+                    PromptTokens = _promptTokens,
+                    CompletionTokens = _completionTokens
+                };
                 foreach (var kv in _tools)
                 {
                     var json = kv.Value.Json.Length > 0 ? kv.Value.Json.ToString() : "{}";

@@ -178,8 +178,18 @@ namespace Molca.Editor.Mcp.Assistant
                     PromptAnswer = t.PromptAnswer,
                     IsConfirmation = t.IsConfirmation,
                     Detail = t.Detail,
-                    CanPin = t.CanPin
+                    CanPin = t.CanPin,
+                    PlanApproved = t.PlanApproved,
+                    PlanUndoFileId = t.PlanUndoFileId,
+                    PlanUndoGroup = t.PlanUndoGroup
                 };
+                if (t.PlanSteps != null)
+                {
+                    dto.PlanSteps = new List<PlanStepDto>();
+                    foreach (var step in t.PlanSteps)
+                        if (step != null)
+                            dto.PlanSteps.Add(new PlanStepDto { Id = step.Id, Summary = step.Summary, Status = (int)step.Status });
+                }
                 if (t.ToolSummaries != null)
                 {
                     foreach (var s in t.ToolSummaries)
@@ -214,12 +224,24 @@ namespace Molca.Editor.Mcp.Assistant
                             string.IsNullOrEmpty(td.Reversibility) ? "Unknown" : td.Reversibility, td.UndoId, td.UndoGroup));
                     summaries = s;
                 }
+                List<PlanStep> planSteps = null;
+                if (d.PlanSteps != null && d.PlanSteps.Count > 0)
+                {
+                    planSteps = new List<PlanStep>();
+                    foreach (var sd in d.PlanSteps)
+                        if (sd != null)
+                            planSteps.Add(new PlanStep(sd.Id, sd.Summary, (PlanStepStatus)sd.Status));
+                }
                 list.Add(new ChatTurn((ChatTurnKind)d.Kind, d.Text, summaries, -1, d.WorkItems)
                 {
                     PromptAnswer = d.PromptAnswer,
                     IsConfirmation = d.IsConfirmation,
                     Detail = d.Detail,
-                    CanPin = d.CanPin
+                    CanPin = d.CanPin,
+                    PlanSteps = planSteps,
+                    PlanApproved = d.PlanApproved,
+                    PlanUndoFileId = d.PlanUndoFileId,
+                    PlanUndoGroup = d.PlanUndoGroup
                 });
             }
             return list;
@@ -281,6 +303,17 @@ namespace Molca.Editor.Mcp.Assistant
             public bool IsConfirmation;
             public string Detail;
             public bool CanPin;
+            public List<PlanStepDto> PlanSteps;
+            public bool PlanApproved;
+            public string PlanUndoFileId;
+            public int PlanUndoGroup = -1;
+        }
+
+        [Serializable] private sealed class PlanStepDto
+        {
+            public string Id;
+            public string Summary;
+            public int Status;
         }
 
         [Serializable] private sealed class ToolSummaryDto

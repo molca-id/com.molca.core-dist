@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -38,6 +40,18 @@ namespace Molca.Editor.KnowledgeGraph
     /// </remarks>
     public static class GraphifyCli
     {
+        /// <summary>Default timeout for knowledge-graph builds, in minutes.</summary>
+        public const int DefaultBuildTimeoutMinutes = 30;
+
+        /// <summary>Minimum accepted knowledge-graph build timeout, in minutes.</summary>
+        public const int MinBuildTimeoutMinutes = 5;
+
+        /// <summary>Maximum accepted knowledge-graph build timeout, in minutes.</summary>
+        public const int MaxBuildTimeoutMinutes = 180;
+
+        /// <summary>Default timeout for knowledge-graph builds, in milliseconds.</summary>
+        public const int DefaultBuildTimeoutMs = DefaultBuildTimeoutMinutes * 60 * 1000;
+
         /// <summary>Project root (parent of <c>Assets/</c>) — the working directory for graphify.</summary>
         public static string ProjectRoot =>
             Directory.GetParent(Application.dataPath)?.FullName ?? string.Empty;
@@ -77,11 +91,40 @@ namespace Molca.Editor.KnowledgeGraph
         }
 
         /// <summary>
+        /// Converts an optional build timeout in minutes to milliseconds, clamped to Molca's supported
+        /// graphify build range.
+        /// </summary>
+        /// <param name="timeoutMinutes">Optional caller-provided timeout in minutes.</param>
+        /// <returns>A timeout in milliseconds suitable for <see cref="RunAsync"/>.</returns>
+        public static int ResolveBuildTimeoutMs(int? timeoutMinutes)
+        {
+            if (!timeoutMinutes.HasValue || timeoutMinutes.Value <= 0)
+                return DefaultBuildTimeoutMs;
+
+            var minutes = timeoutMinutes.Value;
+            if (minutes < MinBuildTimeoutMinutes) minutes = MinBuildTimeoutMinutes;
+            if (minutes > MaxBuildTimeoutMinutes) minutes = MaxBuildTimeoutMinutes;
+            return minutes * 60 * 1000;
+        }
+
+        /// <summary>Formats a raw graphify output line for compact UI progress display.</summary>
+        /// <param name="line">The raw stdout/stderr line from graphify.</param>
+        /// <returns>A trimmed line capped to a UI-friendly length, or an empty string for blank input.</returns>
+        public static string FormatProgressLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return string.Empty;
+            line = line.Trim();
+            const int maxLength = 180;
+            return line.Length <= maxLength ? line : line.Substring(0, maxLength - 3) + "...";
+        }
+
+        /// <summary>
         /// Runs <c>graphify &lt;arguments&gt;</c> in the project root and returns its captured output.
         /// <paramref name="arguments"/> must already be shell-quoted by the caller (use <see cref="Quote"/>).
         /// </summary>
         public static async Awaitable<GraphifyResult> RunAsync(
-            string arguments, CancellationToken cancellationToken, int timeoutMs = 180_000)
+            string arguments, CancellationToken cancellationToken, int timeoutMs = 180_000,
+            Action<string> onProgressLine = null)
         {
             var root = ProjectRoot;
 
@@ -122,8 +165,19 @@ namespace Molca.Editor.KnowledgeGraph
 
                 var stdout = new StringBuilder();
                 var stderr = new StringBuilder();
-                process.OutputDataReceived += (_, e) => { if (e.Data != null) stdout.AppendLine(e.Data); };
-                process.ErrorDataReceived += (_, e) => { if (e.Data != null) stderr.AppendLine(e.Data); };
+                var progressLines = new ConcurrentQueue<string>();
+                process.OutputDataReceived += (_, e) =>
+                {
+                    if (e.Data == null) return;
+                    stdout.AppendLine(e.Data);
+                    progressLines.Enqueue(e.Data);
+                };
+                process.ErrorDataReceived += (_, e) =>
+                {
+                    if (e.Data == null) return;
+                    stderr.AppendLine(e.Data);
+                    progressLines.Enqueue(e.Data);
+                };
 
                 try
                 {
@@ -142,20 +196,37 @@ namespace Molca.Editor.KnowledgeGraph
                 process.BeginErrorReadLine();
 
                 // Cooperative wait so cancellation/timeout can abort a hung build.
-                var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+                var startedAt = DateTime.UtcNow;
+                var deadline = startedAt.AddMilliseconds(timeoutMs);
+                var nextHeartbeat = startedAt.AddSeconds(15);
                 while (!process.HasExited)
                 {
+                    await FlushProgressAsync(progressLines, onProgressLine);
+
                     if (cancellationToken.IsCancellationRequested || DateTime.UtcNow > deadline)
                     {
                         try { process.Kill(); } catch { /* already gone */ }
                         result.StdErr = cancellationToken.IsCancellationRequested
                             ? "graphify call cancelled."
                             : $"graphify call timed out after {timeoutMs} ms.";
+                        await ReportProgressAsync(result.StdErr, onProgressLine);
                         await Awaitable.MainThreadAsync();
                         return result;
                     }
-                    Thread.Sleep(50);
+
+                    var now = DateTime.UtcNow;
+                    if (now >= nextHeartbeat)
+                    {
+                        var elapsed = (int)Math.Max(1, (now - startedAt).TotalMinutes);
+                        var limit = Math.Max(1, timeoutMs / 60000);
+                        await ReportProgressAsync($"Still building graph... {elapsed}m elapsed (timeout {limit}m).", onProgressLine);
+                        nextHeartbeat = now.AddSeconds(15);
+                    }
+
+                    Thread.Sleep(250);
                 }
+
+                await FlushProgressAsync(progressLines, onProgressLine);
 
                 result.ExitCode = process.ExitCode;
                 result.StdOut = stdout.ToString().TrimEnd();
@@ -181,6 +252,44 @@ namespace Molca.Editor.KnowledgeGraph
 
             await Awaitable.MainThreadAsync();
             return result;
+        }
+
+        private static async Awaitable FlushProgressAsync(ConcurrentQueue<string> progressLines, Action<string> onProgressLine)
+        {
+            if (onProgressLine == null || progressLines == null || progressLines.IsEmpty)
+                return;
+
+            var lines = new List<string>(12);
+            while (lines.Count < 12 && progressLines.TryDequeue(out var line))
+            {
+                line = FormatProgressLine(line);
+                if (!string.IsNullOrEmpty(line)) lines.Add(line);
+            }
+
+            if (lines.Count == 0) return;
+            await Awaitable.MainThreadAsync();
+            try
+            {
+                foreach (var line in lines)
+                    onProgressLine(line);
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning($"[Molca KG] Progress callback failed: {ex.Message}");
+            }
+            await Awaitable.BackgroundThreadAsync();
+        }
+
+        private static async Awaitable ReportProgressAsync(string line, Action<string> onProgressLine)
+        {
+            if (onProgressLine == null) return;
+            line = FormatProgressLine(line);
+            if (string.IsNullOrEmpty(line)) return;
+
+            await Awaitable.MainThreadAsync();
+            try { onProgressLine(line); }
+            catch (Exception ex) { UnityEngine.Debug.LogWarning($"[Molca KG] Progress callback failed: {ex.Message}"); }
+            await Awaitable.BackgroundThreadAsync();
         }
 
         /// <summary>Shell-quotes an argument value (wraps in double quotes, escaping inner quotes).</summary>

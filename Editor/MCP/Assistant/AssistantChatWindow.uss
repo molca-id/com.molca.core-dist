@@ -314,6 +314,12 @@
     background-color: var(--row-bg-prompt);
 }
 
+.chat-row--plan {
+    border-left-color: var(--prompt-accent);
+}
+
+.chat-row__title--plan { color: var(--prompt-accent); }
+
 /* Work-row custom disclosure (replaces the Unity Foldout header so nothing paints the row pale). */
 .chat-work__header {
     flex-direction: row;
@@ -428,6 +434,60 @@
 
 .chat-confirm-outcome--declined {
     color: var(--muted-text);
+}
+
+/* Structured plan turn (Sprint 52): an ordered, reviewable checklist with per-step status glyphs and
+   inline edit controls while awaiting approval. */
+.chat-plan {
+    flex-direction: column;
+    margin-top: 2px;
+}
+
+.chat-plan__step {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.chat-plan__glyph {
+    width: 16px;
+    flex-shrink: 0;
+    -unity-text-align: middle-center;
+    color: var(--muted-text);
+}
+
+.chat-plan__glyph--running {
+    color: var(--prompt-accent);
+}
+
+.chat-plan__glyph--done {
+    color: var(--assistant-accent);
+}
+
+.chat-plan__glyph--failed {
+    color: var(--error-accent);
+}
+
+.chat-plan__glyph--skipped {
+    color: var(--muted-text);
+}
+
+.chat-plan__summary {
+    white-space: normal;
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.chat-plan__summary--inactive {
+    color: var(--muted-text);
+}
+
+.chat-plan__field {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-right: 2px;
 }
 
 /* Docked prompt bar (Sprint 25.7 follow-up): the active molca_ask_user question anchored above the

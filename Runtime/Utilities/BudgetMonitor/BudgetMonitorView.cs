@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.InputSystem;
 using UnityEngine.UIElements;
 
 namespace Molca.Utilities
@@ -33,7 +32,8 @@ namespace Molca.Utilities
         public bool IsVisible => _isVisible;
 
         /// <param name="panelSettings">Required by UIDocument. Null logs a warning and the overlay may not render.</param>
-        internal void Initialize(PanelSettings panelSettings, BudgetMonitor.UIAnchor anchor, Vector2 position, Key toggleKey)
+        /// <param name="toggleKeyLabel">Display name of the toggle key, shown in the header (Sprint 54: a plain string, so the view needs no input-package dependency).</param>
+        internal void Initialize(PanelSettings panelSettings, BudgetMonitor.UIAnchor anchor, Vector2 position, string toggleKeyLabel)
         {
             var doc = GetComponent<UIDocument>();
             if (panelSettings != null)
@@ -41,7 +41,7 @@ namespace Molca.Utilities
             else
                 Debug.LogWarning("[BudgetMonitor] No PanelSettings assigned — UI Toolkit overlay may not render.");
 
-            BuildPanel(doc.rootVisualElement, anchor, position, toggleKey);
+            BuildPanel(doc.rootVisualElement, anchor, position, toggleKeyLabel);
         }
 
         public void SetVisible(bool visible)
@@ -72,7 +72,7 @@ namespace Molca.Utilities
 
         // ── Build ────────────────────────────────────────────────────────────────
 
-        private void BuildPanel(VisualElement docRoot, BudgetMonitor.UIAnchor anchor, Vector2 position, Key toggleKey)
+        private void BuildPanel(VisualElement docRoot, BudgetMonitor.UIAnchor anchor, Vector2 position, string toggleKeyLabel)
         {
             docRoot.pickingMode = PickingMode.Ignore;
 
@@ -87,7 +87,7 @@ namespace Molca.Utilities
             ApplyAnchor(container, anchor, position);
             docRoot.Add(container);
 
-            var header = new Label($"Budget Monitor  Ctrl+{toggleKey}");
+            var header = new Label($"Budget Monitor  Ctrl+{toggleKeyLabel}");
             header.style.color = new StyleColor(new Color(0.9f, 0.9f, 0.9f, 1f));
             header.style.unityFontStyleAndWeight = FontStyle.Bold;
             header.style.fontSize    = 13;
@@ -252,9 +252,8 @@ namespace Molca.Utilities
                 new[] { "Performance", "FPS" },
                 new[] { "Memory", "Total Memory", "Texture Memory" },
                 new[] { "Scene", "GameObjects", "Material Count", "Mesh Count" },
-#if UNITY_EDITOR
-                new[] { "Rendering", "Draw Calls", "Batches", "SetPass Calls", "Triangles", "Texture Count" },
-#endif
+                // Rendering metrics are ProfilerRecorder-backed (Sprint 54), so they show in dev builds too.
+                new[] { "Rendering", "Draw Calls", "Batches", "SetPass Calls", "Triangles" },
             };
             return defs.ToArray();
         }

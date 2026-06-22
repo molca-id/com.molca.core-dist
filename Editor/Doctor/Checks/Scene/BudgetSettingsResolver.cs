@@ -78,24 +78,10 @@ namespace Molca.Editor.Doctor
         internal static Resolution ResolveFrom(
             IReadOnlyList<BudgetSettings> candidates, IReadOnlyList<string> priorityTokens)
         {
-            var authored = (candidates ?? Array.Empty<BudgetSettings>())
-                .Where(c => c != null).ToList();
-
-            if (authored.Count == 0)
-                return new Resolution(DefaultSettings(), "default", isDefault: true, isPlatformMismatch: false);
-
-            foreach (var token in priorityTokens ?? Array.Empty<string>())
-            {
-                var match = authored.FirstOrDefault(
-                    a => a.name.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0);
-                if (match != null)
-                    return new Resolution(match, $"platform:{token}", isDefault: false, isPlatformMismatch: false);
-            }
-
-            // Authored budgets exist but none matched this platform — grade against one
-            // rather than silently passing, and flag the mismatch so callers can warn.
-            var fallback = authored[0];
-            return new Resolution(fallback, $"fallback:{fallback.name}", isDefault: false, isPlatformMismatch: true);
+            // Delegate to the runtime provider's shared algorithm (Sprint 54) so the static audit and the
+            // live BudgetMonitor resolve identically, then adapt to this editor-public Resolution type.
+            var r = BudgetSettingsProvider.ResolveFrom(candidates, priorityTokens);
+            return new Resolution(r.Settings, r.Source, r.IsDefault, r.IsPlatformMismatch);
         }
 
         /// <summary>Ordered platform name tokens for a build target, highest priority first.</summary>
@@ -130,8 +116,5 @@ namespace Molca.Editor.Doctor
                 .Where(a => a != null)
                 .ToList();
         }
-
-        private static BudgetSettings DefaultSettings() =>
-            UnityEngine.ScriptableObject.CreateInstance<BudgetSettings>();
     }
 }

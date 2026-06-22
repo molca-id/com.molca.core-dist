@@ -40,7 +40,11 @@ namespace Molca.Editor.KnowledgeGraph
 
                 var cmd = GraphifyCli.BuildIndexArgs(full);
 
-                var result = await GraphifyCli.RunAsync(cmd, default, timeoutMs: 600_000);
+                var result = await GraphifyCli.RunAsync(
+                    cmd,
+                    default,
+                    timeoutMs: GraphifyCli.DefaultBuildTimeoutMs,
+                    onProgressLine: line => Set("graphify: " + line));
                 Set(result.NotFound
                         ? "graphify CLI not found on PATH — install it (graphify.net)."
                         : result.Ok

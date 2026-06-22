@@ -1,7 +1,7 @@
-﻿com.molca.core@1.9.4
-Published: 2026-06-22 02:35:31Z
-Source commit: 8d63f370
-Files: 1287
+﻿com.molca.core@1.9.5
+Published: 2026-06-22 09:47:11Z
+Source commit: b7bde79b
+Files: 1293
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -409,6 +409,8 @@ Editor/MCP/Providers/CoreMcpToolProvider.LocalizationEdit.cs
 Editor/MCP/Providers/CoreMcpToolProvider.LocalizationEdit.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Networking.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Networking.cs.meta
+Editor/MCP/Providers/CoreMcpToolProvider.ProposePlan.cs
+Editor/MCP/Providers/CoreMcpToolProvider.ProposePlan.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.ReadSource.cs
 Editor/MCP/Providers/CoreMcpToolProvider.ReadSource.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.RefIdFix.cs
@@ -1249,6 +1251,10 @@ Runtime/Utilities/BudgetMonitor/BudgetMonitorView.cs
 Runtime/Utilities/BudgetMonitor/BudgetMonitorView.cs.meta
 Runtime/Utilities/BudgetMonitor/BudgetSettings.cs
 Runtime/Utilities/BudgetMonitor/BudgetSettings.cs.meta
+Runtime/Utilities/BudgetMonitor/BudgetSettingsProvider.cs
+Runtime/Utilities/BudgetMonitor/BudgetSettingsProvider.cs.meta
+Runtime/Utilities/BudgetMonitor/BudgetThresholdEventData.cs
+Runtime/Utilities/BudgetMonitor/BudgetThresholdEventData.cs.meta
 Runtime/Utilities/BudgetMonitor/Mobile BudgetSettings.asset
 Runtime/Utilities/BudgetMonitor/Mobile BudgetSettings.asset.meta
 Runtime/Utilities/BudgetMonitor/PC BudgetSettings.asset

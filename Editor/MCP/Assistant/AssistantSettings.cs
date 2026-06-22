@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -65,6 +66,9 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("Approximate maximum tokens of retrieved context to inject per turn. Kept modest so grounding can't blow the context it informs.")]
         [SerializeField] private int retrievalTokenBudget = 4000;
 
+        [Tooltip("Per-model USD-per-million-token price overrides for the session cost estimate. Model is substring-matched (e.g. 'claude-opus'); shipped defaults apply to anything not overridden.")]
+        [SerializeField] private List<ModelPriceOverride> modelPriceOverrides = new List<ModelPriceOverride>();
+
         /// <summary>Whether the assistant is enabled.</summary>
         public bool Enabled { get => enabled; set => enabled = value; }
 
@@ -117,6 +121,13 @@ namespace Molca.Editor.Mcp.Assistant
 
         /// <summary>Approximate maximum tokens of retrieved context to inject per turn, clamped (Sprint 47).</summary>
         public int RetrievalTokenBudget => Mathf.Clamp(retrievalTokenBudget, 500, 32000);
+
+        /// <summary>
+        /// Project-authored per-model price overrides for the session cost estimate (Sprint 53), consulted by
+        /// <see cref="AssistantCostTable"/> before the shipped defaults. Never null.
+        /// </summary>
+        public IReadOnlyList<ModelPriceOverride> ModelPriceOverrides =>
+            modelPriceOverrides ?? (modelPriceOverrides = new List<ModelPriceOverride>());
 
         /// <summary>The default model id for a provider.</summary>
         public static string DefaultModelFor(LlmProviderKind p) => p switch

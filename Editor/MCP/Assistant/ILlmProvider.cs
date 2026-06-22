@@ -145,6 +145,14 @@ namespace Molca.Editor.Mcp.Assistant
         /// token count instead of the character-count heuristic.
         /// </summary>
         public int PromptTokens { get; set; }
+
+        /// <summary>
+        /// Completion (output) tokens the vendor reported for this response, or <c>0</c> when not reported
+        /// (Sprint 53). When present, the controller bills this real count instead of the <c>~4 chars/token</c>
+        /// estimate; streaming responses report it on the terminal usage event when the vendor sends one.
+        /// </summary>
+        public int CompletionTokens { get; set; }
+
         /// <summary>True if the model asked to call at least one tool.</summary>
         public bool WantsToolUse => ToolCalls != null && ToolCalls.Count > 0;
     }

@@ -2,6 +2,18 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.9.5] - 2026-06-22
+
+### Added
+- **Assistant structured Plan turn with a live checklist.** Plan mode proposes an ordered, reviewable plan (Approve/Edit/Cancel) and renders per-step status that updates live as execution advances, replacing the previous prose-only plan representation.
+- **Assistant accurate token/cost telemetry + retrieval cache.** Token accounting prefers real vendor-reported counts, and proactive retrieval caches its result (keyed on message + graph mtime) so repeated turns don't each spawn a redundant graphify subprocess.
+- **`BudgetMonitor` build-parity metrics + budget gate.** Adds build-parity metric collection and a budget gate so configured performance budgets can fail/flag at the appropriate point.
+
+### Fixed
+- **Plan approval now reads "Approved" rather than "Declined"** when a plan is accepted.
+- **Multi-choice confirmation outcomes render neutrally** instead of as a rejection.
+- **Graph-build feedback extended** in the MCP graph build path.
+
 ## [1.9.4] - 2026-06-22
 
 ### Added

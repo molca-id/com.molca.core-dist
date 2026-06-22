@@ -67,13 +67,20 @@ namespace Molca.Editor.Mcp.Assistant
         /// When <c>null</c>, no progress sink is installed and reporting tools simply no-op. Invoked on the
         /// main thread (tools report there).
         /// </param>
+        /// <param name="proposePlan">
+        /// Surfaces a structured plan (Sprint 52) for the interactive <c>molca_propose_plan</c> tool: given
+        /// the parsed ordered steps, renders a reviewable plan turn, pauses for Approve/Edit/Cancel, and
+        /// resolves with the JSON tool-result content describing the user's disposition. When <c>null</c>
+        /// (no interactive front-end) the tool falls through to its fallback delegate.
+        /// </param>
         public static async Awaitable<LlmToolResult> ExecuteAsync(
             McpToolRegistry registry, LlmToolCall call, CancellationToken cancellationToken,
             Func<string, bool> isActionAllowed = null,
             Func<McpToolDefinition, string, bool> confirmAction = null,
             Func<AssistantUserPrompt, CancellationToken, Awaitable<string>> askUser = null,
             Func<McpToolDefinition, string, CancellationToken, Awaitable<bool>> confirmActionAsync = null,
-            Action<McpProgressReport> onProgress = null)
+            Action<McpProgressReport> onProgress = null,
+            Func<IReadOnlyList<PlanStep>, CancellationToken, Awaitable<string>> proposePlan = null)
         {
             if (registry == null || !registry.TryGet(call.Name, out var tool))
                 return new LlmToolResult(call.Id, $"{{\"error\":\"Unknown tool '{call.Name}'.\"}}", isError: true);
@@ -83,6 +90,17 @@ namespace Molca.Editor.Mcp.Assistant
                 return new LlmToolResult(call.Id, $"{{\"error\":{Quote(modeError)}}}", isError: true);
 
             var args = string.IsNullOrWhiteSpace(call.ArgumentsJson) ? "{}" : call.ArgumentsJson;
+
+            // Structured plan proposal (Sprint 52): surface the steps as a reviewable plan turn and pause
+            // for Approve/Edit/Cancel, feeding the disposition back as the tool result so the round loop
+            // continues. The delegate returns the full result-content JSON (it owns the disposition shape).
+            if (call.Name == Providers.CoreMcpToolProvider.ProposePlanToolName && proposePlan != null)
+            {
+                var steps = ParsePlanSteps(args);
+                var planResult = await proposePlan(steps, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                return new LlmToolResult(call.Id, planResult ?? "{}");
+            }
 
             // Interactive prompt (Sprint 25.6): pause the turn and surface the question as choices, then
             // feed the user's answer back as the tool result so the loop continues in the same turn.
@@ -172,6 +190,35 @@ namespace Molca.Editor.Mcp.Assistant
                 // Malformed arguments — fall back to whatever question we parsed (possibly empty).
             }
             return new AssistantUserPrompt(question, options);
+        }
+
+        /// <summary>Parses the <c>molca_propose_plan</c> arguments into an ordered step list; tolerant of missing fields.</summary>
+        private static List<PlanStep> ParsePlanSteps(string argsJson)
+        {
+            var steps = new List<PlanStep>();
+            try
+            {
+                var o = JObject.Parse(argsJson);
+                if (o["steps"] is JArray arr)
+                {
+                    var index = 1;
+                    foreach (var t in arr)
+                    {
+                        if (t is not JObject step) continue;
+                        var summary = (string)step["summary"];
+                        if (string.IsNullOrWhiteSpace(summary)) continue;
+                        var id = (string)step["id"];
+                        if (string.IsNullOrWhiteSpace(id)) id = index.ToString();
+                        steps.Add(new PlanStep(id, summary));
+                        index++;
+                    }
+                }
+            }
+            catch
+            {
+                // Malformed arguments — surface whatever steps parsed (possibly none).
+            }
+            return steps;
         }
 
         // Minimal JSON string-escape for embedding a message into a hand-built error object.

@@ -2,13 +2,60 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
 namespace Molca.Editor.Mcp.Assistant
 {
     /// <summary>A single entry in the visible transcript.</summary>
-    public enum ChatTurnKind { User, Assistant, Tool, Error, Prompt, Work, Notice }
+    /// <remarks>Members are appended for serialization stability — never reorder existing values.</remarks>
+    public enum ChatTurnKind { User, Assistant, Tool, Error, Prompt, Work, Notice, Plan }
+
+    /// <summary>
+    /// Execution status of a single <see cref="PlanStep"/> in a structured plan turn (Sprint 52). The
+    /// transcript view renders a status glyph per step and the controller advances these in place as the
+    /// approved plan runs.
+    /// </summary>
+    /// <remarks>Members are appended for serialization stability — never reorder existing values.</remarks>
+    public enum PlanStepStatus
+    {
+        /// <summary>Not started yet.</summary>
+        Pending,
+        /// <summary>Currently executing.</summary>
+        Running,
+        /// <summary>Completed successfully.</summary>
+        Done,
+        /// <summary>Failed during execution.</summary>
+        Failed,
+        /// <summary>Skipped after a failure (user chose Skip).</summary>
+        Skipped
+    }
+
+    /// <summary>
+    /// One ordered step of a structured plan proposed via <c>molca_propose_plan</c> (Sprint 52). The
+    /// <see cref="Status"/> is mutated in place as the approved plan executes; <see cref="Summary"/> is
+    /// editable before approval through the transcript view's inline Edit mode.
+    /// </summary>
+    public sealed class PlanStep
+    {
+        /// <summary>Stable id the model assigned to the step (used for display and correlation).</summary>
+        public string Id { get; set; }
+
+        /// <summary>Human-readable one-line description of what the step does.</summary>
+        public string Summary { get; set; }
+
+        /// <summary>Live execution status, advanced by the controller as the plan runs.</summary>
+        public PlanStepStatus Status { get; set; } = PlanStepStatus.Pending;
+
+        /// <summary>Creates a plan step.</summary>
+        public PlanStep(string id, string summary, PlanStepStatus status = PlanStepStatus.Pending)
+        {
+            Id = id ?? string.Empty;
+            Summary = summary ?? string.Empty;
+            Status = status;
+        }
+    }
 
     /// <summary>Structured details for a tool call shown in the visible transcript.</summary>
     public sealed class ChatToolSummary
@@ -124,6 +171,31 @@ namespace Molca.Editor.Mcp.Assistant
         /// </summary>
         public bool CanUndoTask { get; set; }
 
+        /// <summary>
+        /// The ordered steps of a <see cref="ChatTurnKind.Plan"/> turn (Sprint 52), or <c>null</c> on every
+        /// other kind. Mutated in place: statuses advance as the plan runs and the list is edited inline
+        /// (reorder/delete/retext) before approval. Persisted with the transcript.
+        /// </summary>
+        public List<PlanStep> PlanSteps { get; set; }
+
+        /// <summary>
+        /// True once the user approved this <see cref="ChatTurnKind.Plan"/> turn (Sprint 52). Gates inline
+        /// editing (only an unapproved plan is editable) and drives the view's running/complete styling.
+        /// </summary>
+        public bool PlanApproved { get; set; }
+
+        /// <summary>
+        /// The whole-task file-snapshot undo entry id captured when this <see cref="ChatTurnKind.Plan"/> turn
+        /// was approved (Sprint 52/48), or <c>null</c>. Persisted so "Undo task" survives a domain reload.
+        /// </summary>
+        public string PlanUndoFileId { get; set; }
+
+        /// <summary>
+        /// The Unity Undo group captured when this plan was approved (Sprint 52/48), or <c>-1</c>. Persisted
+        /// so "Undo task" survives a domain reload.
+        /// </summary>
+        public int PlanUndoGroup { get; set; } = -1;
+
         /// <summary>Creates a transcript turn.</summary>
         public ChatTurn(ChatTurnKind kind, string text, ChatToolSummary toolSummary = null)
             : this(kind, text, toolSummary == null ? null : new[] { toolSummary })
@@ -222,6 +294,8 @@ namespace Molca.Editor.Mcp.Assistant
         }
 
         private readonly AssistantSettings _settings;
+        private readonly Func<ILlmProvider> _providerFactory;
+        private readonly bool _usesInjectedProviderFactory;
         private readonly List<LlmMessage> _history = new List<LlmMessage>();
         private readonly List<ChatTurn> _transcript = new List<ChatTurn>();
         private readonly List<AssistantContextItem> _pinnedContext = new List<AssistantContextItem>();
@@ -258,6 +332,19 @@ namespace Molca.Editor.Mcp.Assistant
         // The bracket of the most recently executed approved plan, for the "Undo task" affordance.
         private string _lastPlanUndoFileId;
         private int _lastPlanUndoGroup = -1;
+
+        // The structured plan turn proposed via molca_propose_plan for the in-flight turn (Sprint 52), or
+        // null when the model has not proposed one. Its per-step statuses are advanced in place as the
+        // approved plan executes, and it carries the persisted whole-task undo bracket. Reset each turn.
+        private ChatTurn _activePlanTurn;
+
+        // Set when the user chose Abort or Undo task on a failed plan step (Sprint 52): remaining tool calls
+        // in the round are answered with an abort result (so no tool_use is left unanswered) and no further
+        // round is started. Reset each turn.
+        private bool _planAbortRequested;
+
+        /// <summary>The tool-result payload returned for plan calls left unrun after the user aborts (Sprint 52).</summary>
+        private const string PlanAbortedResultJson = "{\"error\":\"Plan aborted by the user; this step was not run.\"}";
 
         // The session this conversation is persisted under (Sprint 35). Assigned on construction (restored,
         // migrated, or freshly minted) and rotated by NewChat / SwitchToSession.
@@ -342,10 +429,54 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>The system prompt sent to the provider.</summary>
         public static string SystemPromptText => SystemPrompt;
 
+        /// <summary>
+        /// Test seam for the docked prompt/confirmation pause. When set, the controller delegates prompts to
+        /// this handler instead of waiting on the UI, while preserving the production prompt path by default.
+        /// </summary>
+        internal Func<AssistantUserPrompt, bool, CancellationToken, Awaitable<string>> PromptUserAsyncOverride { get; set; }
+
+        /// <summary>
+        /// Test seam for the action-confirmation policy. Defaults to <see cref="ConfirmActionInModeAsync"/>,
+        /// which applies Ask/Auto/Plan behavior unchanged.
+        /// </summary>
+        internal Func<McpToolDefinition, string, CancellationToken, Awaitable<bool>> ConfirmActionInModeAsyncOverride { get; set; }
+
+        /// <summary>
+        /// Test seam for proactive retrieval, avoiding a graphify subprocess while still exercising request
+        /// injection and token accounting.
+        /// </summary>
+        internal Func<string, int, CancellationToken, Awaitable<RetrievedContext>> RetrieveContextAsyncOverride { get; set; }
+
+        /// <summary>The current provider-neutral model history, exposed to EditMode tests only.</summary>
+        internal IReadOnlyList<LlmMessage> History => _history;
+
         /// <summary>Creates a controller bound to the given settings, restoring the most recent session.</summary>
         public AssistantChatController(AssistantSettings settings)
+            : this(settings, () => settings.CreateProvider(), false)
         {
-            _settings = settings;
+        }
+
+        /// <summary>
+        /// Creates a controller that resolves its LLM provider through <paramref name="providerFactory"/>.
+        /// </summary>
+        /// <remarks>
+        /// Intended as an EditMode-test seam: injected providers bypass credential validation so full turns can
+        /// run deterministically without network or user secrets. Production call sites should use
+        /// <see cref="AssistantChatController(AssistantSettings)"/>.
+        /// </remarks>
+        /// <param name="settings">Assistant configuration used for model, limits, compaction, and retrieval.</param>
+        /// <param name="providerFactory">Factory that returns the provider used for turn, compaction, and title requests.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="settings"/> or <paramref name="providerFactory"/> is null.</exception>
+        public AssistantChatController(AssistantSettings settings, Func<ILlmProvider> providerFactory)
+            : this(settings, providerFactory, true)
+        {
+        }
+
+        private AssistantChatController(AssistantSettings settings, Func<ILlmProvider> providerFactory, bool usesInjectedProviderFactory)
+        {
+            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _providerFactory = providerFactory ?? throw new ArgumentNullException(nameof(providerFactory));
+            _usesInjectedProviderFactory = usesInjectedProviderFactory;
 
             // Migrate the legacy single-file session into the library on first run, then open the most
             // recently updated session. If there are none, start a fresh (unsaved-until-first-turn) session.
@@ -583,11 +714,14 @@ namespace Molca.Editor.Mcp.Assistant
         {
             if (IsBusy || string.IsNullOrWhiteSpace(userText)) return;
 
-            var status = _settings.GetStatus(out var statusMessage);
-            if (status != AssistantConfigStatus.Configured)
+            if (!_usesInjectedProviderFactory)
             {
-                AddTurn(ChatTurnKind.Error, statusMessage);
-                return;
+                var status = _settings.GetStatus(out var statusMessage);
+                if (status != AssistantConfigStatus.Configured)
+                {
+                    AddTurn(ChatTurnKind.Error, statusMessage);
+                    return;
+                }
             }
 
             IsBusy = true;
@@ -595,6 +729,9 @@ namespace Molca.Editor.Mcp.Assistant
             _planApprovedThisTurn = false;
             _planUndoIdBefore = null;
             _planUndoGroupBefore = -1;
+            // The structured plan turn (Sprint 52) is likewise per-turn.
+            _activePlanTurn = null;
+            _planAbortRequested = false;
             // Anchor the visible user turn to the history message it produces, so retry/edit can trim both
             // precisely later (Sprint 25.8) without scanning for "the last user message".
             var userHistoryIndex = _history.Count;
@@ -604,7 +741,7 @@ namespace Molca.Editor.Mcp.Assistant
 
             try
             {
-                var provider = _settings.CreateProvider();
+                var provider = CreateProvider();
                 var streaming = _settings.StreamResponses;
                 var mcpSettings = MolcaEditorSettings.Instance.McpSettings;
                 var registry = mcpSettings?.BuildRegistry();
@@ -616,7 +753,8 @@ namespace Molca.Editor.Mcp.Assistant
                 // irreversible ones (no undo to fall back on), which always confirm even in Auto. The async
                 // confirmer encapsulates both modes; the sync one is unused.
                 Func<McpToolDefinition, string, bool> confirmAction = null;
-                Func<McpToolDefinition, string, CancellationToken, Awaitable<bool>> confirmActionAsync = ConfirmActionInModeAsync;
+                Func<McpToolDefinition, string, CancellationToken, Awaitable<bool>> confirmActionAsync =
+                    ConfirmActionInModeAsyncOverride ?? ConfirmActionInModeAsync;
 
                 var maxToolRounds = _settings.MaxToolRounds > 0 ? _settings.MaxToolRounds : DefaultMaxToolRounds;
 
@@ -687,7 +825,11 @@ namespace Molca.Editor.Mcp.Assistant
                     // this request (billed per call), output is estimated from the response text when the
                     // vendor doesn't report it. Both feed the read-only telemetry and cost estimate.
                     _sessionInputTokens += response.PromptTokens;
-                    _sessionOutputTokens += EstimateTokenCount(response.Text);
+                    // Prefer the vendor's real output count (Sprint 53); fall back to the char heuristic only
+                    // when it is not reported (e.g. a streaming endpoint without usage).
+                    _sessionOutputTokens += response.CompletionTokens > 0
+                        ? response.CompletionTokens
+                        : EstimateTokenCount(response.Text);
 
                     // Record the assistant turn (text + any tool calls) in history.
                     var assistantMsg = new LlmMessage { Role = LlmRole.Assistant, Text = response.Text, ToolCalls = response.ToolCalls };
@@ -710,6 +852,13 @@ namespace Molca.Editor.Mcp.Assistant
                     for (var callIndex = 0; callIndex < response.ToolCalls.Count; callIndex++)
                     {
                         var call = response.ToolCalls[callIndex];
+                        // Once the user aborts a failed plan (Sprint 52), every remaining tool_use in this
+                        // round is answered with an abort result so the model's call/result pairing stays valid.
+                        if (_planAbortRequested)
+                        {
+                            resultMsg.ToolResults.Add(new LlmToolResult(call.Id, PlanAbortedResultJson, isError: true));
+                            continue;
+                        }
                         McpToolDefinition toolDef = null;
                         var hasDef = registry != null && registry.TryGet(call.Name, out toolDef);
                         var isAction = hasDef && toolDef.Kind == McpToolKind.Action;
@@ -752,12 +901,31 @@ namespace Molca.Editor.Mcp.Assistant
 
                                 foreach (var actionCall in actionCalls)
                                 {
+                                    // After an abort, answer the remaining batch members without running them.
+                                    if (_planAbortRequested)
+                                    {
+                                        var ar = new LlmToolResult(actionCall.Call.Id, PlanAbortedResultJson, isError: true);
+                                        resultMsg.ToolResults.Add(ar);
+                                        Append(BuildToolSummary(registry, actionCall.Call, ar), isAction: true);
+                                        continue;
+                                    }
+                                    var groupedStep = _planApprovedThisTurn ? BeginNextPlanStep() : null;
                                     var grouped = await ExecuteToolCallAsync(registry, actionCall.Call, actionCall.Tool,
                                         cancellationToken, isActionAllowed, confirmAction, confirmActionAsync, approvedActionBatch: true);
-                                    resultMsg.ToolResults.Add(grouped.Result);
-                                    Append(grouped.Summary, isAction: true);
-                                    // A failed step re-gates the plan: the next action confirms again (Sprint 48).
-                                    if (grouped.Result.IsError) _planApprovedThisTurn = false;
+                                    var groupedResult = grouped.Result;
+                                    var groupedSummary = grouped.Summary;
+                                    // A failed structured-plan step halts with Skip/Retry/Undo task/Abort (Sprint 52).
+                                    if (groupedStep != null && groupedResult.IsError)
+                                    {
+                                        groupedResult = await HandlePlanStepFailureAsync(registry, actionCall.Call, actionCall.Tool,
+                                            groupedStep, groupedResult, isActionAllowed, confirmAction, confirmActionAsync, cancellationToken);
+                                        groupedSummary = BuildToolSummary(registry, actionCall.Call, groupedResult);
+                                    }
+                                    CompletePlanStep(groupedStep, !groupedResult.IsError);
+                                    resultMsg.ToolResults.Add(groupedResult);
+                                    Append(groupedSummary, isAction: true);
+                                    // Without a structured plan, a failed step re-gates the legacy plan (Sprint 48).
+                                    if (groupedResult.IsError && _activePlanTurn == null) _planApprovedThisTurn = false;
                                 }
                                 callIndex += actionCalls.Count - 1;
                                 continue;
@@ -773,9 +941,21 @@ namespace Molca.Editor.Mcp.Assistant
 
                         ActiveToolName = call.Name;
                         ActiveToolProgress = null;
-                        var result = await AssistantToolBridge.ExecuteAsync(registry, call, cancellationToken, isActionAllowed, confirmAction, AskUserAsync, confirmActionAsync, ReportToolProgress);
+                        // Correlate this call to the active plan's next pending step (Sprint 52), so the
+                        // checklist advances live as execution proceeds. Order-based mapping keeps the action
+                        // tool schemas untouched (no injected planStepId arg).
+                        var planStep = isAction && _planApprovedThisTurn ? BeginNextPlanStep() : null;
+
+                        var result = await AssistantToolBridge.ExecuteAsync(registry, call, cancellationToken, isActionAllowed, confirmAction, AskUserAsync, confirmActionAsync, ReportToolProgress, ProposePlanAsync);
                         ActiveToolName = null;
                         ActiveToolProgress = null;
+
+                        // A failed approved-plan step halts the run with Skip / Retry / Undo task / Abort
+                        // (Sprint 52), replacing the soft re-gate. Retry re-runs the same call in place.
+                        if (planStep != null && result.IsError)
+                            result = await HandlePlanStepFailureAsync(registry, call, toolDef, planStep, result,
+                                isActionAllowed, confirmAction, confirmActionAsync, cancellationToken);
+                        CompletePlanStep(planStep, !result.IsError);
                         resultMsg.ToolResults.Add(result);
 
                         string undoId = null;
@@ -798,10 +978,19 @@ namespace Molca.Editor.Mcp.Assistant
 
                         var summary = BuildToolSummary(registry, call, result, undoId, undoGroup);
                         Append(summary, summary.Kind == nameof(McpToolKind.Action));
-                        // A failed step re-gates the plan: the next action confirms again (Sprint 48).
-                        if (isAction && result.IsError) _planApprovedThisTurn = false;
+                        // Without a structured plan, a failed step re-gates the legacy plan (Sprint 48); with a
+                        // structured plan, the failure UX above already decided how to proceed.
+                        if (isAction && result.IsError && _activePlanTurn == null) _planApprovedThisTurn = false;
                     }
                     _history.Add(resultMsg);
+
+                    // The user aborted a failed plan step (Sprint 52): the round's calls are all answered, so
+                    // history is valid — stop here instead of starting another round.
+                    if (_planAbortRequested)
+                    {
+                        FlushToolGroup();
+                        break;
+                    }
 
                     if (round == maxToolRounds - 1)
                     {
@@ -983,7 +1172,7 @@ namespace Molca.Editor.Mcp.Assistant
 
         /// <summary>Estimated USD spend for this session under the configured model's pricing (Sprint 49).</summary>
         public double SessionEstimatedCostUsd =>
-            AssistantCostTable.EstimateCost(_settings.Model, _sessionInputTokens, _sessionOutputTokens);
+            AssistantCostTable.EstimateCost(_settings.Model, _sessionInputTokens, _sessionOutputTokens, _settings.ModelPriceOverrides);
 
         /// <summary>Rough token count (~4 chars/token) for text the vendor didn't report usage for (Sprint 49).</summary>
         private static long EstimateTokenCount(string text) => string.IsNullOrEmpty(text) ? 0 : text.Length / 4;
@@ -1008,8 +1197,9 @@ namespace Molca.Editor.Mcp.Assistant
         {
             if (!_settings.ProactiveRetrieval) return;
 
-            var retrieved = await AssistantContextRetriever.RetrieveAsync(
-                userText, _settings.RetrievalTokenBudget, cancellationToken);
+            var retrieved = RetrieveContextAsyncOverride != null
+                ? await RetrieveContextAsyncOverride(userText, _settings.RetrievalTokenBudget, cancellationToken)
+                : await AssistantContextRetriever.RetrieveAsync(userText, _settings.RetrievalTokenBudget, cancellationToken);
             if (!retrieved.HasContent) return;
 
             _pendingRetrievedContext = retrieved.Text;
@@ -1243,7 +1433,7 @@ namespace Molca.Editor.Mcp.Assistant
         /// </summary>
         private async Awaitable<string> GenerateTitleAsync(string userText, string assistantText, CancellationToken cancellationToken)
         {
-            var provider = _settings.CreateProvider();
+            var provider = CreateProvider();
             var request = new LlmRequest
             {
                 System =
@@ -1393,6 +1583,144 @@ namespace Molca.Editor.Mcp.Assistant
             return true;
         }
 
+        /// <summary>
+        /// Surfaces a structured plan (Sprint 52) for <c>molca_propose_plan</c>: records a reviewable
+        /// <see cref="ChatTurnKind.Plan"/> turn, then pauses for Approve / Edit / Cancel through the docked
+        /// prompt bar (the same pause mechanism as confirmations). On approval the plan is locked in, the
+        /// whole-task undo bracket is captured, and the disposition (with the possibly-edited steps) is
+        /// returned as the tool result so the model executes the revision. Used as the bridge's plan surface.
+        /// </summary>
+        private async Awaitable<string> ProposePlanAsync(IReadOnlyList<PlanStep> steps, CancellationToken cancellationToken)
+        {
+            var planTurn = new ChatTurn(ChatTurnKind.Plan, "Proposed plan")
+            {
+                PlanSteps = steps != null ? new List<PlanStep>(steps) : new List<PlanStep>()
+            };
+            _activePlanTurn = planTurn;
+            _transcript.Add(planTurn);
+            Changed?.Invoke();
+
+            var prompt = new AssistantUserPrompt(
+                "Approve this plan and run its steps? Approve runs them under one undo bracket "
+                + "(irreversible steps still confirm individually); Edit revises the steps first; Cancel stops.",
+                new[] { "Approve", "Edit", "Cancel" });
+            var answer = await PromptUserAsync(prompt, cancellationToken, isConfirmation: true);
+
+            if (string.Equals(answer, "Approve", StringComparison.OrdinalIgnoreCase))
+            {
+                _planApprovedThisTurn = true;
+                _planUndoIdBefore = CurrentTopUndoId();
+                _planUndoGroupBefore = Undo.GetCurrentGroup();
+                planTurn.PlanApproved = true;
+                Changed?.Invoke();
+                return BuildPlanDisposition("approved", planTurn.PlanSteps);
+            }
+            if (string.Equals(answer, "Edit", StringComparison.OrdinalIgnoreCase))
+            {
+                // The model is told the plan needs revision; the next assistant turn re-proposes it.
+                return BuildPlanDisposition("edit_requested", planTurn.PlanSteps);
+            }
+
+            // Cancel / dismissed: drop the active plan so subsequent actions confirm individually.
+            _activePlanTurn = null;
+            return "{\"disposition\":\"cancelled\"}";
+        }
+
+        /// <summary>Builds the <c>molca_propose_plan</c> tool result describing the user's disposition and (edited) steps.</summary>
+        private static string BuildPlanDisposition(string disposition, IReadOnlyList<PlanStep> steps)
+        {
+            var arr = new JArray();
+            if (steps != null)
+                foreach (var s in steps)
+                    if (s != null)
+                        arr.Add(new JObject { ["id"] = s.Id, ["summary"] = s.Summary });
+            return new JObject { ["disposition"] = disposition, ["steps"] = arr }.ToString(Newtonsoft.Json.Formatting.None);
+        }
+
+        /// <summary>
+        /// Marks the active plan's next <see cref="PlanStepStatus.Pending"/> step as
+        /// <see cref="PlanStepStatus.Running"/> and returns it (Sprint 52). Order-based correlation: each
+        /// executed action advances the next outstanding step. Returns <c>null</c> when no plan is active or
+        /// every step has already run.
+        /// </summary>
+        private PlanStep BeginNextPlanStep()
+        {
+            if (_activePlanTurn?.PlanSteps == null) return null;
+            foreach (var step in _activePlanTurn.PlanSteps)
+            {
+                if (step.Status != PlanStepStatus.Pending) continue;
+                step.Status = PlanStepStatus.Running;
+                Changed?.Invoke();
+                return step;
+            }
+            return null;
+        }
+
+        /// <summary>Marks a running plan step <see cref="PlanStepStatus.Done"/>/<see cref="PlanStepStatus.Failed"/>, leaving a Skipped step alone (Sprint 52).</summary>
+        private void CompletePlanStep(PlanStep step, bool succeeded)
+        {
+            if (step == null || step.Status == PlanStepStatus.Skipped) return;
+            step.Status = succeeded ? PlanStepStatus.Done : PlanStepStatus.Failed;
+            Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// Handles a failed approved-plan step (Sprint 52) by halting the run and offering Retry / Skip /
+        /// Undo task / Abort through the docked prompt bar — replacing Sprint 48's soft re-gate. Retry re-runs
+        /// the same call in place; Skip marks the step skipped and continues; Undo task reverts the whole
+        /// bracket then aborts; Abort stops the run. Returns the latest tool result for the model.
+        /// </summary>
+        private async Awaitable<LlmToolResult> HandlePlanStepFailureAsync(
+            McpToolRegistry registry, LlmToolCall call, McpToolDefinition toolDef, PlanStep step, LlmToolResult result,
+            Func<string, bool> isActionAllowed, Func<McpToolDefinition, string, bool> confirmAction,
+            Func<McpToolDefinition, string, CancellationToken, Awaitable<bool>> confirmActionAsync, CancellationToken cancellationToken)
+        {
+            while (result.IsError)
+            {
+                var prompt = new AssistantUserPrompt(
+                    $"Plan step \"{step.Summary}\" failed. Retry it, skip it and continue, undo the whole task, or abort the run?",
+                    new[] { "Retry", "Skip", "Undo task", "Abort" });
+                var answer = await PromptUserAsync(prompt, cancellationToken, isConfirmation: true);
+
+                if (string.Equals(answer, "Retry", StringComparison.OrdinalIgnoreCase))
+                {
+                    step.Status = PlanStepStatus.Running;
+                    Changed?.Invoke();
+                    var exec = await ExecuteToolCallAsync(registry, call, toolDef, cancellationToken,
+                        isActionAllowed, confirmAction, confirmActionAsync, approvedActionBatch: true);
+                    result = exec.Result;
+                    continue;
+                }
+                if (string.Equals(answer, "Skip", StringComparison.OrdinalIgnoreCase))
+                {
+                    step.Status = PlanStepStatus.Skipped;
+                    Changed?.Invoke();
+                    return result; // surface the failure to the model, but let the plan continue
+                }
+                if (string.Equals(answer, "Undo task", StringComparison.OrdinalIgnoreCase))
+                    UndoApprovedPlanBracket();
+
+                // Undo task or Abort (or dismissed): stop the run after the round's calls are answered.
+                _planAbortRequested = true;
+                return result;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Reverts every reversible change made since the active plan was approved (Sprint 52), using the
+        /// in-progress bracket captured at approval. Used by the failure UX's "Undo task" before aborting.
+        /// </summary>
+        private void UndoApprovedPlanBracket()
+        {
+            var fileId = FirstUndoIdAfter(McpUndoStack.Entries, _planUndoIdBefore);
+            var group = Undo.GetCurrentGroup() > _planUndoGroupBefore ? _planUndoGroupBefore + 1 : -1;
+            if (!string.IsNullOrEmpty(fileId) && McpUndoStack.Contains(fileId))
+                McpUndoStack.UndoTo(fileId);
+            if (group >= 0 && Undo.GetCurrentGroup() >= group)
+                Undo.RevertAllDownToGroup(group);
+        }
+
         /// <summary>The text of the most recent assistant turn (the proposed plan), or empty (Sprint 48).</summary>
         private string LastAssistantText
         {
@@ -1431,6 +1759,15 @@ namespace Molca.Editor.Mcp.Assistant
 
             _lastPlanUndoFileId = fileId;
             _lastPlanUndoGroup = group;
+
+            // Persist the bracket on the structured plan turn (Sprint 52) so "Undo task" survives a domain
+            // reload, not just the current in-memory session.
+            if (_activePlanTurn != null)
+            {
+                _activePlanTurn.PlanUndoFileId = fileId;
+                _activePlanTurn.PlanUndoGroup = group;
+            }
+
             _transcript.Add(new ChatTurn(ChatTurnKind.Notice, PlanCompletedNoticeText) { CanUndoTask = true });
             Changed?.Invoke();
         }
@@ -1473,6 +1810,26 @@ namespace Molca.Editor.Mcp.Assistant
             Changed?.Invoke();
         }
 
+        /// <summary>
+        /// Reverts the whole-task bracket persisted on a structured <see cref="ChatTurnKind.Plan"/> turn
+        /// (Sprint 52), so "Undo task" works even after a domain reload (the in-memory bracket is gone). The
+        /// bracket is cleared on the turn afterward so it cannot be applied twice.
+        /// </summary>
+        public void UndoApprovedPlan(ChatTurn planTurn)
+        {
+            if (planTurn == null) { UndoApprovedPlan(); return; }
+
+            if (!string.IsNullOrEmpty(planTurn.PlanUndoFileId) && McpUndoStack.Contains(planTurn.PlanUndoFileId))
+                McpUndoStack.UndoTo(planTurn.PlanUndoFileId);
+            if (planTurn.PlanUndoGroup >= 0 && Undo.GetCurrentGroup() >= planTurn.PlanUndoGroup)
+                Undo.RevertAllDownToGroup(planTurn.PlanUndoGroup);
+
+            planTurn.PlanUndoFileId = null;
+            planTurn.PlanUndoGroup = -1;
+            Persist();
+            Changed?.Invoke();
+        }
+
         /// <summary>True if the tool's effect can be reverted (a file snapshot or a Unity Undo group).</summary>
         private static bool IsUndoable(McpToolDefinition tool)
             => tool != null && (tool.Reversibility == McpToolReversibility.FileSnapshot
@@ -1487,6 +1844,9 @@ namespace Molca.Editor.Mcp.Assistant
         private async Awaitable<string> PromptUserAsync(AssistantUserPrompt prompt, CancellationToken cancellationToken,
             bool isConfirmation = false)
         {
+            if (PromptUserAsyncOverride != null)
+                return await PromptUserAsyncOverride(prompt, isConfirmation, cancellationToken);
+
             PendingPrompt = prompt;
             _pendingPromptSource = new AwaitableCompletionSource<string>();
             // Record the question as its own Prompt turn; the answer is written back onto this same turn
@@ -1661,5 +2021,7 @@ namespace Molca.Editor.Mcp.Assistant
             var entries = McpUndoStack.Entries;
             return entries.Count > 0 ? entries[entries.Count - 1].Id : null;
         }
+
+        private ILlmProvider CreateProvider() => _providerFactory();
     }
 }

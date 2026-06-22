@@ -178,6 +178,14 @@ namespace Molca.Editor.Mcp.Assistant
             // A plan-completed notice (Sprint 48) offers a single "Undo task" reverting the whole bracket.
             if (!isLive && turn.Kind == ChatTurnKind.Notice && turn.CanUndoTask && !_controller.IsBusy)
                 headerRow.Add(CreateMiniButton("Undo task", () => _controller.UndoApprovedPlan()));
+            // A structured plan turn (Sprint 52) with a persisted undo bracket offers an "Undo task" that
+            // survives a domain reload (it reverts the bracket stored on the turn).
+            if (!isLive && turn.Kind == ChatTurnKind.Plan && HasPlanUndo(turn) && !_controller.IsBusy)
+                headerRow.Add(CreateMiniButton("Undo task", () =>
+                {
+                    _controller.UndoApprovedPlan(turn);
+                    _onRefresh?.Invoke();
+                }));
 
             // Work turns drop the separate header row entirely and host their Copy/Undo buttons on the
             // foldout's own toggle line, so the whole step collapses to a single line.
@@ -192,10 +200,10 @@ namespace Molca.Editor.Mcp.Assistant
             // full record. Genuine molca_ask_user prompts (IsConfirmation == false) keep their full form.
             if (!isLive && turn.Kind == ChatTurnKind.Prompt && turn.IsConfirmation && !string.IsNullOrEmpty(turn.PromptAnswer))
             {
-                var approved = turn.PromptAnswer.StartsWith("Run", StringComparison.OrdinalIgnoreCase);
-                var outcome = new Label($"{(approved ? "✓ Approved" : "✕ Declined")} · {FirstLine(text)}");
+                var (glyph, modifier, label) = ClassifyConfirmation(turn.PromptAnswer);
+                var outcome = new Label($"{glyph} {label} · {FirstLine(text)}");
                 outcome.AddToClassList("chat-confirm-outcome");
-                outcome.AddToClassList(approved ? "chat-confirm-outcome--ok" : "chat-confirm-outcome--declined");
+                if (modifier != null) outcome.AddToClassList(modifier);
                 row.Add(outcome);
                 return row;
             }
@@ -206,6 +214,14 @@ namespace Molca.Editor.Mcp.Assistant
                 var live = new Label(text);
                 live.AddToClassList("chat-live-text");
                 row.Add(live);
+                return row;
+            }
+
+            // A structured plan turn (Sprint 52) renders an ordered checklist with live per-step status,
+            // editable inline (reorder/delete/retext) until the plan is approved.
+            if (turn.Kind == ChatTurnKind.Plan)
+            {
+                RenderPlan(row, turn);
                 return row;
             }
 
@@ -321,6 +337,84 @@ namespace Molca.Editor.Mcp.Assistant
             }
         }
 
+        /// <summary>True when a structured plan turn carries a persisted whole-task undo bracket (Sprint 52).</summary>
+        private static bool HasPlanUndo(ChatTurn turn)
+            => !string.IsNullOrEmpty(turn.PlanUndoFileId) || turn.PlanUndoGroup >= 0;
+
+        /// <summary>
+        /// Renders a structured plan (Sprint 52) as an ordered checklist with a per-step status glyph. While
+        /// the plan is awaiting approval it is editable inline — each step can be moved, deleted, or retexted,
+        /// and the revised list is what gets approved and executed.
+        /// </summary>
+        private void RenderPlan(VisualElement parent, ChatTurn turn)
+        {
+            var steps = turn.PlanSteps;
+            var list = new VisualElement();
+            list.AddToClassList("chat-plan");
+            parent.Add(list);
+
+            if (steps == null || steps.Count == 0)
+            {
+                list.Add(new Label("No steps proposed.") { });
+                return;
+            }
+
+            // Editable only before approval and only while the approval prompt is actually pending — once the
+            // user has Approved/Edited/Cancelled the list is a read-only record.
+            var editable = !turn.PlanApproved && _controller.IsAwaitingUser;
+
+            for (var i = 0; i < steps.Count; i++)
+            {
+                var step = steps[i];
+                if (step == null) continue;
+                var index = i;
+
+                var stepRow = new VisualElement();
+                stepRow.AddToClassList("chat-plan__step");
+
+                var glyph = new Label(PlanGlyph(step.Status));
+                glyph.AddToClassList("chat-plan__glyph");
+                glyph.AddToClassList("chat-plan__glyph--" + step.Status.ToString().ToLowerInvariant());
+                stepRow.Add(glyph);
+
+                if (editable)
+                {
+                    var field = new TextField { value = step.Summary };
+                    field.AddToClassList("chat-plan__field");
+                    field.RegisterValueChangedCallback(evt => step.Summary = evt.newValue);
+                    stepRow.Add(field);
+
+                    var up = CreateMiniButton("▲", () => { if (index > 0) { (steps[index - 1], steps[index]) = (steps[index], steps[index - 1]); _onRefresh?.Invoke(); } });
+                    up.SetEnabled(index > 0);
+                    stepRow.Add(up);
+                    var down = CreateMiniButton("▼", () => { if (index < steps.Count - 1) { (steps[index + 1], steps[index]) = (steps[index], steps[index + 1]); _onRefresh?.Invoke(); } });
+                    down.SetEnabled(index < steps.Count - 1);
+                    stepRow.Add(down);
+                    stepRow.Add(CreateMiniButton("✕", () => { steps.RemoveAt(index); _onRefresh?.Invoke(); }));
+                }
+                else
+                {
+                    var summary = new Label(step.Summary);
+                    summary.AddToClassList("chat-plan__summary");
+                    if (step.Status == PlanStepStatus.Skipped || step.Status == PlanStepStatus.Failed)
+                        summary.AddToClassList("chat-plan__summary--inactive");
+                    stepRow.Add(summary);
+                }
+
+                list.Add(stepRow);
+            }
+        }
+
+        /// <summary>The status glyph shown beside a plan step (Sprint 52).</summary>
+        private static string PlanGlyph(PlanStepStatus status) => status switch
+        {
+            PlanStepStatus.Running => "◐",
+            PlanStepStatus.Done => "✓",
+            PlanStepStatus.Failed => "✗",
+            PlanStepStatus.Skipped => "⊘",
+            _ => "○"
+        };
+
         private void RenderToolChain(VisualElement parent, IReadOnlyList<ChatToolSummary> summaries)
         {
             var failed = 0;
@@ -419,6 +513,26 @@ namespace Molca.Editor.Mcp.Assistant
         private static bool HasMultipleLines(string text)
             => !string.IsNullOrEmpty(text) && text.TrimEnd().IndexOf('\n') >= 0;
 
+        /// <summary>
+        /// Maps an answered confirmation to its outcome glyph, USS modifier, and label. Affirmative answers
+        /// ("Run"/"Run all"/"Approve") read as Approved; stop answers ("Cancel"/"Abort") as Declined; the
+        /// other multi-choice answers (Sprint 52 failure UX — Retry/Skip/Undo task, and Edit) render
+        /// neutrally with the chosen answer, since they are a choice rather than an approve/decline.
+        /// </summary>
+        private static (string glyph, string modifier, string label) ClassifyConfirmation(string answer)
+        {
+            if (answer.StartsWith("Run", StringComparison.OrdinalIgnoreCase)
+                || answer.Equals("Approve", StringComparison.OrdinalIgnoreCase))
+                return ("✓", "chat-confirm-outcome--ok", "Approved");
+
+            if (answer.Equals("Cancel", StringComparison.OrdinalIgnoreCase)
+                || answer.Equals("Abort", StringComparison.OrdinalIgnoreCase))
+                return ("✕", "chat-confirm-outcome--declined", "Declined");
+
+            // Retry / Skip / Undo task / Edit — surface the actual choice, no approve/decline coloring.
+            return ("•", null, answer);
+        }
+
         /// <summary>The first line of <paramref name="text"/>, trimmed (used as a disclosure header).</summary>
         private static string FirstLine(string text)
         {
@@ -435,6 +549,7 @@ namespace Molca.Editor.Mcp.Assistant
             ChatTurnKind.Prompt => "Assistant asks",
             ChatTurnKind.Work => "Worked",
             ChatTurnKind.Notice => "Context",
+            ChatTurnKind.Plan => "Plan",
             _ => "Assistant"
         };
 
@@ -454,6 +569,7 @@ namespace Molca.Editor.Mcp.Assistant
             ChatTurnKind.Prompt => "prompt",
             ChatTurnKind.Work => "tool",
             ChatTurnKind.Notice => "tool",
+            ChatTurnKind.Plan => "plan",
             _ => "assistant"
         };
 

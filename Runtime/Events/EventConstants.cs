@@ -62,6 +62,22 @@ namespace Molca.Events
             public const string UnloadCompleted = "Scene.UnloadCompleted";
         }
         
+        // Performance budget events (Sprint 54)
+        public static class Performance
+        {
+            /// <summary>
+            /// Dispatched when a performance-budget metric crosses into the critical state.
+            /// Data: <see cref="Molca.Utilities.BudgetThresholdEventData"/>
+            /// </summary>
+            public const string BudgetCritical = "Performance.BudgetCritical";
+
+            /// <summary>
+            /// Dispatched when all performance-budget metrics return below critical.
+            /// Data: <see cref="Molca.Utilities.BudgetThresholdEventData"/>
+            /// </summary>
+            public const string BudgetRecovered = "Performance.BudgetRecovered";
+        }
+
         // User interface events
         public static class UI
         {

@@ -157,7 +157,8 @@ namespace Molca.Editor.Mcp.Assistant
             return root.ToString(Newtonsoft.Json.Formatting.None);
         }
 
-        private static LlmResponse ParseResponse(string json)
+        /// <summary>Parses a non-streaming OpenAI-compatible response; internal for usage-parsing tests (Sprint 53).</summary>
+        internal static LlmResponse ParseResponse(string json)
         {
             var root = JObject.Parse(json);
             var choice = (root["choices"] as JArray)?.Count > 0 ? root["choices"][0] : null;
@@ -167,7 +168,8 @@ namespace Molca.Editor.Mcp.Assistant
             {
                 StopReason = choice?.Value<string>("finish_reason"),
                 Text = message?.Value<string>("content") ?? string.Empty,
-                PromptTokens = root["usage"]?.Value<int>("prompt_tokens") ?? 0
+                PromptTokens = root["usage"]?.Value<int>("prompt_tokens") ?? 0,
+                CompletionTokens = root["usage"]?.Value<int>("completion_tokens") ?? 0
             };
 
             if (message?["tool_calls"] is JArray toolCalls)
@@ -208,6 +210,8 @@ namespace Molca.Editor.Mcp.Assistant
             private readonly System.Collections.Generic.Dictionary<int, PendingTool> _tools =
                 new System.Collections.Generic.Dictionary<int, PendingTool>();
             private string _finishReason;
+            private int _promptTokens;
+            private int _completionTokens;
 
             public OpenAiStreamAccumulator(IProgress<string> onTextDelta) { _onTextDelta = onTextDelta; }
 
@@ -220,6 +224,15 @@ namespace Molca.Editor.Mcp.Assistant
                 JObject root;
                 try { root = JObject.Parse(payload); }
                 catch { return; }
+
+                // The terminal chunk (with stream_options.include_usage) carries usage and an empty choices
+                // array, so read usage before the choice null-guard below.
+                var usage = root["usage"];
+                if (usage != null && usage.Type != JTokenType.Null)
+                {
+                    _promptTokens = usage.Value<int?>("prompt_tokens") ?? _promptTokens;
+                    _completionTokens = usage.Value<int?>("completion_tokens") ?? _completionTokens;
+                }
 
                 var choice = (root["choices"] as JArray)?.Count > 0 ? root["choices"][0] : null;
                 if (choice == null) return;
@@ -257,7 +270,13 @@ namespace Molca.Editor.Mcp.Assistant
 
             public LlmResponse Build()
             {
-                var response = new LlmResponse { Text = _text.ToString(), StopReason = _finishReason };
+                var response = new LlmResponse
+                {
+                    Text = _text.ToString(),
+                    StopReason = _finishReason,
+                    PromptTokens = _promptTokens,
+                    CompletionTokens = _completionTokens
+                };
                 foreach (var kv in _tools)
                 {
                     var args = kv.Value.Args.Length > 0 ? kv.Value.Args.ToString() : "{}";

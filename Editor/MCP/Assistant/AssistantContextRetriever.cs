@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using Molca.Editor.KnowledgeGraph;
 using UnityEngine;
@@ -49,6 +50,70 @@ namespace Molca.Editor.Mcp.Assistant
         private const int QueryTimeoutMs = 60_000;
 
         /// <summary>
+        /// How long a cached retrieval is reused for an unchanged query before re-querying (Sprint 53). Bounds
+        /// staleness while collapsing the rapid repeats — retries, edit-resends, quick follow-ups — that would
+        /// otherwise each spawn a graphify subprocess.
+        /// </summary>
+        internal const int MinReuseIntervalSeconds = 120;
+
+        // Last retrieval, keyed on (normalized query, graph stamp) so an unchanged question within the reuse
+        // window skips the subprocess and a graph rebuild (stamp change) invalidates it. Static: the retriever
+        // is stateless otherwise and a session is one editor process.
+        private static string _cacheKey;
+        private static RetrievedContext _cachedResult;
+        private static DateTime _cachedAtUtc;
+
+        /// <summary>Clock seam for deterministic cache-expiry tests; defaults to wall-clock UTC.</summary>
+        internal static Func<DateTime> UtcNow = () => DateTime.UtcNow;
+
+        /// <summary>Graph-stamp seam (defaults to <c>graph.json</c> mtime ticks) so cache-invalidation is testable.</summary>
+        internal static Func<long> GraphStamp = DefaultGraphStamp;
+
+        private static long DefaultGraphStamp()
+        {
+            try { return File.Exists(GraphifyCli.GraphJsonPath) ? File.GetLastWriteTimeUtc(GraphifyCli.GraphJsonPath).Ticks : 0; }
+            catch { return 0; }
+        }
+
+        /// <summary>The normalized cache key for a query: trimmed/lowered text plus the current graph stamp.</summary>
+        internal static string ComputeCacheKey(string userText)
+            => (userText ?? string.Empty).Trim().ToLowerInvariant() + "|" + GraphStamp();
+
+        /// <summary>Returns the cached result when the key matches and the reuse window has not elapsed (Sprint 53).</summary>
+        internal static bool TryGetCached(string userText, out RetrievedContext cached)
+        {
+            cached = null;
+            if (_cachedResult == null) return false;
+            if (_cacheKey != ComputeCacheKey(userText)) return false;
+            if ((UtcNow() - _cachedAtUtc).TotalSeconds > MinReuseIntervalSeconds) return false;
+            cached = _cachedResult;
+            return true;
+        }
+
+        /// <summary>Stores a retrieval result under the current key/time for later reuse (Sprint 53).</summary>
+        internal static void StoreCache(string userText, RetrievedContext result)
+        {
+            _cacheKey = ComputeCacheKey(userText);
+            _cachedResult = result;
+            _cachedAtUtc = UtcNow();
+        }
+
+        /// <summary>Clears the retrieval cache (test isolation / explicit invalidation).</summary>
+        internal static void ClearCache()
+        {
+            _cacheKey = null;
+            _cachedResult = null;
+        }
+
+        /// <summary>Restores the clock/graph-stamp seams to their defaults and clears the cache (test teardown).</summary>
+        internal static void ResetTestSeams()
+        {
+            UtcNow = () => DateTime.UtcNow;
+            GraphStamp = DefaultGraphStamp;
+            ClearCache();
+        }
+
+        /// <summary>
         /// A cheap pre-filter so a graph subprocess is not spawned on trivial input (short affirmations,
         /// one-word follow-ups). The model still owns final scoping; this only avoids obviously wasteful
         /// queries.
@@ -75,6 +140,10 @@ namespace Molca.Editor.Mcp.Assistant
             if (!ShouldRetrieve(userText)) return RetrievedContext.None;
             if (!GraphifyCli.GraphExists) return RetrievedContext.None;
 
+            // Reuse a recent identical query (Sprint 53) so retries/edit-resends don't each spawn a subprocess;
+            // a graph rebuild changes the stamp and misses, re-querying against the fresh graph.
+            if (TryGetCached(userText, out var cached)) return cached;
+
             try
             {
                 // Broad BFS context (no --dfs) suits "what relates to / how does X work" grounding; cap the
@@ -86,9 +155,12 @@ namespace Molca.Editor.Mcp.Assistant
                 if (!result.Ok) return RetrievedContext.None; // NotFound / non-zero exit / timeout → silent no-op
 
                 var text = ShapeRetrieval(result.StdOut, tokenBudget);
-                return string.IsNullOrEmpty(text)
+                var retrieved = string.IsNullOrEmpty(text)
                     ? RetrievedContext.None
                     : new RetrievedContext { Text = text, Query = userText.Trim() };
+                // Cache successful queries (including an empty result) so an identical follow-up is free.
+                StoreCache(userText, retrieved);
+                return retrieved;
             }
             catch (OperationCanceledException)
             {
