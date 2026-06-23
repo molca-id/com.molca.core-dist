@@ -401,7 +401,9 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>
         /// How mutating (Action) tool calls are authorized. <see cref="AssistantActionMode.Ask"/>
         /// (default) prompts before each one; <see cref="AssistantActionMode.Auto"/> runs allowlisted
-        /// actions without prompting. Read-only tools are unaffected.
+        /// undoable actions without prompting (irreversible ones still confirm);
+        /// <see cref="AssistantActionMode.AutoAll"/> runs every allowlisted action unprompted, including
+        /// irreversible ones. Read-only tools are unaffected.
         /// </summary>
         public AssistantActionMode ActionMode { get; set; } = AssistantActionMode.Ask;
 
@@ -877,7 +879,10 @@ namespace Molca.Editor.Mcp.Assistant
                                 // Cancel" prompt (irreversible actions always confirm, even in Auto). Ask mode
                                 // always prompts. Confirmed batches still execute as one undo group below.
                                 var allUndoable = actionCalls.All(c => IsUndoable(c.Tool));
-                                var autoApprove = ActionMode == AssistantActionMode.Auto && allUndoable;
+                                // AutoAll bypasses everything, even an irreversible action in the batch;
+                                // Auto only auto-approves a wholly-undoable batch.
+                                var autoApprove = ActionMode == AssistantActionMode.AutoAll
+                                    || (ActionMode == AssistantActionMode.Auto && allUndoable);
                                 // Plan mode runs an all-undoable batch under one task approval; a batch with an
                                 // irreversible action falls through to the explicit "Run all / Cancel" prompt.
                                 var planApprove = ActionMode == AssistantActionMode.Plan && allUndoable
@@ -886,7 +891,8 @@ namespace Molca.Editor.Mcp.Assistant
                                     || await ConfirmActionsAsync(actionCalls, cancellationToken);
                                 if (autoApprove || planApprove)
                                 {
-                                    var disposition = planApprove ? "plan-approved" : "auto-approved";
+                                    var disposition = planApprove ? "plan-approved"
+                                        : ActionMode == AssistantActionMode.AutoAll ? "auto-all-approved" : "auto-approved";
                                     foreach (var actionCall in actionCalls)
                                         McpActionAuditLog.Record(actionCall.Tool.Name, actionCall.Call.ArgumentsJson, "chat", disposition);
                                 }
@@ -1543,6 +1549,12 @@ namespace Molca.Editor.Mcp.Assistant
         /// </summary>
         private async Awaitable<bool> ConfirmActionInModeAsync(McpToolDefinition tool, string args, CancellationToken cancellationToken)
         {
+            if (ActionMode == AssistantActionMode.AutoAll)
+            {
+                // Bypass everything — even irreversible actions run unprompted.
+                McpActionAuditLog.Record(tool.Name, args, "chat", "auto-all-approved");
+                return true;
+            }
             if (ActionMode == AssistantActionMode.Auto && IsUndoable(tool))
             {
                 McpActionAuditLog.Record(tool.Name, args, "chat", "auto-approved");

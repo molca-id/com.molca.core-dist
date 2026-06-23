@@ -1,0 +1,17 @@
+{
+    "name": "Molca.UI",
+    "rootNamespace": "Molca.UI",
+    "references": [
+        "Molca",
+        "Molca.Localization"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -5,6 +5,7 @@
         "Molca",
         "Molca.Audio",
         "Molca.Localization",
+        "Molca.UI",
         "Molca.Networking",
         "Molca.Sequence",
         "Molca.ContentPackage",

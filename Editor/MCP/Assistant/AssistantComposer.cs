@@ -58,7 +58,7 @@ namespace Molca.Editor.Mcp.Assistant
             // The action-mode field needs the typed enum value, so it is built in code into its slot.
             _modeField = new EnumField(LoadActionMode())
             {
-                tooltip = "Action authorization:\n• Ask — confirm every mutating tool call.\n• Auto — run allowlisted actions without prompting.\n• Plan — approve a multi-step task once, then run its undoable steps under one whole-task undo (irreversible steps still confirm).\nRead-only tools always run."
+                tooltip = "Action authorization:\n• Ask — confirm every mutating tool call.\n• Auto — run allowlisted undoable actions without prompting (irreversible steps still confirm).\n• Plan — approve a multi-step task once, then run its undoable steps under one whole-task undo (irreversible steps still confirm).\n• Auto All — run every allowlisted action unprompted, including irreversible ones (cannot be undone). Use with care.\nRead-only tools always run."
             };
             _modeField.AddToClassList("chat-mode-field");
             _modeField.RegisterValueChangedCallback(OnActionModeChanged);

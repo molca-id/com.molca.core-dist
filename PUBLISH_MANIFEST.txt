@@ -1,7 +1,7 @@
-﻿com.molca.core@1.9.6
-Published: 2026-06-22 11:09:50Z
-Source commit: 90933762
-Files: 1314
+﻿com.molca.core@1.9.7
+Published: 2026-06-24 06:24:05Z
+Source commit: 58d5a740
+Files: 1363
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -398,6 +398,8 @@ Editor/MCP/Providers/CoreMcpToolProvider.Bootstrap.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Bootstrap.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.BuildInfo.cs
 Editor/MCP/Providers/CoreMcpToolProvider.BuildInfo.cs.meta
+Editor/MCP/Providers/CoreMcpToolProvider.BuildUgui.cs
+Editor/MCP/Providers/CoreMcpToolProvider.BuildUgui.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.ClickUp.cs
 Editor/MCP/Providers/CoreMcpToolProvider.ClickUp.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Codegen.cs
@@ -414,8 +416,12 @@ Editor/MCP/Providers/CoreMcpToolProvider.cs
 Editor/MCP/Providers/CoreMcpToolProvider.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Doctor.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Doctor.cs.meta
+Editor/MCP/Providers/CoreMcpToolProvider.EditSource.cs
+Editor/MCP/Providers/CoreMcpToolProvider.EditSource.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Figma.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Figma.cs.meta
+Editor/MCP/Providers/CoreMcpToolProvider.FigmaUi.cs
+Editor/MCP/Providers/CoreMcpToolProvider.FigmaUi.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.FrameworkGraph.cs
 Editor/MCP/Providers/CoreMcpToolProvider.FrameworkGraph.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.KnowledgeGraph.cs
@@ -729,6 +735,15 @@ Editor/Settings/VersionSettingsEditor.cs.meta
 Editor/SpreadsheetTableLoader.cs
 Editor/SpreadsheetTableLoader.cs.meta
 Editor/UI.meta
+Editor/UI/Build.meta
+Editor/UI/Build/UguiLayoutPass.cs
+Editor/UI/Build/UguiLayoutPass.cs.meta
+Editor/UI/Build/UguiMaterializer.cs
+Editor/UI/Build/UguiMaterializer.cs.meta
+Editor/UI/Build/UguiPrefabWriter.cs
+Editor/UI/Build/UguiPrefabWriter.cs.meta
+Editor/UI/Build/UguiVrPass.cs
+Editor/UI/Build/UguiVrPass.cs.meta
 Editor/UI/Components.meta
 Editor/UI/Components/MolcaButtons.cs
 Editor/UI/Components/MolcaButtons.cs.meta
@@ -744,6 +759,19 @@ Editor/UI/Components/MolcaSectionCard.cs
 Editor/UI/Components/MolcaSectionCard.cs.meta
 Editor/UI/Components/MolcaStatusKind.cs
 Editor/UI/Components/MolcaStatusKind.cs.meta
+Editor/UI/Figma.meta
+Editor/UI/Figma/FigmaColorSnap.cs
+Editor/UI/Figma/FigmaColorSnap.cs.meta
+Editor/UI/Figma/FigmaFrameModel.cs
+Editor/UI/Figma/FigmaFrameModel.cs.meta
+Editor/UI/Figma/FigmaSpecComposer.cs
+Editor/UI/Figma/FigmaSpecComposer.cs.meta
+Editor/UI/Figma/FigmaTokenMapper.cs
+Editor/UI/Figma/FigmaTokenMapper.cs.meta
+Editor/UI/Figma/UiIntentSpec.cs
+Editor/UI/Figma/UiIntentSpec.cs.meta
+Editor/UI/Figma/UiIntentSpecValidator.cs
+Editor/UI/Figma/UiIntentSpecValidator.cs.meta
 Editor/UI/Fonts.meta
 Editor/UI/Fonts/OFL.txt
 Editor/UI/Fonts/OFL.txt.meta
@@ -755,6 +783,13 @@ Editor/UI/MolcaEditorTokens.uss
 Editor/UI/MolcaEditorTokens.uss.meta
 Editor/UI/MolcaEditorUi.cs
 Editor/UI/MolcaEditorUi.cs.meta
+Editor/UI/Tokens.meta
+Editor/UI/Tokens/MolcaStyleApplierEditor.cs
+Editor/UI/Tokens/MolcaStyleApplierEditor.cs.meta
+Editor/UI/Tokens/MolcaUiTokenMiner.cs
+Editor/UI/Tokens/MolcaUiTokenMiner.cs.meta
+Editor/UI/Tokens/MolcaUiTokenResolver.cs
+Editor/UI/Tokens/MolcaUiTokenResolver.cs.meta
 Editor/UIToolkit.meta
 Editor/UIToolkit/UiToolkitAuthoringService.cs
 Editor/UIToolkit/UiToolkitAuthoringService.cs.meta
@@ -1250,6 +1285,20 @@ Runtime/Telemetry/TelemetrySettings.cs
 Runtime/Telemetry/TelemetrySettings.cs.meta
 Runtime/Telemetry/TelemetrySubsystem.cs
 Runtime/Telemetry/TelemetrySubsystem.cs.meta
+Runtime/UI.meta
+Runtime/UI/Molca.UI.asmdef
+Runtime/UI/Molca.UI.asmdef.meta
+Runtime/UI/Tokens.meta
+Runtime/UI/Tokens/MolcaStyleApplier.cs
+Runtime/UI/Tokens/MolcaStyleApplier.cs.meta
+Runtime/UI/Tokens/MolcaUiToken.cs
+Runtime/UI/Tokens/MolcaUiToken.cs.meta
+Runtime/UI/Tokens/MolcaUiTokenCatalog.cs
+Runtime/UI/Tokens/MolcaUiTokenCatalog.cs.meta
+Runtime/UI/Tokens/MolcaUiTokenId.cs
+Runtime/UI/Tokens/MolcaUiTokenId.cs.meta
+Runtime/UI/Tokens/MolcaUiTokenRegistry.cs
+Runtime/UI/Tokens/MolcaUiTokenRegistry.cs.meta
 Runtime/UIToolkit.meta
 Runtime/UIToolkit/MolcaDefaultTheme.tss
 Runtime/UIToolkit/MolcaDefaultTheme.tss.meta

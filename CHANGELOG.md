@@ -2,6 +2,18 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.9.7] - 2026-06-24
+
+### Added
+- **Molca UI token registry** — a new `Molca.UI` assembly providing a design-token "style sheet" layer over `ColorID`/`LocalizedText`/sprites/prefabs for uGUI. Tokens *name* those existing mechanisms; Core ships the engine + abstract registry but no token values (an SDK/project authors the catalog).
+- **Figma frame → UI Intent Spec pipeline** — a UI Intent Spec contract with CIEDE2000 color snapping, Figma-frame mapping + tool, and `molca_build_ugui` which builds a VR-ready uGUI prefab from a UI Intent Spec.
+- **`molca_build_ugui` canvasMode** — first-class non-VR (screen-space) output alongside the VR-ready (world-space) path.
+- **`molca_edit_source` MCP tool** — guarded, reversible in-place source editing.
+- **Assistant auto-all mode.**
+
+### Fixed
+- Drain `McpUndoStack` in `EditSourceToolTests` for test isolation.
+
 ## [1.9.6] - 2026-06-22
 
 ### Added

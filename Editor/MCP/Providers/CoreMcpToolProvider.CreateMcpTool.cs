@@ -43,8 +43,8 @@ namespace Molca.Editor.Mcp.Providers
             name: "molca_create_mcp_tool",
             description: "Adds a NEW MCP tool by generating C#. This tool only CREATES source — it cannot "
                        + "edit, modify, rename, or delete an existing tool. To change a tool that already "
-                       + "exists, edit its source file directly (read it with molca_read_source first); to "
-                       + "replace one, delete its file and create it anew. If 'providerClassName' names an "
+                       + "exists, edit its source file with molca_edit_source (read it with molca_read_source "
+                       + "first); to replace one, delete its file and create it anew. If 'providerClassName' names an "
                        + "EXISTING provider in a writable (non-package) location, appends a tool-only partial "
                        + "file beside it — convention discovery surfaces the new tool with no settings change "
                        + "(adding a tool whose name already exists is rejected). "
@@ -144,8 +144,8 @@ namespace Molca.Editor.Mcp.Providers
                         string.Equals(t.Name, toolName, StringComparison.Ordinal)))
                     return Error($"Provider '{providerType.Name}' already defines a tool named '{toolName}'. "
                                + "This tool only creates new tools — it cannot edit an existing one. To change "
-                               + $"'{toolName}', edit its source file directly (find it with molca_read_source); "
-                               + "to replace it, delete that file and create the tool anew.");
+                               + $"'{toolName}', edit its source file with molca_edit_source (find it with "
+                               + "molca_read_source); to replace it, delete that file and create the tool anew.");
             }
             finally
             {
