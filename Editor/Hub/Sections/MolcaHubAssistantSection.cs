@@ -105,6 +105,11 @@ namespace Molca.Editor.Hub.Sections
             privacy.AddToClassList("molca-hub-muted");
             configCard.Body.Add(privacy);
 
+            // Sprint 65: the assistant runs on the editor loop, so it stays usable while Play mode is paused.
+            var playPause = new Label("The assistant stays usable while Unity Play mode is paused — ask about the frozen scene and it answers and runs read tools without needing you to unpause.");
+            playPause.AddToClassList("molca-hub-muted");
+            configCard.Body.Add(playPause);
+
             AddUsageCard(settings);
         }
 

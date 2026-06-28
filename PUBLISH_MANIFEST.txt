@@ -1,7 +1,7 @@
-﻿com.molca.core@1.10.1
-Published: 2026-06-29 05:57:13Z
-Source commit: 723366c6
-Files: 1390
+﻿com.molca.core@1.10.2
+Published: 2026-06-29 06:47:00Z
+Source commit: 3fc8ffe3
+Files: 1392
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -347,6 +347,8 @@ Editor/MCP/Assistant/AssistantCostTable.cs
 Editor/MCP/Assistant/AssistantCostTable.cs.meta
 Editor/MCP/Assistant/AssistantEditorContext.cs
 Editor/MCP/Assistant/AssistantEditorContext.cs.meta
+Editor/MCP/Assistant/AssistantHttp.cs
+Editor/MCP/Assistant/AssistantHttp.cs.meta
 Editor/MCP/Assistant/AssistantSessionLibrary.cs
 Editor/MCP/Assistant/AssistantSessionLibrary.cs.meta
 Editor/MCP/Assistant/AssistantSessionStore.cs
@@ -365,12 +367,12 @@ Editor/MCP/Assistant/AssistantTranscriptView.cs
 Editor/MCP/Assistant/AssistantTranscriptView.cs.meta
 Editor/MCP/Assistant/AssistantUserPrompt.cs
 Editor/MCP/Assistant/AssistantUserPrompt.cs.meta
+Editor/MCP/Assistant/EditorUpdateAwaiter.cs
+Editor/MCP/Assistant/EditorUpdateAwaiter.cs.meta
 Editor/MCP/Assistant/ILlmProvider.cs
 Editor/MCP/Assistant/ILlmProvider.cs.meta
 Editor/MCP/Assistant/OpenAiCompatibleLlmProvider.cs
 Editor/MCP/Assistant/OpenAiCompatibleLlmProvider.cs.meta
-Editor/MCP/Assistant/SseDownloadHandler.cs
-Editor/MCP/Assistant/SseDownloadHandler.cs.meta
 Editor/MCP/McpActionAuditLog.cs
 Editor/MCP/McpActionAuditLog.cs.meta
 Editor/MCP/McpActionGuard.cs

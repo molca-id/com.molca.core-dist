@@ -2,6 +2,16 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.10.2] - 2026-06-29
+
+### Changed
+- **Assistant usable while Play mode is paused (Sprint 65).** The in-editor assistant's LLM call moved off
+  `UnityWebRequest` + `Awaitable.NextFrameAsync` (both player-loop driven, frozen by pause) to a background
+  `HttpClient` pumped via `EditorApplication.update`. A turn now streams, answers, and runs read-only tools
+  while Play mode is paused — handy for inspecting and asking about frozen scene state — and Stop still
+  cancels promptly. Mutating actions remain user-gated exactly as before. New `EditorUpdateAwaiter` /
+  `AssistantHttp` helpers; the obsolete `SseDownloadHandler` was removed.
+
 ## [1.10.1] - 2026-06-29
 
 ### Added

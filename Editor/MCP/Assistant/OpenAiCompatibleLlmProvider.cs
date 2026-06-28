@@ -3,7 +3,6 @@ using System.Text;
 using System.Threading;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
-using UnityEngine.Networking;
 
 namespace Molca.Editor.Mcp.Assistant
 {
@@ -45,28 +44,23 @@ namespace Molca.Editor.Mcp.Assistant
             var body = BuildBody(request, streaming);
             var accumulator = streaming ? new OpenAiStreamAccumulator(onTextDelta) : null;
 
-            using var web = new UnityWebRequest(url, "POST")
+            // Pause-independent transport (Sprint 65): HttpClient on a background task pumped via the editor
+            // update loop, so the turn streams and completes while Play mode is paused. The SSE callback runs
+            // on the main thread.
+            var headers = new System.Collections.Generic.Dictionary<string, string>
             {
-                uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body)),
-                downloadHandler = streaming
-                    ? (DownloadHandler)new SseDownloadHandler(accumulator.OnLine)
-                    : new DownloadHandlerBuffer(),
-                timeout = 120
+                ["Authorization"] = "Bearer " + _apiKey
             };
-            web.SetRequestHeader("content-type", "application/json");
-            web.SetRequestHeader("Authorization", "Bearer " + _apiKey);
 
-            var op = web.SendWebRequest();
-            while (!op.isDone)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                await Awaitable.NextFrameAsync(cancellationToken);
-            }
+            var result = await AssistantHttp.PostAsync(
+                url, headers, body, streaming,
+                streaming ? accumulator.OnLine : (Action<string>)null,
+                timeoutSeconds: 120, cancellationToken);
 
-            if (web.result != UnityWebRequest.Result.Success)
-                throw new Exception(ExtractError(streaming ? null : web.downloadHandler.text, web));
+            if (!result.IsSuccess)
+                throw new Exception(ExtractError(result.Body, result.StatusCode));
 
-            return streaming ? accumulator.Build() : ParseResponse(web.downloadHandler.text);
+            return streaming ? accumulator.Build() : ParseResponse(result.Body);
         }
 
         private static string BuildBody(LlmRequest request, bool streaming)
@@ -186,16 +180,16 @@ namespace Molca.Editor.Mcp.Assistant
             return response;
         }
 
-        private static string ExtractError(string body, UnityWebRequest web)
+        private static string ExtractError(string body, int statusCode)
         {
             try
             {
                 var err = JObject.Parse(body)["error"]?.Value<string>("message");
                 if (!string.IsNullOrEmpty(err))
-                    return $"LLM API error ({web.responseCode}): {err}";
+                    return $"LLM API error ({statusCode}): {err}";
             }
             catch { /* fall through */ }
-            return $"LLM request failed ({web.responseCode}): {web.error}";
+            return $"LLM request failed (HTTP {statusCode}).";
         }
 
         /// <summary>

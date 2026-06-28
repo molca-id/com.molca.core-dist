@@ -3,7 +3,6 @@ using System.Text;
 using System.Threading;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
-using UnityEngine.Networking;
 
 namespace Molca.Editor.Mcp.Assistant
 {
@@ -44,33 +43,24 @@ namespace Molca.Editor.Mcp.Assistant
             var body = BuildBody(request, streaming);
             var accumulator = streaming ? new AnthropicStreamAccumulator(onTextDelta) : null;
 
-            using var web = new UnityWebRequest(Endpoint, "POST")
+            // Pause-independent transport (Sprint 65): HttpClient on a background task, pumped via the editor
+            // update loop so a turn can stream and complete while Play mode is paused. The SSE line callback
+            // is invoked on the main thread, so the accumulator forwards deltas to the UI safely.
+            var headers = new System.Collections.Generic.Dictionary<string, string>
             {
-                uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body)),
-                downloadHandler = streaming
-                    ? (DownloadHandler)new SseDownloadHandler(accumulator.OnLine)
-                    : new DownloadHandlerBuffer(),
-                timeout = 120
+                ["x-api-key"] = _apiKey,
+                ["anthropic-version"] = AnthropicVersion
             };
-            web.SetRequestHeader("content-type", "application/json");
-            web.SetRequestHeader("x-api-key", _apiKey);
-            web.SetRequestHeader("anthropic-version", AnthropicVersion);
 
-            var op = web.SendWebRequest();
-            while (!op.isDone)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                await Awaitable.NextFrameAsync(cancellationToken);
-            }
+            var result = await AssistantHttp.PostAsync(
+                Endpoint, headers, body, streaming,
+                streaming ? accumulator.OnLine : (Action<string>)null,
+                timeoutSeconds: 120, cancellationToken);
 
-            if (web.result != UnityWebRequest.Result.Success)
-            {
-                // The streaming handler keeps no body; the non-streaming one has the error JSON.
-                var errText = streaming ? null : web.downloadHandler.text;
-                throw new Exception(ExtractError(errText, web));
-            }
+            if (!result.IsSuccess)
+                throw new Exception(ExtractError(result.Body, result.StatusCode));
 
-            return streaming ? accumulator.Build() : ParseResponse(web.downloadHandler.text);
+            return streaming ? accumulator.Build() : ParseResponse(result.Body);
         }
 
         private static string BuildBody(LlmRequest request, bool streaming)
@@ -188,16 +178,16 @@ namespace Molca.Editor.Mcp.Assistant
             return response;
         }
 
-        private static string ExtractError(string body, UnityWebRequest web)
+        private static string ExtractError(string body, int statusCode)
         {
             try
             {
                 var err = JObject.Parse(body)["error"]?.Value<string>("message");
                 if (!string.IsNullOrEmpty(err))
-                    return $"Anthropic API error ({web.responseCode}): {err}";
+                    return $"Anthropic API error ({statusCode}): {err}";
             }
             catch { /* fall through to raw */ }
-            return $"Anthropic request failed ({web.responseCode}): {web.error}";
+            return $"Anthropic request failed (HTTP {statusCode}).";
         }
 
         /// <summary>
