@@ -1,10 +1,24 @@
-﻿com.molca.core@1.9.7
-Published: 2026-06-24 06:24:05Z
-Source commit: 58d5a740
-Files: 1363
+﻿com.molca.core@1.9.8
+Published: 2026-06-29 01:26:53Z
+Source commit: 1eb4b497
+Files: 1384
 
 CHANGELOG.md
 CHANGELOG.md.meta
+Documentation~/PACKAGE_STANDALONE_REVIEW.md
+Documentation~/README.md
+Documentation~/reference/CORE_MCP_TOOLS.md
+Documentation~/reference/EDITOR_DESIGN_LANGUAGE.md
+Documentation~/reference/FIGMA_TO_UGUI.md
+Documentation~/reference/KNOWLEDGE_GRAPH.md
+Documentation~/reference/MCP_FORK_PROVIDERS.md
+Documentation~/reference/ONBOARDING_WIZARD.md
+Documentation~/reference/SDK_PACKAGING.md
+Documentation~/reference/SEQUENCE_AUTHORING.md
+Documentation~/reference/SEQUENCE_VALIDATION.md
+Documentation~/reference/UI_TOKENS.md
+Documentation~/reference/UNITY_MCP_TOOLS.md
+Documentation~/SEQUENCE_VALIDATION.md
 Editor.meta
 Editor/AssemblyInfo.cs
 Editor/AssemblyInfo.cs.meta
@@ -282,6 +296,8 @@ Editor/Icons/svg/molca-utils.svg.meta
 Editor/Icons/svg/molca-window.svg
 Editor/Icons/svg/molca-window.svg.meta
 Editor/KnowledgeGraph.meta
+Editor/KnowledgeGraph/CorePackageCorpus.cs
+Editor/KnowledgeGraph/CorePackageCorpus.cs.meta
 Editor/KnowledgeGraph/GraphifyBuild.cs
 Editor/KnowledgeGraph/GraphifyBuild.cs.meta
 Editor/KnowledgeGraph/GraphifyCli.cs
@@ -1366,3 +1382,8 @@ Samples~/ContentPackageDemos/PackageManifestIntegrationDemo.cs
 Samples~/ContentPackageDemos/PackageManifestTests.cs
 Samples~/ContentPackageDemos/README.md
 Samples~/ContentPackageDemos/StateManagementDemo.cs
+Tools~/molca-mcp/package.json
+Tools~/molca-mcp/package-lock.json
+Tools~/molca-mcp/README.md
+Tools~/molca-mcp/src/index.ts
+Tools~/molca-mcp/tsconfig.json

@@ -4,13 +4,11 @@ using System.IO;
 using Molca.Editor;
 using UnityEditor;
 using UnityEngine;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
 
 namespace Molca.Settings
 {
     /// <summary>
-    /// Represents one entry in the build changelog. Used as both the runtime type and the YAML DTO.
+    /// Represents one entry in the build changelog. Used as both the runtime type and the JSON DTO.
     /// </summary>
     [Serializable]
     public class VersionHistoryEntry
@@ -20,7 +18,7 @@ namespace Molca.Settings
         public string changeType;
         public string notes;
 
-        // Parameterless constructor required by YamlDotNet deserialization.
+        // Parameterless constructor required by JsonUtility deserialization.
         public VersionHistoryEntry() { }
 
         public VersionHistoryEntry(string version, string changeType, string notes = "")
@@ -33,7 +31,7 @@ namespace Molca.Settings
     }
 
     /// <summary>
-    /// YAML-serializable root for the changelog file.
+    /// JSON-serializable root for the changelog file.
     /// </summary>
     [Serializable]
     public class ChangelogFileData
@@ -42,11 +40,12 @@ namespace Molca.Settings
     }
 
     /// <summary>
-    /// Reads and writes the YAML build changelog. Optionally appends git commit messages to entries.
+    /// Reads and writes the JSON build changelog. Optionally appends git commit messages to entries.
     /// </summary>
     /// <remarks>
     /// <see cref="LastBuildHashKey"/> is stored in <see cref="EditorPrefs"/> rather than a serialized
-    /// field on the owning ScriptableObject to avoid mutating SO assets at runtime.
+    /// field on the owning ScriptableObject to avoid mutating SO assets at runtime. JSON is used instead
+    /// of YAML so the dist package has no compile-time dependency on a dev-project-only parser assembly.
     /// </remarks>
     public class ChangelogWriter
     {
@@ -56,11 +55,11 @@ namespace Molca.Settings
         private readonly string _changelogPath;
         private readonly bool _includeGitCommits;
 
-        /// <param name="changelogPath">Path to the YAML changelog, relative to the project root.</param>
+        /// <param name="changelogPath">Path to the JSON changelog, relative to the project root.</param>
         /// <param name="includeGitCommits">When true, git commit messages are appended to build entries.</param>
         public ChangelogWriter(string changelogPath, bool includeGitCommits)
         {
-            _changelogPath = changelogPath;
+            _changelogPath = NormalizePath(changelogPath);
             _includeGitCommits = includeGitCommits;
         }
 
@@ -73,11 +72,8 @@ namespace Molca.Settings
 
             try
             {
-                var yaml = File.ReadAllText(path);
-                var deserializer = new DeserializerBuilder()
-                    .WithNamingConvention(CamelCaseNamingConvention.Instance)
-                    .Build();
-                var data = deserializer.Deserialize<ChangelogFileData>(yaml);
+                var json = File.ReadAllText(path);
+                var data = JsonUtility.FromJson<ChangelogFileData>(json);
                 return data?.versionHistory?.ToArray() ?? Array.Empty<VersionHistoryEntry>();
             }
             catch (Exception ex)
@@ -99,15 +95,11 @@ namespace Molca.Settings
                 var data = new ChangelogFileData();
                 data.versionHistory.AddRange(entries);
 
-                var serializer = new SerializerBuilder()
-                    .WithNamingConvention(CamelCaseNamingConvention.Instance)
-                    .Build();
-
                 var dir = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
-                File.WriteAllText(path, serializer.Serialize(data));
+                File.WriteAllText(path, JsonUtility.ToJson(data, prettyPrint: true));
             }
             catch (Exception ex)
             {
@@ -194,6 +186,22 @@ namespace Molca.Settings
             {
                 Debug.LogWarning($"ChangelogWriter: Failed to append notes.\n{ex}");
             }
+        }
+
+        private static string NormalizePath(string changelogPath)
+        {
+            if (string.IsNullOrWhiteSpace(changelogPath))
+                return changelogPath;
+
+            var trimmed = changelogPath.Trim();
+            var extension = Path.GetExtension(trimmed);
+            if (extension.Equals(".yaml", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".yml", StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.ChangeExtension(trimmed, ".json");
+            }
+
+            return trimmed;
         }
 
         private string GetProjectRoot() => Directory.GetParent(Application.dataPath)?.FullName;

@@ -12,8 +12,7 @@
         "Molca.ReferenceSystem",
         "Unity.Addressables",
         "Unity.Addressables.Editor",
-        "Unity.Localization",
-        "YamlDotNet"
+        "Unity.Localization"
     ],
     "includePlatforms": [
         "Editor"

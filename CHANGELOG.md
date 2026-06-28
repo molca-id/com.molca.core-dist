@@ -2,6 +2,16 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.9.8] - 2026-06-29
+
+### Fixed
+- **Standalone closure (built-in modules):** declare the toggleable `UnityEngine` modules Core uses
+  directly — `com.unity.ugui` (`UnityEngine.UI`/`EventSystems`), `com.unity.modules.audio`
+  (`AudioManager`/`AudioLibrary`), `com.unity.modules.unitywebrequest` (`HttpClient` via `UnityWebRequest`),
+  and `com.unity.modules.uielements` (editor UI Toolkit). Previously relied on these being present by
+  default or pulled transitively (Addressables → UnityWebRequest); a consumer with a trimmed module set
+  could fail to compile. Declaring direct dependencies makes the package self-contained (Sprint 63.1).
+
 ## [1.9.7] - 2026-06-24
 
 ### Added
@@ -13,6 +23,11 @@ All notable changes to Molca Core will be documented here.
 
 ### Fixed
 - Drain `McpUndoStack` in `EditSourceToolTests` for test isolation.
+
+### Packaging
+- Declared `com.unity.nuget.newtonsoft-json` as a direct Core dependency for dist installs.
+- Replaced the build changelog's YamlDotNet dependency with a JSON changelog format so the
+  released package does not rely on dev-project `Assets/Plugins/*` assemblies.
 
 ## [1.9.6] - 2026-06-22
 

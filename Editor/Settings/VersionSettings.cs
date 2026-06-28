@@ -45,8 +45,8 @@ namespace Molca.Settings
         private bool autoAppendChangelogOnBuild = false;
 
         [SerializeField]
-        [Tooltip("Changelog path relative to the project root (YAML format, e.g. CHANGELOG.yaml)")]
-        private string changelogPath = "CHANGELOG.yaml";
+        [Tooltip("Changelog path relative to the project root (JSON format, e.g. CHANGELOG.json)")]
+        private string changelogPath = "CHANGELOG.json";
 
         // -------------------------------------------------------------------
         // Version accessors
@@ -217,7 +217,7 @@ namespace Molca.Settings
         /// <summary>When true, a changelog entry is appended automatically before each build.</summary>
         public bool AutoAppendChangelogOnBuild => autoAppendChangelogOnBuild;
 
-        /// <summary>Path to the YAML changelog file, relative to the project root.</summary>
+        /// <summary>Path to the JSON changelog file, relative to the project root.</summary>
         public string ChangelogPath => changelogPath;
 
         // -------------------------------------------------------------------

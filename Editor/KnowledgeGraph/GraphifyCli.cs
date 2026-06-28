@@ -79,9 +79,11 @@ namespace Molca.Editor.KnowledgeGraph
         /// </summary>
         /// <remarks>
         /// A consuming project that installs Core via UPM gets the package source under
-        /// <c>Library/PackageCache</c> (gitignored, so not indexed by the root sweep). That's acceptable —
-        /// the <c>graphify-corpus/</c> type graph still names every Core extension point; index the package
-        /// cache explicitly only if deep Core-internals Q&amp;A is needed there.
+        /// <c>Library/PackageCache</c> (gitignored, so not indexed by the root sweep). To avoid a silently
+        /// project-only graph there, <see cref="CorePackageCorpus.ExportIfExternal"/> mirrors the external
+        /// Core package's reference docs + Runtime/Editor source into <c>graphify-corpus/com.molca.core/</c>
+        /// (under the root → indexed) before the build runs (Sprint 63.8). When Core is embedded (this dev
+        /// repo) the root sweep already covers it and the export is a no-op.
         /// </remarks>
         public static string BuildIndexArgs(bool full)
         {
