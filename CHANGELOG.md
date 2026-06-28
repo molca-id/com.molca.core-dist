@@ -2,6 +2,15 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.10.1] - 2026-06-29
+
+### Added
+- **Richer Assistant transcript Markdown (Sprint 64).** Committed assistant turns now render blockquotes,
+  task lists (☑/☐), simple tables, horizontal rules, and Markdown links (`[label](path-or-url)`) — file
+  links open in-editor with `:line`, `http`/`https` links open on explicit click, unknown schemes stay
+  plain text. The parser remains lightweight and dependency-free; malformed/partial Markdown degrades to
+  plain text, streaming stays plain until commit, and copy/export output stays redacted and clean.
+
 ## [1.10.0] - 2026-06-29
 
 ### Added

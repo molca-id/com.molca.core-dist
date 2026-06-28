@@ -648,3 +648,52 @@
     padding: 4px 6px;
     background-color: var(--code-bg);
 }
+
+/* --- Sprint 64: blockquotes, task lists, tables, horizontal rules --------- */
+.chat-quote {
+    border-left-width: 3px;
+    border-left-color: var(--tool-accent);
+    padding-left: 8px;
+    margin-bottom: 3px;
+    color: var(--muted-text);
+}
+
+.chat-rule {
+    height: 1px;
+    background-color: var(--scroll-border);
+    margin-top: 6px;
+    margin-bottom: 6px;
+}
+
+.chat-task__box {
+    width: 18px;
+}
+
+.chat-task__text--checked {
+    color: var(--muted-text);
+}
+
+.chat-table {
+    margin-top: 3px;
+    margin-bottom: 4px;
+    border-width: 1px;
+    border-color: var(--scroll-border);
+}
+
+.chat-table__row {
+    flex-direction: row;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--scroll-border);
+}
+
+.chat-table__row--header {
+    background-color: var(--code-bg);
+}
+
+.chat-table__cell {
+    padding: 3px 6px;
+    border-right-width: 1px;
+    border-right-color: var(--scroll-border);
+    white-space: normal;
+    min-width: 0;
+}

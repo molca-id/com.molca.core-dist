@@ -21,7 +21,15 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>A warning line.</summary>
         Warning,
         /// <summary>An error line.</summary>
-        Error
+        Error,
+        /// <summary>A blockquote line/paragraph (<c>&gt; ...</c>).</summary>
+        Quote,
+        /// <summary>A task-list item (<c>- [ ] ...</c> / <c>- [x] ...</c>); see <see cref="AssistantTextBlock.Checked"/>.</summary>
+        Task,
+        /// <summary>A simple Markdown table; rows are in <see cref="AssistantTextBlock.TableRows"/> (row 0 = header).</summary>
+        Table,
+        /// <summary>A horizontal rule (<c>---</c> / <c>***</c> / <c>___</c>).</summary>
+        Rule
     }
 
     /// <summary>One parsed, renderable assistant text block.</summary>
@@ -42,6 +50,16 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>The list number for <see cref="AssistantTextBlockKind.Numbered"/> blocks.</summary>
         public int Number { get; }
 
+        /// <summary>For <see cref="AssistantTextBlockKind.Task"/>: whether the task box is checked.</summary>
+        public bool Checked { get; }
+
+        /// <summary>
+        /// For <see cref="AssistantTextBlockKind.Table"/>: the table rows, each a list of cell strings.
+        /// Row 0 is the header. Each cell's <see cref="RawText"/>-style inline markers are preserved for the
+        /// inline-span renderer. <c>null</c> for non-table blocks.
+        /// </summary>
+        public IReadOnlyList<IReadOnlyList<string>> TableRows { get; }
+
         /// <summary>Creates a text block whose raw and cleaned text are identical.</summary>
         public AssistantTextBlock(AssistantTextBlockKind kind, string text, int number = 0)
             : this(kind, text, text, number)
@@ -55,6 +73,22 @@ namespace Molca.Editor.Mcp.Assistant
             Text = text ?? string.Empty;
             RawText = rawText ?? Text;
             Number = number;
+        }
+
+        /// <summary>Creates a task-list block carrying its checked state.</summary>
+        public AssistantTextBlock(AssistantTextBlockKind kind, string text, string rawText, bool isChecked)
+            : this(kind, text, rawText, 0)
+        {
+            Checked = isChecked;
+        }
+
+        /// <summary>Creates a table block from its parsed rows (row 0 = header).</summary>
+        public AssistantTextBlock(IReadOnlyList<IReadOnlyList<string>> tableRows)
+        {
+            Kind = AssistantTextBlockKind.Table;
+            Text = string.Empty;
+            RawText = string.Empty;
+            TableRows = tableRows;
         }
     }
 
@@ -72,7 +106,9 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>A clickable file/path link, optionally with a line number.</summary>
         Link,
         /// <summary>A clickable assistant context action, encoded as a <c>molca-context://</c> URI.</summary>
-        Context
+        Context,
+        /// <summary>A clickable <c>http</c>/<c>https</c> web link (opens via <c>Application.OpenURL</c>).</summary>
+        Url
     }
 
     /// <summary>One inline run produced by <see cref="AssistantTranscriptFormatter.ParseInline"/>.</summary>
@@ -134,6 +170,10 @@ namespace Molca.Editor.Mcp.Assistant
             @"\[(?<label>[^\]\r\n]+)\]\((?<uri>molca-context://[^)\s]+)\)",
             RegexOptions.Compiled);
 
+        private static readonly Regex MarkdownLinkRegex = new Regex(
+            @"\[(?<label>[^\]\r\n]+)\]\((?<target>[^)\s]+)\)",
+            RegexOptions.Compiled);
+
         private static readonly Regex JsonErrorRegex = new Regex(
             "\"error\"\\s*:\\s*\"([^\"]*)\"",
             RegexOptions.Compiled);
@@ -146,7 +186,17 @@ namespace Molca.Editor.Mcp.Assistant
 
             var paragraph = new StringBuilder();
             var code = new StringBuilder();
+            var quote = new StringBuilder();
+            var tableLines = new List<string>();
             var inCode = false;
+
+            // Flushes whichever multi-line accumulator is active before a different block type starts.
+            void FlushPending()
+            {
+                FlushParagraph(blocks, paragraph);
+                FlushQuote(blocks, quote);
+                FlushTable(blocks, tableLines);
+            }
 
             foreach (var raw in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
             {
@@ -163,7 +213,7 @@ namespace Molca.Editor.Mcp.Assistant
                     }
                     else
                     {
-                        FlushParagraph(blocks, paragraph);
+                        FlushPending();
                         inCode = true;
                     }
                     continue;
@@ -177,7 +227,44 @@ namespace Molca.Editor.Mcp.Assistant
 
                 if (trimmed.Length == 0)
                 {
+                    FlushPending();
+                    continue;
+                }
+
+                // Blockquote: merge a contiguous run of '>' lines into one Quote block.
+                if (trimmed.StartsWith(">", StringComparison.Ordinal))
+                {
                     FlushParagraph(blocks, paragraph);
+                    FlushTable(blocks, tableLines);
+                    if (quote.Length > 0) quote.Append(' ');
+                    quote.Append(trimmed.Substring(1).Trim());
+                    continue;
+                }
+
+                // Table: accumulate a contiguous run of pipe rows; validated/emitted on flush.
+                if (IsTableRow(trimmed))
+                {
+                    FlushParagraph(blocks, paragraph);
+                    FlushQuote(blocks, quote);
+                    tableLines.Add(trimmed);
+                    continue;
+                }
+
+                // Any non-quote, non-table line ends those runs.
+                FlushQuote(blocks, quote);
+                FlushTable(blocks, tableLines);
+
+                if (IsRule(trimmed))
+                {
+                    FlushParagraph(blocks, paragraph);
+                    blocks.Add(new AssistantTextBlock(AssistantTextBlockKind.Rule, string.Empty));
+                    continue;
+                }
+
+                if (TryReadTask(trimmed, out var isChecked, out var taskText))
+                {
+                    FlushParagraph(blocks, paragraph);
+                    blocks.Add(new AssistantTextBlock(AssistantTextBlockKind.Task, CleanInlineMarkdown(taskText), taskText, isChecked));
                     continue;
                 }
 
@@ -223,7 +310,7 @@ namespace Molca.Editor.Mcp.Assistant
 
             if (inCode && code.Length > 0)
                 blocks.Add(new AssistantTextBlock(AssistantTextBlockKind.Code, code.ToString().TrimEnd('\n')));
-            FlushParagraph(blocks, paragraph);
+            FlushPending();
             return blocks;
         }
 
@@ -353,7 +440,11 @@ namespace Molca.Editor.Mcp.Assistant
         {
             if (string.IsNullOrEmpty(text)) return string.Empty;
 
-            var clean = BoldRegex.Replace(text, "$1");
+            // Reduce a Markdown link to its visible label so copied/plain text isn't cluttered with the
+            // target. (molca-context links match this shape too and collapse to their label, which is the
+            // right plain-text fallback for a non-representable in-editor action.)
+            var clean = MarkdownLinkRegex.Replace(text, "${label}");
+            clean = BoldRegex.Replace(clean, "$1");
             clean = InlineCodeRegex.Replace(clean, "$1");
             return clean.Replace("\\_", "_");
         }
@@ -385,6 +476,27 @@ namespace Molca.Editor.Mcp.Assistant
                     FlushTextRun(spans, buffer);
                     spans.Add(new AssistantInlineSpan(AssistantInlineKind.Context, label, contextUri: uri));
                     i = endIndex + 1;
+                    continue;
+                }
+
+                // [label](path-or-url): web links become Url runs, file paths become Link runs, and an
+                // unsafe/unknown target degrades to the plain label text (the link syntax is dropped).
+                if (c == '[' && TryReadMarkdownLink(text, i, out var mdLabel, out var mdTarget, out var mdEnd))
+                {
+                    FlushTextRun(spans, buffer);
+                    if (IsWebUrl(mdTarget))
+                    {
+                        spans.Add(new AssistantInlineSpan(AssistantInlineKind.Url, mdLabel, linkPath: mdTarget));
+                    }
+                    else if (TrySplitFileTarget(mdTarget, out var filePath, out var fileLine))
+                    {
+                        spans.Add(new AssistantInlineSpan(AssistantInlineKind.Link, mdLabel, filePath, fileLine));
+                    }
+                    else
+                    {
+                        buffer.Append(mdLabel); // unknown scheme → plain text, no link
+                    }
+                    i = mdEnd + 1;
                     continue;
                 }
 
@@ -448,6 +560,41 @@ namespace Molca.Editor.Mcp.Assistant
             uri = match.Groups["uri"].Value;
             endIndex = match.Index + match.Length - 1;
             return !string.IsNullOrWhiteSpace(label) && !string.IsNullOrWhiteSpace(uri);
+        }
+
+        private static bool TryReadMarkdownLink(string text, int start, out string label, out string target, out int endIndex)
+        {
+            label = null;
+            target = null;
+            endIndex = -1;
+
+            var match = MarkdownLinkRegex.Match(text, start);
+            if (!match.Success || match.Index != start) return false;
+
+            label = match.Groups["label"].Value;
+            target = match.Groups["target"].Value;
+            endIndex = match.Index + match.Length - 1;
+            return !string.IsNullOrWhiteSpace(label) && !string.IsNullOrWhiteSpace(target);
+        }
+
+        private static bool IsWebUrl(string target)
+            => !string.IsNullOrEmpty(target)
+               && (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                   || target.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>Parses a Markdown-link target as a known file path with optional <c>:line</c> suffix.</summary>
+        private static bool TrySplitFileTarget(string target, out string path, out int line)
+        {
+            path = null;
+            line = 0;
+            if (string.IsNullOrEmpty(target)) return false;
+
+            var m = LinkRegex.Match(target);
+            if (!m.Success || m.Index != 0 || m.Length != target.Length) return false;
+
+            path = m.Groups["path"].Value;
+            line = m.Groups["line"].Success && int.TryParse(m.Groups["line"].Value, out var n) ? n : 0;
+            return true;
         }
 
         /// <summary>Flushes a plain-text buffer, splitting out any file/path links into their own runs.</summary>
@@ -515,6 +662,107 @@ namespace Molca.Editor.Mcp.Assistant
             if (paragraph.Length == 0) return;
             blocks.Add(MakeBlock(AssistantTextBlockKind.Paragraph, paragraph.ToString()));
             paragraph.Length = 0;
+        }
+
+        private static void FlushQuote(ICollection<AssistantTextBlock> blocks, StringBuilder quote)
+        {
+            if (quote.Length == 0) return;
+            blocks.Add(MakeBlock(AssistantTextBlockKind.Quote, quote.ToString().Trim()));
+            quote.Length = 0;
+        }
+
+        /// <summary>
+        /// Emits a buffered run of pipe lines as a <see cref="AssistantTextBlockKind.Table"/> block when it
+        /// is a valid Markdown table (header + separator row), otherwise degrades each line to a paragraph.
+        /// </summary>
+        private static void FlushTable(ICollection<AssistantTextBlock> blocks, List<string> tableLines)
+        {
+            if (tableLines.Count == 0) return;
+
+            if (tableLines.Count >= 2 && IsTableSeparator(tableLines[1]))
+            {
+                var rows = new List<IReadOnlyList<string>>();
+                for (var i = 0; i < tableLines.Count; i++)
+                {
+                    if (i == 1) continue; // skip the separator row
+                    rows.Add(ParseTableRow(tableLines[i]));
+                }
+                blocks.Add(new AssistantTextBlock(rows));
+            }
+            else
+            {
+                // Not a real table (e.g. a prose line containing pipes) — keep it readable as plain text.
+                foreach (var line in tableLines)
+                    blocks.Add(MakeBlock(AssistantTextBlockKind.Paragraph, line));
+            }
+            tableLines.Clear();
+        }
+
+        /// <summary>A candidate table row: contains at least two pipe characters.</summary>
+        private static bool IsTableRow(string line)
+        {
+            var pipes = 0;
+            foreach (var ch in line)
+                if (ch == '|') pipes++;
+            return pipes >= 2;
+        }
+
+        /// <summary>True if every cell of <paramref name="line"/> is a table separator cell (<c>:?-+:?</c>).</summary>
+        private static bool IsTableSeparator(string line)
+        {
+            var cells = ParseTableRow(line);
+            if (cells.Count == 0) return false;
+            foreach (var cell in cells)
+            {
+                var c = cell.Trim();
+                if (c.Length == 0) return false;
+                var body = c.TrimStart(':').TrimEnd(':');
+                if (body.Length == 0) return false;
+                foreach (var ch in body)
+                    if (ch != '-') return false;
+            }
+            return true;
+        }
+
+        /// <summary>Splits a pipe row into trimmed cells, dropping the empty cells from leading/trailing borders.</summary>
+        private static IReadOnlyList<string> ParseTableRow(string line)
+        {
+            var parts = line.Split('|');
+            var cells = new List<string>(parts.Length);
+            for (var i = 0; i < parts.Length; i++)
+            {
+                // A leading/trailing pipe produces an empty boundary cell; drop only those.
+                if ((i == 0 || i == parts.Length - 1) && parts[i].Trim().Length == 0) continue;
+                cells.Add(parts[i].Trim());
+            }
+            return cells;
+        }
+
+        /// <summary>A horizontal rule: three or more of a single <c>-</c>/<c>*</c>/<c>_</c> char, nothing else.</summary>
+        private static bool IsRule(string line)
+        {
+            if (line.Length < 3) return false;
+            var c = line[0];
+            if (c != '-' && c != '*' && c != '_') return false;
+            foreach (var ch in line)
+                if (ch != c) return false;
+            return true;
+        }
+
+        /// <summary>Reads a task-list item (<c>- [ ] text</c> / <c>- [x] text</c>); checked for x/X.</summary>
+        private static bool TryReadTask(string line, out bool isChecked, out string text)
+        {
+            isChecked = false;
+            text = null;
+            if (line.Length < 6) return false;
+            if ((line[0] != '-' && line[0] != '*') || line[1] != ' ' || line[2] != '[' || line[4] != ']') return false;
+
+            var mark = line[3];
+            if (mark != ' ' && mark != 'x' && mark != 'X') return false;
+
+            isChecked = mark == 'x' || mark == 'X';
+            text = line.Substring(5).Trim();
+            return text.Length > 0;
         }
 
         /// <summary>Builds a block holding both the cleaned text and the raw (marker-preserving) text.</summary>

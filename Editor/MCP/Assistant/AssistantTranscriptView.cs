@@ -596,6 +596,34 @@ namespace Molca.Editor.Mcp.Assistant
                     continue;
                 }
 
+                if (block.Kind == AssistantTextBlockKind.Task)
+                {
+                    parent.Add(CreateTaskRow(block, turnKind));
+                    continue;
+                }
+
+                if (block.Kind == AssistantTextBlockKind.Table)
+                {
+                    parent.Add(CreateTable(block, turnKind));
+                    continue;
+                }
+
+                if (block.Kind == AssistantTextBlockKind.Rule)
+                {
+                    var rule = new VisualElement();
+                    rule.AddToClassList("chat-rule");
+                    parent.Add(rule);
+                    continue;
+                }
+
+                if (block.Kind == AssistantTextBlockKind.Quote)
+                {
+                    var quote = CreateInlineBlock(block.RawText, turnKind);
+                    quote.AddToClassList("chat-quote");
+                    parent.Add(quote);
+                    continue;
+                }
+
                 var element = CreateInlineBlock(block.RawText, turnKind);
                 ApplyBlockStyle(element, block.Kind);
                 parent.Add(element);
@@ -631,7 +659,8 @@ namespace Molca.Editor.Mcp.Assistant
             var spans = AssistantTranscriptFormatter.ParseInline(rawText);
 
             // Fast path: a single non-interactive run is one Label with white-space:normal, which wraps on its own.
-            if (spans.Count == 1 && spans[0].Kind != AssistantInlineKind.Link && spans[0].Kind != AssistantInlineKind.Context)
+            if (spans.Count == 1 && spans[0].Kind != AssistantInlineKind.Link
+                && spans[0].Kind != AssistantInlineKind.Context && spans[0].Kind != AssistantInlineKind.Url)
             {
                 var s = spans[0];
                 return MakeSpanLabel(s.Text, turnKind,
@@ -652,6 +681,9 @@ namespace Molca.Editor.Mcp.Assistant
                         break;
                     case AssistantInlineKind.Context:
                         container.Add(MakeContextLabel(span));
+                        break;
+                    case AssistantInlineKind.Url:
+                        container.Add(MakeUrlLabel(span));
                         break;
                     case AssistantInlineKind.Code:
                         container.Add(MakeSpanLabel(span.Text, turnKind, isCode: true, bold: false, italic: false));
@@ -716,6 +748,78 @@ namespace Molca.Editor.Mcp.Assistant
             label.AddToClassList("chat-context-link");
             label.RegisterCallback<ClickEvent>(_ => PinContext(span.ContextUri));
             return label;
+        }
+
+        private Label MakeUrlLabel(AssistantInlineSpan span)
+        {
+            // span.LinkPath carries the http/https target; opening is an explicit click only (locked
+            // decision c). The parser already rejected non-web schemes, so this is always a safe URL.
+            var label = new Label(span.Text) { tooltip = $"Open {span.LinkPath}" };
+            label.AddToClassList("chat-link");
+            label.RegisterCallback<ClickEvent>(_ =>
+            {
+                if (!string.IsNullOrEmpty(span.LinkPath)) Application.OpenURL(span.LinkPath);
+            });
+            return label;
+        }
+
+        private VisualElement CreateTaskRow(AssistantTextBlock block, ChatTurnKind turnKind)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("chat-list-row");
+            row.AddToClassList("chat-task");
+
+            var box = new Label(block.Checked ? "☑" : "☐");
+            box.AddToClassList("chat-list-marker");
+            box.AddToClassList("chat-task__box");
+            if (block.Checked) box.AddToClassList("chat-task__box--checked");
+            ApplyTurnTextStyle(box, turnKind);
+
+            var text = CreateInlineBlock(block.RawText, turnKind);
+            text.style.flexGrow = 1;
+            text.style.flexShrink = 1;
+            if (block.Checked) text.AddToClassList("chat-task__text--checked");
+
+            row.Add(box);
+            row.Add(text);
+            return row;
+        }
+
+        /// <summary>Bolds an inline block whether it rendered as a single <see cref="Label"/> or a container.</summary>
+        private static void BoldContent(VisualElement element)
+        {
+            if (element is Label label) { label.style.unityFontStyleAndWeight = FontStyle.Bold; return; }
+            foreach (var child in element.Children())
+                if (child is Label l) l.style.unityFontStyleAndWeight = FontStyle.Bold;
+        }
+
+        private VisualElement CreateTable(AssistantTextBlock block, ChatTurnKind turnKind)
+        {
+            var table = new VisualElement();
+            table.AddToClassList("chat-table");
+            if (block.TableRows == null) return table;
+
+            for (var r = 0; r < block.TableRows.Count; r++)
+            {
+                var cells = block.TableRows[r];
+                if (cells == null) continue;
+
+                var rowEl = new VisualElement();
+                rowEl.AddToClassList("chat-table__row");
+                if (r == 0) rowEl.AddToClassList("chat-table__row--header");
+
+                foreach (var cell in cells)
+                {
+                    var cellEl = CreateInlineBlock(cell ?? string.Empty, turnKind);
+                    cellEl.AddToClassList("chat-table__cell");
+                    cellEl.style.flexGrow = 1;
+                    cellEl.style.flexBasis = 0;
+                    if (r == 0) BoldContent(cellEl);
+                    rowEl.Add(cellEl);
+                }
+                table.Add(rowEl);
+            }
+            return table;
         }
 
         private void PinContext(string uri)
