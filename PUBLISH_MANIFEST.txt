@@ -1,7 +1,7 @@
-﻿com.molca.core@1.9.8
-Published: 2026-06-29 01:26:53Z
-Source commit: 1eb4b497
-Files: 1384
+﻿com.molca.core@1.10.0
+Published: 2026-06-29 05:42:17Z
+Source commit: 6b1f24ca
+Files: 1390
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -214,6 +214,8 @@ Editor/FrameworkGraph/MolcaFrameworkGraphWindow.cs.meta
 Editor/FrameworkGraph/MolcaFrameworkGraphWindow.uss
 Editor/FrameworkGraph/MolcaFrameworkGraphWindow.uss.meta
 Editor/Hub.meta
+Editor/Hub/MolcaHubCoreWorkspaceProvider.cs
+Editor/Hub/MolcaHubCoreWorkspaceProvider.cs.meta
 Editor/Hub/MolcaHubState.cs
 Editor/Hub/MolcaHubState.cs.meta
 Editor/Hub/MolcaHubWindow.cs
@@ -222,6 +224,10 @@ Editor/Hub/MolcaHubWindow.uss
 Editor/Hub/MolcaHubWindow.uss.meta
 Editor/Hub/MolcaHubWindow.uxml
 Editor/Hub/MolcaHubWindow.uxml.meta
+Editor/Hub/MolcaHubWorkspaceItem.cs
+Editor/Hub/MolcaHubWorkspaceItem.cs.meta
+Editor/Hub/MolcaHubWorkspaceRegistry.cs
+Editor/Hub/MolcaHubWorkspaceRegistry.cs.meta
 Editor/Hub/Sections.meta
 Editor/Hub/Sections/MolcaHubAssistantSection.cs
 Editor/Hub/Sections/MolcaHubAssistantSection.cs.meta

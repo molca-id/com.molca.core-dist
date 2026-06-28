@@ -19,7 +19,12 @@ namespace Molca.Editor.Hub
         private const string SelectedBuildProfileKey = "Molca.Hub.SelectedBuildProfile";
         private const string SelectedRuntimeModuleKey = "Molca.Hub.SelectedRuntimeModule";
 
-        internal MolcaHubWorkspace Workspace { get; private set; } = MolcaHubWorkspace.Settings;
+        /// <summary>
+        /// The selected workspace tab, by stable string id (e.g. <c>"settings"</c>, <c>"doctor"</c>,
+        /// <c>"sequence"</c>). Persisted as an id so consumer-added tabs survive across sessions; legacy
+        /// enum-name values are migrated on load.
+        /// </summary>
+        internal string Workspace { get; private set; } = MolcaHubWorkspaceRegistry.SettingsId;
         internal MolcaHubSection Section { get; private set; } = MolcaHubSection.Project;
         internal string BuildVersionView { get; private set; } = "Build";
         internal string SelectedBuildProfile { get; private set; } = string.Empty;
@@ -29,7 +34,8 @@ namespace Molca.Editor.Hub
         {
             return new MolcaHubState
             {
-                Workspace = ReadEnum(WorkspaceKey, MolcaHubWorkspace.Settings),
+                Workspace = NormalizeStoredWorkspace(
+                    MolcaEditorPrefs.GetString(WorkspaceKey, MolcaHubWorkspaceRegistry.SettingsId)),
                 Section = ReadEnum(SectionKey, MolcaHubSection.Project),
                 BuildVersionView = MolcaEditorPrefs.GetString(BuildVersionViewKey, "Build"),
                 SelectedBuildProfile = MolcaEditorPrefs.GetString(SelectedBuildProfileKey, string.Empty),
@@ -37,10 +43,31 @@ namespace Molca.Editor.Hub
             };
         }
 
-        internal void SetWorkspace(MolcaHubWorkspace workspace)
+        internal void SetWorkspace(string workspaceId)
         {
-            Workspace = workspace;
-            MolcaEditorPrefs.SetString(WorkspaceKey, workspace.ToString());
+            Workspace = string.IsNullOrEmpty(workspaceId) ? MolcaHubWorkspaceRegistry.SettingsId : workspaceId;
+            MolcaEditorPrefs.SetString(WorkspaceKey, Workspace);
+        }
+
+        /// <summary>Maps a built-in <see cref="MolcaHubWorkspace"/> enum value to its stable workspace id.</summary>
+        internal static string WorkspaceId(MolcaHubWorkspace workspace) => workspace switch
+        {
+            MolcaHubWorkspace.Doctor => "doctor",
+            MolcaHubWorkspace.Assistant => "assistant",
+            MolcaHubWorkspace.Visualizer => "sequence",
+            _ => MolcaHubWorkspaceRegistry.SettingsId,
+        };
+
+        /// <summary>
+        /// Normalizes a persisted workspace value to a current id: legacy enum names
+        /// (<c>"Settings"/"Doctor"/"Assistant"/"Visualizer"</c>) map to ids; anything else (already an id,
+        /// incl. consumer ids) is returned unchanged. The window falls back to Settings if the id is not
+        /// currently registered or is hidden.
+        /// </summary>
+        internal static string NormalizeStoredWorkspace(string stored)
+        {
+            if (string.IsNullOrEmpty(stored)) return MolcaHubWorkspaceRegistry.SettingsId;
+            return Enum.TryParse<MolcaHubWorkspace>(stored, out var legacy) ? WorkspaceId(legacy) : stored;
         }
 
         internal void SetSection(MolcaHubSection section)

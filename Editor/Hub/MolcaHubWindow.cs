@@ -22,14 +22,6 @@ namespace Molca.Editor.Hub
     {
         private const string AssetDir = "Packages/com.molca.core/Editor/Hub/";
 
-        private static readonly WorkspaceInfo[] Workspaces =
-        {
-            new WorkspaceInfo(MolcaHubWorkspace.Settings, "Settings"),
-            new WorkspaceInfo(MolcaHubWorkspace.Doctor, "Doctor"),
-            new WorkspaceInfo(MolcaHubWorkspace.Assistant, "Assistant"),
-            new WorkspaceInfo(MolcaHubWorkspace.Visualizer, "Sequence")
-        };
-
         private static readonly SectionInfo[] Sections =
         {
             new SectionInfo(MolcaHubSection.Project, "Project", "Project identity, project links, and logo configuration."),
@@ -46,6 +38,10 @@ namespace Molca.Editor.Hub
 
         private readonly List<Button> _workspaceButtons = new List<Button>();
         private readonly List<Button> _sectionButtons = new List<Button>();
+
+        // Non-Settings workspace tabs resolved from the provider registry (Core's Doctor/Assistant/Sequence
+        // plus any consumer-contributed tabs), rebuilt each time the shell is constructed.
+        private IReadOnlyList<MolcaHubWorkspaceItem> _workspaceItems = System.Array.Empty<MolcaHubWorkspaceItem>();
 
         private MolcaHubState _state;
         private TextField _searchField;
@@ -85,10 +81,11 @@ namespace Molca.Editor.Hub
             window.minSize = new Vector2(520, 360);
             window.Show();
 
+            var workspaceId = MolcaHubState.WorkspaceId(workspace);
             if (window._state != null && window._workspaceButtons.Count > 0)
-                window.SelectWorkspace(workspace);
+                window.SelectWorkspace(workspaceId);
             else
-                MolcaHubState.Load().SetWorkspace(workspace); // CreateGUI restores this on first build
+                MolcaHubState.Load().SetWorkspace(workspaceId); // CreateGUI restores this on first build
         }
 
         private void OnEnable()
@@ -140,6 +137,8 @@ namespace Molca.Editor.Hub
             _workspaceHost.style.display = DisplayStyle.None;
             root.Add(_workspaceHost);
 
+            _workspaceItems = MolcaHubWorkspaceRegistry.GetWorkspaces();
+
             BuildWorkspaceToolbar(root.Q<VisualElement>("workspace-toolbar"));
             BuildSettingsRail();
             BuildPlaceholderCard();
@@ -153,19 +152,22 @@ namespace Molca.Editor.Hub
         {
             if (toolbar == null) return;
 
-            foreach (var workspace in Workspaces)
-                toolbar.Add(BuildToolbarToggle(workspace));
+            // Settings is the anchored home tab (Core-owned, always first). Every other tab — Core's own
+            // Doctor/Assistant/Sequence and any consumer-contributed workspace — comes from the registry.
+            toolbar.Add(BuildToolbarToggle(MolcaHubWorkspaceRegistry.SettingsId, "Settings"));
+            foreach (var item in _workspaceItems)
+                toolbar.Add(BuildToolbarToggle(item.Id, item.Label));
 
             var spacer = new VisualElement();
             spacer.AddToClassList("molca-hub-spacer");
             toolbar.Add(spacer);
         }
 
-        private Button BuildToolbarToggle(WorkspaceInfo workspace)
+        private Button BuildToolbarToggle(string workspaceId, string label)
         {
-            var button = new Button(() => SelectWorkspace(workspace.Workspace)) { text = workspace.Label };
+            var button = new Button(() => SelectWorkspace(workspaceId)) { text = label };
             button.AddToClassList("molca-hub-workspace-tab");
-            button.userData = workspace;
+            button.userData = workspaceId;
             _workspaceButtons.Add(button);
             return button;
         }
@@ -199,20 +201,30 @@ namespace Molca.Editor.Hub
             _rail.Add(row);
         }
 
-        private void SelectWorkspace(MolcaHubWorkspace workspace)
+        private void SelectWorkspace(string workspaceId)
         {
-            _state.SetWorkspace(workspace);
-
-            foreach (var button in _workspaceButtons)
+            // Fall back to the anchored Settings tab if the requested/persisted id is no longer registered
+            // (e.g. a consumer hid it, or it came from a removed provider).
+            bool isSettings = workspaceId == MolcaHubWorkspaceRegistry.SettingsId;
+            MolcaHubWorkspaceItem item = null;
+            if (!isSettings)
             {
-                var info = (WorkspaceInfo)button.userData;
-                button.EnableInClassList("molca-hub-workspace-tab--active", info.Workspace == workspace);
+                item = FindWorkspaceItem(workspaceId);
+                if (item == null)
+                {
+                    workspaceId = MolcaHubWorkspaceRegistry.SettingsId;
+                    isSettings = true;
+                }
             }
 
-            foreach (var button in _sectionButtons)
-                button.SetEnabled(workspace == MolcaHubWorkspace.Settings);
+            _state.SetWorkspace(workspaceId);
 
-            bool isSettings = workspace == MolcaHubWorkspace.Settings;
+            foreach (var button in _workspaceButtons)
+                button.EnableInClassList("molca-hub-workspace-tab--active", (string)button.userData == workspaceId);
+
+            foreach (var button in _sectionButtons)
+                button.SetEnabled(isSettings);
+
             if (_settingsBody != null) _settingsBody.style.display = isSettings ? DisplayStyle.Flex : DisplayStyle.None;
             if (_workspaceHost != null) _workspaceHost.style.display = isSettings ? DisplayStyle.None : DisplayStyle.Flex;
 
@@ -220,32 +232,40 @@ namespace Molca.Editor.Hub
             // cleanup (cancel runs, dispose controllers) so no two hosts run the same tool at once.
             _workspaceHost?.Clear();
 
-            if (!isSettings)
+            if (isSettings)
             {
-                HostWorkspaceTool(workspace);
+                SelectSection(_state.Section);
                 return;
             }
 
-            SelectSection(_state.Section);
+            HostWorkspaceContent(item);
         }
 
-        private void HostWorkspaceTool(MolcaHubWorkspace workspace)
+        private MolcaHubWorkspaceItem FindWorkspaceItem(string workspaceId)
         {
-            if (_workspaceHost == null) return;
+            foreach (var item in _workspaceItems)
+                if (item.Id == workspaceId)
+                    return item;
+            return null;
+        }
 
-            switch (workspace)
+        private void HostWorkspaceContent(MolcaHubWorkspaceItem item)
+        {
+            if (_workspaceHost == null || item?.CreateContent == null) return;
+
+            // A consumer workspace that throws while building must not break the Hub shell — surface a
+            // compact error in the host instead.
+            try
             {
-                case MolcaHubWorkspace.Doctor:
-                    _workspaceHost.Add(new Molca.Editor.Doctor.MolcaDoctorView());
-                    break;
-                case MolcaHubWorkspace.Assistant:
-                    _workspaceHost.Add(new Mcp.Assistant.AssistantChatView());
-                    break;
-                case MolcaHubWorkspace.Visualizer:
-                    _workspaceHost.Add(new SequenceVisualizerView());
-                    break;
-                // No default: every non-Settings workspace is hosted above, and Settings returns
-                // before reaching here. An unhandled workspace intentionally leaves the host empty.
+                var content = item.CreateContent();
+                if (content != null) _workspaceHost.Add(content);
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogException(ex);
+                var error = new Label($"Failed to open '{item.Label}': {ex.Message}");
+                error.AddToClassList("molca-hub-muted");
+                _workspaceHost.Add(error);
             }
         }
 
@@ -470,18 +490,6 @@ namespace Molca.Editor.Hub
             var detailContent = new VisualElement { name = "detail-content" };
             detailContent.AddToClassList("molca-hub-detail-content");
             detail.Add(detailContent);
-        }
-
-        private readonly struct WorkspaceInfo
-        {
-            internal readonly MolcaHubWorkspace Workspace;
-            internal readonly string Label;
-
-            internal WorkspaceInfo(MolcaHubWorkspace workspace, string label)
-            {
-                Workspace = workspace;
-                Label = label;
-            }
         }
 
         private readonly struct SectionInfo

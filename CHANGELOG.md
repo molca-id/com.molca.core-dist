@@ -2,6 +2,16 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.10.0] - 2026-06-29
+
+### Added
+- **Extensible Hub workspace tabs (Sprint 62).** The Molca Hub's top-bar tabs are now an id-keyed,
+  `TypeCache`-discovered registry instead of a fixed enum. SDK/fork editor code adds a hosted-content tab by
+  subclassing the new public `MolcaHubWorkspaceProvider` (returning `MolcaHubWorkspaceItem`s) — no Core edit
+  — and hides a built-in (e.g. Sequence) per project via `MolcaHubWorkspaceRegistry.SetHidden`. Settings
+  stays the anchored home tab; ordering is deterministic, duplicate/reserved ids are rejected, a throwing
+  provider degrades gracefully, and selection persists by id with legacy enum-name migration.
+
 ## [1.9.8] - 2026-06-29
 
 ### Fixed
