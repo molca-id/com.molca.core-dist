@@ -36,11 +36,12 @@ namespace Molca.Editor.KnowledgeGraph
                 try { UnityFactsExporter.ExportAll(); }
                 catch (Exception ex) { Debug.LogWarning($"[Molca KG] Facts export failed (continuing): {ex.Message}"); }
 
-                // When Core is installed as an external UPM package (consumer case), its source lives in the
-                // gitignored package cache and the root sweep misses it — mirror its docs/source into the
-                // indexed corpus so the graph is never silently project-only (Sprint 63.8).
-                try { Set(CorePackageCorpus.ExportIfExternal()); }
-                catch (Exception ex) { Debug.LogWarning($"[Molca KG] Core package corpus step failed (continuing): {ex.Message}"); }
+                // When Molca packages are installed as external UPM dependencies (consumer case), their source
+                // lives in the gitignored package cache and the root sweep misses it — mirror each installed
+                // com.molca.* package's docs/source into the indexed corpus so the graph is never silently
+                // project-only (Sprint 63.8, generalized to Core + SDK + any Molca package).
+                try { Set(MolcaPackageCorpus.ExportInstalledPackages()); }
+                catch (Exception ex) { Debug.LogWarning($"[Molca KG] Package corpus step failed (continuing): {ex.Message}"); }
 
                 Set("Building graph with graphify… (this can take a while)");
 

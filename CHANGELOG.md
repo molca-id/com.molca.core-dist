@@ -2,6 +2,15 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.10.3] - 2026-06-29
+
+### Changed
+- **Graphify indexes any installed Molca package.** Generalized the installed-package corpus export
+  (`CorePackageCorpus` → `MolcaPackageCorpus.ExportInstalledPackages()`): a consumer's `molca_kg_build` now
+  mirrors the docs/source of **every** non-embedded `com.molca.*` package (Core, SDK, and any future Molca
+  package) into `graphify-corpus/<package>/`, so the graph is never silently project-only. Embedded packages
+  are skipped (already swept from the project root).
+
 ## [1.10.2] - 2026-06-29
 
 ### Changed

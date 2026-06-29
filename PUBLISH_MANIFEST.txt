@@ -1,6 +1,6 @@
-﻿com.molca.core@1.10.2
-Published: 2026-06-29 06:47:00Z
-Source commit: 3fc8ffe3
+﻿com.molca.core@1.10.3
+Published: 2026-06-29 07:50:47Z
+Source commit: 41668f39
 Files: 1392
 
 CHANGELOG.md
@@ -302,12 +302,12 @@ Editor/Icons/svg/molca-utils.svg.meta
 Editor/Icons/svg/molca-window.svg
 Editor/Icons/svg/molca-window.svg.meta
 Editor/KnowledgeGraph.meta
-Editor/KnowledgeGraph/CorePackageCorpus.cs
-Editor/KnowledgeGraph/CorePackageCorpus.cs.meta
 Editor/KnowledgeGraph/GraphifyBuild.cs
 Editor/KnowledgeGraph/GraphifyBuild.cs.meta
 Editor/KnowledgeGraph/GraphifyCli.cs
 Editor/KnowledgeGraph/GraphifyCli.cs.meta
+Editor/KnowledgeGraph/MolcaPackageCorpus.cs
+Editor/KnowledgeGraph/MolcaPackageCorpus.cs.meta
 Editor/KnowledgeGraph/UnityFactsExporter.cs
 Editor/KnowledgeGraph/UnityFactsExporter.cs.meta
 Editor/Localization.meta
