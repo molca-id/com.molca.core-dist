@@ -20,18 +20,19 @@ namespace Molca.Editor.Mcp.Providers
         /// </summary>
         private static McpToolDefinition CreateReadSourceTool() => new McpToolDefinition(
             name: "molca_read_source",
-            description: "Reads a text/source file inside the project by path (project-relative, e.g. "
-                       + "'Packages/com.molca.core/Runtime/ContentPackage/Storage/ContentPackageStorageProvider.cs', "
-                       + "or an absolute path within the project). Optional 'startLine'/'endLine' (1-based) "
-                       + "page through large files; output is line-numbered. Use this to read the file a "
-                       + "molca_kg_query result points at (its src=path:Lnn) and explain it from the actual "
-                       + "code. Read-only; cannot escape the project root.",
+            description: "Reads text/source file(s) inside the project. Use 'path' for one file (with optional "
+                       + "1-based 'startLine'/'endLine' paging) or 'paths' (array) to read several files in one "
+                       + "call — batch related files together instead of one call each. Output is line-numbered; "
+                       + "batch returns a 'files' array (each a result or a per-file {path,error}). Use this to "
+                       + "read the file a molca_kg_query result points at (its src=path:Lnn). Read-only; cannot "
+                       + "escape the project root.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
-                "\"path\":{\"type\":\"string\",\"description\":\"Project-relative or in-project absolute file path.\"}," +
-                "\"startLine\":{\"type\":\"integer\",\"description\":\"1-based first line to return.\"}," +
-                "\"endLine\":{\"type\":\"integer\",\"description\":\"1-based last line to return.\"}}," +
-                "\"required\":[\"path\"],\"additionalProperties\":false}",
+                "\"path\":{\"type\":\"string\",\"description\":\"Project-relative or in-project absolute file path (single file).\"}," +
+                "\"paths\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Several file paths to read in one call (whole files).\"}," +
+                "\"startLine\":{\"type\":\"integer\",\"description\":\"1-based first line to return (single-file only).\"}," +
+                "\"endLine\":{\"type\":\"integer\",\"description\":\"1-based last line to return (single-file only).\"}}," +
+                "\"additionalProperties\":false}",
             execute: ExecuteReadSource,
             mode: McpToolMode.Any,
             kind: McpToolKind.ReadOnly);
@@ -39,10 +40,32 @@ namespace Molca.Editor.Mcp.Providers
         private static string ExecuteReadSource(string argumentsJson)
         {
             var args = ParseArgs(argumentsJson);
+
+            // Batch mode (Sprint 67.4): 'paths' reads several files in one call, returning a 'files' array
+            // (each entry is a normal read result or a per-file { path, error }). One call instead of N.
+            if (args["paths"] is JArray paths && paths.Count > 0)
+            {
+                var files = new JArray();
+                foreach (var token in paths)
+                {
+                    var p = token?.ToString();
+                    if (string.IsNullOrWhiteSpace(p)) continue;
+                    files.Add(ReadOneFile(p, null, null));
+                }
+                return new JObject { ["files"] = files }.ToString(Newtonsoft.Json.Formatting.None);
+            }
+
             var path = args.Value<string>("path");
             if (string.IsNullOrWhiteSpace(path))
-                return KgError("Provide a 'path'.");
+                return KgError("Provide a 'path' (or 'paths' to read several files at once).");
 
+            return ReadOneFile(path, args.Value<int?>("startLine"), args.Value<int?>("endLine"))
+                .ToString(Newtonsoft.Json.Formatting.None);
+        }
+
+        /// <summary>Reads one project file (root-confined, line-bounded) into a result <see cref="JObject"/>.</summary>
+        private static JObject ReadOneFile(string path, int? startLine, int? endLine)
+        {
             string fullPath;
             try
             {
@@ -52,7 +75,7 @@ namespace Molca.Editor.Mcp.Providers
             }
             catch (Exception ex)
             {
-                return KgError($"Invalid path: {ex.Message}");
+                return FileError(path, $"Invalid path: {ex.Message}");
             }
 
             var root = Path.GetFullPath(GraphifyCli.ProjectRoot)
@@ -60,18 +83,18 @@ namespace Molca.Editor.Mcp.Providers
             var rootPrefix = root + Path.DirectorySeparatorChar;
             if (!fullPath.Equals(root, StringComparison.OrdinalIgnoreCase)
                 && !fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
-                return KgError("Path is outside the project root; refused.");
+                return FileError(path, "Path is outside the project root; refused.");
 
             if (!File.Exists(fullPath))
-                return KgError($"File not found: {fullPath}");
+                return FileError(path, $"File not found: {fullPath}");
 
             string[] lines;
             try { lines = File.ReadAllLines(fullPath); }
-            catch (Exception ex) { return KgError($"Could not read file: {ex.Message}"); }
+            catch (Exception ex) { return FileError(path, $"Could not read file: {ex.Message}"); }
 
             int total = lines.Length;
-            int start = Math.Max(1, args.Value<int?>("startLine") ?? 1);
-            int end = args.Value<int?>("endLine") ?? total;
+            int start = Math.Max(1, startLine ?? 1);
+            int end = endLine ?? total;
             if (end < start) end = start;
             end = Math.Min(end, total);
 
@@ -98,7 +121,13 @@ namespace Molca.Editor.Mcp.Providers
             };
             if (truncated)
                 result["hint"] = $"Showing {MaxReadLines} lines; request startLine={end + 1} to continue.";
-            return result.ToString(Newtonsoft.Json.Formatting.None);
+            return result;
         }
+
+        private static JObject FileError(string path, string message) => new JObject
+        {
+            ["path"] = path,
+            ["error"] = message
+        };
     }
 }

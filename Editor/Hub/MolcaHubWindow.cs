@@ -53,6 +53,7 @@ namespace Molca.Editor.Hub
         private VisualElement _detailContent;
         private VisualElement _settingsBody;
         private VisualElement _workspaceHost;
+        private VisualElement _workspaceToolbar;
 
         /// <summary>Opens or focuses the Molca Hub window.</summary>
         [MenuItem("Molca/Hub", priority = 0)]
@@ -91,6 +92,12 @@ namespace Molca.Editor.Hub
         private void OnEnable()
         {
             titleContent = MolcaEditorIcons.WindowTitle("Molca Hub");
+            MolcaHubWorkspaceRegistry.VisibilityChanged += RefreshWorkspaceToolbar;
+        }
+
+        private void OnDisable()
+        {
+            MolcaHubWorkspaceRegistry.VisibilityChanged -= RefreshWorkspaceToolbar;
         }
 
         /// <summary>Builds the initial Hub shell from package UXML/USS assets.</summary>
@@ -137,9 +144,10 @@ namespace Molca.Editor.Hub
             _workspaceHost.style.display = DisplayStyle.None;
             root.Add(_workspaceHost);
 
+            _workspaceToolbar = root.Q<VisualElement>("workspace-toolbar");
             _workspaceItems = MolcaHubWorkspaceRegistry.GetWorkspaces();
 
-            BuildWorkspaceToolbar(root.Q<VisualElement>("workspace-toolbar"));
+            BuildWorkspaceToolbar(_workspaceToolbar);
             BuildSettingsRail();
             BuildPlaceholderCard();
             SelectWorkspace(_state.Workspace);
@@ -161,6 +169,17 @@ namespace Molca.Editor.Hub
             var spacer = new VisualElement();
             spacer.AddToClassList("molca-hub-spacer");
             toolbar.Add(spacer);
+        }
+
+        private void RefreshWorkspaceToolbar()
+        {
+            if (_workspaceToolbar == null || _state == null) return;
+
+            _workspaceItems = MolcaHubWorkspaceRegistry.GetWorkspaces();
+            _workspaceButtons.Clear();
+            _workspaceToolbar.Clear();
+            BuildWorkspaceToolbar(_workspaceToolbar);
+            SelectWorkspace(_state.Workspace);
         }
 
         private Button BuildToolbarToggle(string workspaceId, string label)

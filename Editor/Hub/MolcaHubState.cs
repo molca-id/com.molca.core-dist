@@ -18,6 +18,7 @@ namespace Molca.Editor.Hub
         private const string BuildVersionViewKey = "Molca.Hub.BuildVersionView";
         private const string SelectedBuildProfileKey = "Molca.Hub.SelectedBuildProfile";
         private const string SelectedRuntimeModuleKey = "Molca.Hub.SelectedRuntimeModule";
+        private const string HiddenWorkspacesKey = "Molca.Hub.HiddenWorkspaces";
 
         /// <summary>
         /// The selected workspace tab, by stable string id (e.g. <c>"settings"</c>, <c>"doctor"</c>,
@@ -32,6 +33,8 @@ namespace Molca.Editor.Hub
 
         internal static MolcaHubState Load()
         {
+            EnsureHiddenWorkspacesKey();
+
             return new MolcaHubState
             {
                 Workspace = NormalizeStoredWorkspace(
@@ -41,6 +44,12 @@ namespace Molca.Editor.Hub
                 SelectedBuildProfile = MolcaEditorPrefs.GetString(SelectedBuildProfileKey, string.Empty),
                 SelectedRuntimeModule = MolcaEditorPrefs.GetString(SelectedRuntimeModuleKey, string.Empty)
             };
+        }
+
+        private static void EnsureHiddenWorkspacesKey()
+        {
+            if (!MolcaEditorPrefs.HasKey(HiddenWorkspacesKey))
+                MolcaEditorPrefs.SetString(HiddenWorkspacesKey, string.Empty);
         }
 
         internal void SetWorkspace(string workspaceId)

@@ -10,15 +10,17 @@ using UnityEngine.UIElements;
 namespace Molca.Editor.Hub.Sections
 {
     /// <summary>
-    /// Editor section for the Molca Hub Settings workspace: Area Picker and Notification Providers.
+    /// Editor section for the Molca Hub Settings workspace: workspace tabs, Area Picker, and Notification
+    /// Providers.
     /// </summary>
     /// <remarks>
     /// Placement: <c>Packages/com.molca.core/Editor/Hub/Sections/</c>.
     /// Base class: <see cref="VisualElement"/>.
     /// Registration: created by <see cref="MolcaHubWindow"/> when the Editor rail section is active.
-    /// Area Picker reads/writes through the existing <see cref="AreaPicker"/> accessors; its card body dims
-    /// when disabled. Notification providers are listed once with status merged into each row (the standalone
-    /// Provider Status panel is gone), editing the existing <see cref="NotificationSettings"/> serialized array.
+    /// Workspace tab visibility reads/writes through <see cref="MolcaHubWorkspaceRegistry"/>. Area Picker
+    /// reads/writes through the existing <see cref="AreaPicker"/> accessors; its card body dims when disabled.
+    /// Notification providers are listed once with status merged into each row (the standalone Provider Status
+    /// panel is gone), editing the existing <see cref="NotificationSettings"/> serialized array.
     /// </remarks>
     internal sealed class MolcaHubEditorSection : VisualElement
     {
@@ -33,11 +35,81 @@ namespace Molca.Editor.Hub.Sections
 
             _editorSettings = new SerializedObject(MolcaEditorSettings.Instance);
 
+            BuildWorkspaceTabsCard();
             BuildAreaPickerCard();
 
             _notificationsHost = new VisualElement();
             Add(_notificationsHost);
             BuildNotificationsCard();
+        }
+
+        // -------------------------------------------------------------------
+        // Workspace Tabs
+        // -------------------------------------------------------------------
+
+        private void BuildWorkspaceTabsCard()
+        {
+            var items = MolcaHubWorkspaceRegistry.GetConfigurableWorkspaces();
+            var hidden = new HashSet<string>(MolcaHubWorkspaceRegistry.HiddenIds());
+
+            var visibleCount = 1; // Settings is anchored and always visible.
+            foreach (var item in items)
+                if (!hidden.Contains(item.Id))
+                    visibleCount++;
+
+            var card = new MolcaSectionCard("Workspace Tabs", "Settings is always visible",
+                MolcaStatusKind.Ok, $"{visibleCount} visible");
+            card.SetHelp("Choose which non-Settings Hub workspaces appear in the top toolbar for this project.");
+            Add(card);
+
+            var settingsRow = BuildWorkspaceVisibilityRow("settings", "Settings", true, null);
+            card.Body.Add(settingsRow);
+
+            if (items.Count == 0)
+            {
+                var empty = new Label("No provider-contributed workspaces are currently available.");
+                empty.AddToClassList("molca-hub-muted");
+                card.Body.Add(empty);
+                return;
+            }
+
+            foreach (var item in items)
+            {
+                var toggle = BuildWorkspaceVisibilityRow(
+                    item.Id,
+                    string.IsNullOrEmpty(item.Label) ? item.Id : item.Label,
+                    !hidden.Contains(item.Id),
+                    show => MolcaHubWorkspaceRegistry.SetHidden(item.Id, !show));
+                card.Body.Add(toggle);
+            }
+        }
+
+        private static VisualElement BuildWorkspaceVisibilityRow(
+            string id, string label, bool visible, System.Action<bool> changed)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("molca-hub-provider-row");
+
+            var stack = new VisualElement();
+            stack.AddToClassList("molca-hub-provider-row__stack");
+            row.Add(stack);
+
+            var name = new Label(label);
+            name.AddToClassList("molca-hub-provider-row__name");
+            stack.Add(name);
+
+            var status = new Label(id);
+            status.AddToClassList("molca-hub-provider-row__status");
+            stack.Add(status);
+
+            var toggle = new Toggle { name = "workspace-visibility-" + id, value = visible, tooltip = "Show this workspace in the Hub toolbar." };
+            toggle.AddToClassList("molca-hub-card-header-toggle");
+            toggle.SetEnabled(changed != null);
+            if (changed != null)
+                toggle.RegisterValueChangedCallback(evt => changed(evt.newValue));
+            row.Add(toggle);
+
+            return row;
         }
 
         // -------------------------------------------------------------------

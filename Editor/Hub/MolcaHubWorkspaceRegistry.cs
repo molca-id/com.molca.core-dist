@@ -24,6 +24,9 @@ namespace Molca.Editor.Hub
 
         private const string HiddenKey = "Molca.Hub.HiddenWorkspaces";
 
+        /// <summary>Raised when workspace visibility is changed through <see cref="SetHidden"/>.</summary>
+        public static event Action VisibilityChanged;
+
         /// <summary>
         /// Discovers all provider-contributed workspaces, applies hide config + availability, drops the
         /// reserved/duplicate/id-less ones, and returns them ordered by
@@ -31,6 +34,14 @@ namespace Molca.Editor.Hub
         /// </summary>
         public static IReadOnlyList<MolcaHubWorkspaceItem> GetWorkspaces() =>
             ResolveItems(DiscoverRaw(), HiddenIds());
+
+        /// <summary>
+        /// Discovers all currently available non-Settings workspaces without applying the consumer hide list.
+        /// Use this for settings UI that must be able to show and re-enable hidden tabs.
+        /// </summary>
+        /// <returns>The ordered, deduplicated set of configurable workspace tabs.</returns>
+        public static IReadOnlyList<MolcaHubWorkspaceItem> GetConfigurableWorkspaces() =>
+            ResolveItems(DiscoverRaw(), Array.Empty<string>());
 
         private static IEnumerable<MolcaHubWorkspaceItem> DiscoverRaw()
         {
@@ -120,8 +131,10 @@ namespace Molca.Editor.Hub
         {
             if (string.IsNullOrEmpty(id) || id == SettingsId) return;
             var set = new HashSet<string>(HiddenIds(), StringComparer.Ordinal);
-            if (hidden) set.Add(id); else set.Remove(id);
+            bool changed = hidden ? set.Add(id) : set.Remove(id);
+            if (!changed) return;
             MolcaEditorPrefs.SetString(HiddenKey, string.Join(",", set));
+            VisibilityChanged?.Invoke();
         }
     }
 }

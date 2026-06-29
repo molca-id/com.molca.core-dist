@@ -2,6 +2,18 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.10.4] - 2026-06-29
+
+### Changed
+- **MCP tool surface optimization (Sprint 67).** The in-editor assistant no longer sends all ~184 tool
+  schemas on every request. It now gets a compact catalog (`[family] (N): names`, no per-tool summaries)
+  and fetches detail on demand via two new meta-tools — `molca_tool_schema(names[])` (a tool's input schema)
+  and `molca_list_tools(family)` (a family's names + summaries) — so only the tools actually in use carry
+  their full schema. Independent read-only tool calls in a round now execute in parallel (actions stay
+  sequential), and `molca_read_source` accepts a `paths` array to batch-read several files in one call.
+  Per-request tool payload drops by roughly an order of magnitude with no loss of tool-selection quality.
+  The IDE MCP bridge still exposes the full registry; the two meta-tools are additive there.
+
 ## [1.10.3] - 2026-06-29
 
 ### Changed

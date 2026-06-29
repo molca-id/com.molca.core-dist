@@ -1,11 +1,10 @@
-﻿com.molca.core@1.10.3
-Published: 2026-06-29 07:50:47Z
-Source commit: 41668f39
-Files: 1392
+﻿com.molca.core@1.10.4
+Published: 2026-06-29 21:20:50Z
+Source commit: 22bf4119
+Files: 1394
 
 CHANGELOG.md
 CHANGELOG.md.meta
-Documentation~/PACKAGE_STANDALONE_REVIEW.md
 Documentation~/README.md
 Documentation~/reference/CORE_MCP_TOOLS.md
 Documentation~/reference/EDITOR_DESIGN_LANGUAGE.md
@@ -18,7 +17,6 @@ Documentation~/reference/SEQUENCE_AUTHORING.md
 Documentation~/reference/SEQUENCE_VALIDATION.md
 Documentation~/reference/UI_TOKENS.md
 Documentation~/reference/UNITY_MCP_TOOLS.md
-Documentation~/SEQUENCE_VALIDATION.md
 Editor.meta
 Editor/AssemblyInfo.cs
 Editor/AssemblyInfo.cs.meta
@@ -450,6 +448,8 @@ Editor/MCP/Providers/CoreMcpToolProvider.FrameworkGraph.cs
 Editor/MCP/Providers/CoreMcpToolProvider.FrameworkGraph.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.KnowledgeGraph.cs
 Editor/MCP/Providers/CoreMcpToolProvider.KnowledgeGraph.cs.meta
+Editor/MCP/Providers/CoreMcpToolProvider.ListTools.cs
+Editor/MCP/Providers/CoreMcpToolProvider.ListTools.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Localization.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Localization.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.LocalizationEdit.cs
@@ -492,6 +492,8 @@ Editor/MCP/Providers/CoreMcpToolProvider.SubAgent.cs
 Editor/MCP/Providers/CoreMcpToolProvider.SubAgent.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Subsystems.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Subsystems.cs.meta
+Editor/MCP/Providers/CoreMcpToolProvider.ToolSchema.cs
+Editor/MCP/Providers/CoreMcpToolProvider.ToolSchema.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.ValidateAll.cs
 Editor/MCP/Providers/CoreMcpToolProvider.ValidateAll.cs.meta
 Editor/MCP/Providers/UnityMcpToolProvider.Addressables.cs

@@ -293,6 +293,64 @@ namespace Molca.Editor.Mcp.Assistant
             return string.IsNullOrEmpty(text) ? FallbackSystemPrompt : text;
         }
 
+        /// <summary>
+        /// Appends the tiered-tool-exposure protocol + the grouped tool catalog to the system prompt
+        /// (Sprint 67). The model sees every available tool by name+summary here, but must call
+        /// <c>molca_tool_schema</c> to get a tool's parameters before first use — only then is that tool's
+        /// schema added to the request. An empty catalog (no registry) returns the base prompt unchanged.
+        /// </summary>
+        private static string BuildSystemPromptWithCatalog(string toolCatalog)
+        {
+            if (string.IsNullOrWhiteSpace(toolCatalog)) return SystemPrompt;
+            return SystemPrompt
+                + "\n\n## Tools\n"
+                + "Available tools are grouped by family below as `[family] (count): names` (a trailing `*` "
+                + "marks an [action] that mutates state and needs confirmation). Only `molca_tool_schema` and "
+                + "`molca_list_tools` are callable immediately. To use any other tool:\n"
+                + "1. If a tool's name makes its purpose clear, skip to step 3. Otherwise call "
+                + "`molca_list_tools` with a `family` to see that family's tools and what they do.\n"
+                + "2. Call `molca_tool_schema` with the tool name(s) to get their parameters (batch several "
+                + "when you'll use them together).\n"
+                + "3. Call the tool. Prefer the fewest steps that answer the request.\n\n"
+                + toolCatalog;
+        }
+
+        /// <summary>
+        /// Adds the tool names from a <c>molca_tool_schema</c> call's arguments (<c>{ names: [...] }</c>) to
+        /// the per-turn activated set, so the next request offers those tools' full schemas (Sprint 67).
+        /// </summary>
+        /// <summary>
+        /// True when a round consists solely of registry read-only tools that are safe to run concurrently
+        /// (Sprint 67.5) — i.e. more than one call, all <see cref="McpToolKind.ReadOnly"/>, and none of the
+        /// interaction tools that need in-order/special handling (<c>molca_ask_user</c>, <c>molca_propose_plan</c>).
+        /// </summary>
+        private static bool IsParallelizableReadRound(IReadOnlyList<LlmToolCall> calls, McpToolRegistry registry)
+        {
+            if (registry == null || calls == null || calls.Count < 2) return false;
+            foreach (var call in calls)
+            {
+                if (call.Name == "molca_ask_user" || call.Name == "molca_propose_plan") return false;
+                if (!registry.TryGet(call.Name, out var def) || def.Kind != McpToolKind.ReadOnly) return false;
+            }
+            return true;
+        }
+
+        private void ActivateRequestedTools(string argumentsJson)
+        {
+            if (string.IsNullOrWhiteSpace(argumentsJson)) return;
+            try
+            {
+                var arg = Newtonsoft.Json.Linq.JObject.Parse(argumentsJson);
+                if (arg["names"] is Newtonsoft.Json.Linq.JArray names)
+                    foreach (var n in names)
+                    {
+                        var name = n?.ToString();
+                        if (!string.IsNullOrEmpty(name)) _activatedTools.Add(name);
+                    }
+            }
+            catch { /* malformed args — the tool result already reports the error to the model */ }
+        }
+
         private readonly AssistantSettings _settings;
         private readonly Func<ILlmProvider> _providerFactory;
         private readonly bool _usesInjectedProviderFactory;
@@ -425,6 +483,20 @@ namespace Molca.Editor.Mcp.Assistant
         /// the view can label the live progress row; cleared when the call returns.
         /// </summary>
         public string ActiveToolName { get; private set; }
+
+        /// <summary>
+        /// Number of tool specs offered to the model on the most recent turn, and a rough token estimate of
+        /// that payload (Sprint 67 baseline metric). Surfaced so the Hub/telemetry can show — and the
+        /// optimization can prove — the per-request tool-spec cost.
+        /// </summary>
+        public int ToolSpecCount { get; private set; }
+
+        /// <summary>Estimated token cost of the tool-spec payload offered on the most recent turn.</summary>
+        public int ToolSpecTokenEstimate { get; private set; }
+
+        // Tools the model has fetched schemas for this turn (via molca_tool_schema) and may now call —
+        // the activated set for Sprint-67 tiered tool exposure. Reset at the start of each turn.
+        private readonly HashSet<string> _activatedTools = new HashSet<string>();
 
         /// <summary>
         /// The latest <see cref="McpProgressReport"/> emitted by the running tool, or <c>null</c> when none
@@ -753,7 +825,15 @@ namespace Molca.Editor.Mcp.Assistant
                 var mcpSettings = MolcaEditorSettings.Instance.McpSettings;
                 var registry = mcpSettings?.BuildRegistry();
                 Func<string, bool> isActionAllowed = mcpSettings != null ? mcpSettings.IsActionAllowed : null;
-                var tools = AssistantToolBridge.GetToolSpecs(registry, isActionAllowed);
+
+                // Tiered tool exposure (Sprint 67): instead of sending every tool's schema each request, the
+                // model gets a compact grouped catalog (names + summaries) in the system prompt and fetches a
+                // tool's schema on demand via molca_tool_schema. Only the meta-tool + tools it has activated
+                // this turn carry their full schema in the request, slashing the per-request token cost.
+                _activatedTools.Clear();
+                var toolCatalog = AssistantToolBridge.BuildToolCatalog(registry, isActionAllowed);
+                var systemPrompt = BuildSystemPromptWithCatalog(toolCatalog);
+                var tools = AssistantToolBridge.GetTieredToolSpecs(registry, isActionAllowed, _activatedTools);
 
                 // Confirmation policy (Sprint 25 + later): Ask mode confirms every action through the
                 // in-chat docked prompt bar. Auto mode runs allowlisted actions without prompting — except
@@ -801,9 +881,15 @@ namespace Molca.Editor.Mcp.Assistant
 
                 for (var round = 0; round < maxToolRounds; round++)
                 {
+                    // Recompute the tiered tool set each round: it grows as the model activates tools via
+                    // molca_tool_schema (Sprint 67). Record the payload this round actually sends.
+                    tools = AssistantToolBridge.GetTieredToolSpecs(registry, isActionAllowed, _activatedTools);
+                    ToolSpecCount = tools.Count;
+                    ToolSpecTokenEstimate = AssistantToolBridge.EstimateSpecTokens(tools);
+
                     var request = new LlmRequest
                     {
-                        System = SystemPrompt,
+                        System = systemPrompt,
                         Messages = BuildRequestMessages(),
                         Tools = tools,
                         Model = _settings.Model,
@@ -822,6 +908,13 @@ namespace Molca.Editor.Mcp.Assistant
 
                     var response = await provider.SendAsync(request, cancellationToken, onDelta);
                     StreamingText = string.Empty;
+
+                    // Tiered exposure (Sprint 67): when the model fetches a tool's schema, mark it activated
+                    // so the next round offers that tool's full spec and the model can call it.
+                    if (response.ToolCalls != null)
+                        foreach (var schemaCall in response.ToolCalls)
+                            if (schemaCall.Name == AssistantToolBridge.ToolSchemaToolName)
+                                ActivateRequestedTools(schemaCall.ArgumentsJson);
 
                     // Cache the vendor-reported prompt size so the token estimate can show a real number
                     // instead of the character heuristic (Sprint 25.8). Streaming responses report 0; the
@@ -856,6 +949,29 @@ namespace Molca.Editor.Mcp.Assistant
 
                     // Execute each requested tool and feed results back as one user turn.
                     var resultMsg = new LlmMessage { Role = LlmRole.User };
+                    if (IsParallelizableReadRound(response.ToolCalls, registry))
+                    {
+                        // Sprint 67.5: a round of only read-only tools has no confirmation, undo, or plan
+                        // sequencing — start them all at once (so I/O-bound reads overlap) and collect results
+                        // in order, preserving the transcript/history pairing. Actions still run sequentially
+                        // through the loop below.
+                        ActiveToolName = $"{response.ToolCalls.Count} tools";
+                        Changed?.Invoke();
+                        var started = new List<(LlmToolCall Call, Awaitable<LlmToolResult> Task)>(response.ToolCalls.Count);
+                        foreach (var readCall in response.ToolCalls)
+                            started.Add((readCall, AssistantToolBridge.ExecuteAsync(registry, readCall, cancellationToken,
+                                isActionAllowed, confirmAction, AskUserAsync, confirmActionAsync, ReportToolProgress, ProposePlanAsync,
+                                (reqs, ct) => RunSubtasksAsync(reqs, registry, ct))));
+                        foreach (var entry in started)
+                        {
+                            var readResult = await entry.Task;
+                            resultMsg.ToolResults.Add(readResult);
+                            Append(BuildToolSummary(registry, entry.Call, readResult), isAction: false);
+                        }
+                        ActiveToolName = null;
+                        ActiveToolProgress = null;
+                    }
+                    else
                     for (var callIndex = 0; callIndex < response.ToolCalls.Count; callIndex++)
                     {
                         var call = response.ToolCalls[callIndex];
