@@ -19,11 +19,11 @@
     /* Row backgrounds per role — translucent accent washes composited over the themed card surface,
        so they track the active skin instead of baking dark RGB. The card shows through, the role's hue
        only faintly tints it. Light-skin alphas are nudged up in the `.molca-light` block below. */
-    --row-bg-user: rgba(91, 155, 213, 0.10);
-    --row-bg-assistant: rgba(198, 242, 58, 0.09);
-    --row-bg-tool: rgba(107, 107, 107, 0.10);
-    --row-bg-error: rgba(224, 112, 58, 0.12);
-    --row-bg-prompt: rgba(216, 178, 74, 0.12);
+    --row-bg-user: rgba(91, 155, 213, 0.05);
+    --row-bg-assistant: rgba(198, 242, 58, 0.05);
+    --row-bg-tool: rgba(107, 107, 107, 0.05);
+    --row-bg-error: rgba(224, 112, 58, 0.07);
+    --row-bg-prompt: rgba(216, 178, 74, 0.07);
 
     /* Surfaces — all neutral grays/borders pulled from the Molca tokens for editor-wide consistency
        and automatic light-skin response. */
@@ -60,11 +60,11 @@
  * are applied to the same root element, so this is a compound selector (no descendant space).
  */
 .molca-light.chat-root {
-    --row-bg-user: rgba(38, 96, 158, 0.14);
-    --row-bg-assistant: rgba(120, 150, 30, 0.16);
-    --row-bg-tool: rgba(107, 107, 107, 0.14);
-    --row-bg-error: rgba(224, 112, 58, 0.16);
-    --row-bg-prompt: rgba(216, 178, 74, 0.20);
+    --row-bg-user: rgba(38, 96, 158, 0.08);
+    --row-bg-assistant: rgba(120, 150, 30, 0.09);
+    --row-bg-tool: rgba(107, 107, 107, 0.08);
+    --row-bg-error: rgba(224, 112, 58, 0.09);
+    --row-bg-prompt: rgba(216, 178, 74, 0.11);
 }
 
 /* ---- Header ------------------------------------------------------------------------------- */

@@ -9,7 +9,8 @@ namespace Molca.Editor.Mcp.Assistant
     /// Which LLM backend the assistant talks to. The chat panel and tool bridge never assume a specific
     /// vendor. <see cref="OpenAI"/> (the OpenAI Chat Completions wire format — OpenAI, DeepSeek, and any
     /// compatible endpoint via a configurable base URL) is the default and the primary option;
-    /// <see cref="Anthropic"/> is also implemented. <see cref="Local"/> is a reserved seam.
+    /// <see cref="Anthropic"/> is also implemented. <see cref="Local"/> drives a self-hosted
+    /// OpenAI-compatible runtime (e.g. Ollama) over the same wire format with an optional, usually empty key.
     /// </summary>
     /// <remarks>
     /// Numeric order is preserved for serialization stability (do not reorder existing members).
@@ -20,7 +21,7 @@ namespace Molca.Editor.Mcp.Assistant
         OpenAI,
         /// <summary>Anthropic Claude (Messages API).</summary>
         Anthropic,
-        /// <summary>A local/self-hosted endpoint — reserved; not implemented.</summary>
+        /// <summary>A local/self-hosted OpenAI-compatible endpoint (e.g. Ollama). Keyless by default.</summary>
         Local
     }
 

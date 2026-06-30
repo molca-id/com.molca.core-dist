@@ -2,6 +2,18 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.10.6] - 2026-06-30
+
+### Added
+- **Assistant harness resilience + Local/Ollama provider (Sprint 68).** The in-editor assistant gains a
+  local/Ollama LLM provider option and hardened turn-harness handling for weaker/local models.
+- **Flat tool exposure for weak/local models (Sprint 68.9).** An alternative flat tool-exposure mode for
+  models that handle the tiered catalog poorly, improving tool selection on local/weak models.
+
+### Changed
+- **Consumer-facing docs trimmed** of internal class names.
+- **UI readability** improvements.
+
 ## [1.10.5] - 2026-06-30
 
 ### Changed

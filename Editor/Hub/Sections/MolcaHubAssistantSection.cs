@@ -75,11 +75,23 @@ namespace Molca.Editor.Hub.Sections
             configCard.Body.Add(BoundRow(so, "provider", "Provider", out var providerField));
             configCard.Body.Add(BoundRow(so, "model", "Model"));
 
-            if (settings.Provider == LlmProviderKind.OpenAI)
+            if (settings.UsesBaseUrl)
                 configCard.Body.Add(BoundRow(so, "baseUrl", "Base URL"));
+
+            // Known-weak local models (Gemma 3n e2b/e4b, ≤2B tags) run fine for read-only chat but drop or
+            // malform tool calls, so multi-step authoring is unreliable. Non-blocking — just flag it.
+            if (settings.IsWeakToolModel)
+            {
+                var weakWarning = new Label(
+                    $"⚠ '{settings.Model}' is a small local model with weak tool-calling. Read-only questions work, but multi-step authoring (editing sequences, Figma import, etc.) may be unreliable. For dependable tool use try a 7B+ tool-tuned model such as qwen2.5:7b.");
+                weakWarning.AddToClassList("molca-hub-muted");
+                weakWarning.style.whiteSpace = WhiteSpace.Normal;
+                configCard.Body.Add(weakWarning);
+            }
 
             configCard.Body.Add(BoundRow(so, "maxTokens", "Max Tokens"));
             configCard.Body.Add(BoundRow(so, "maxToolRounds", "Max Tool Rounds"));
+            configCard.Body.Add(BoundRow(so, "toolExposure", "Tool Exposure"));
             configCard.Body.Add(BoundRow(so, "streamResponses", "Stream Responses"));
             configCard.Body.Add(BoundRow(so, "autoCompact", "Auto Compact"));
             configCard.Body.Add(BoundRow(so, "autoCompactThreshold", "Auto Compact Threshold"));
@@ -87,6 +99,11 @@ namespace Molca.Editor.Hub.Sections
             configCard.Body.Add(BoundRow(so, "keepRecentToolResultTurns", "Keep Recent Tool-Result Turns"));
             configCard.Body.Add(BoundRow(so, "proactiveRetrieval", "Proactive Retrieval"));
             configCard.Body.Add(BoundRow(so, "retrievalTokenBudget", "Retrieval Token Budget"));
+
+            // Resilience knobs (Sprint 68): transport retry cap, unproductive-loop breaker, per-result size cap.
+            configCard.Body.Add(BoundRow(so, "retryMaxAttempts", "Retry Max Attempts"));
+            configCard.Body.Add(BoundRow(so, "loopBreakThreshold", "Loop-Break Threshold"));
+            configCard.Body.Add(BoundRow(so, "maxToolResultChars", "Max Tool-Result Chars"));
 
             // Provider change flips the Base-URL row and the key env-var, so the card is rebuilt — but only
             // on a real change. PropertyField fires SerializedPropertyChangeEvent on every bind too; without
@@ -186,9 +203,18 @@ namespace Molca.Editor.Hub.Sections
             var container = new VisualElement();
             var provider = settings.Provider;
 
-            var heading = new Label("API Key");
+            var isLocal = provider == LlmProviderKind.Local;
+
+            var heading = new Label(isLocal ? "API Key (optional)" : "API Key");
             heading.AddToClassList("molca-hub-bv-option-heading");
             container.Add(heading);
+
+            if (isLocal)
+            {
+                var localNote = new Label("Local runtimes like Ollama don't require a key — leave this blank. Set one only for a secured or remote endpoint.");
+                localNote.AddToClassList("molca-hub-muted");
+                container.Add(localNote);
+            }
 
             if (AssistantApiAuth.IsFromEnv(provider))
             {

@@ -10,31 +10,59 @@ namespace Molca.Editor.Mcp.Assistant
     /// <see cref="ILlmProvider"/> for any OpenAI Chat Completions-compatible endpoint, called over raw
     /// HTTP via <see cref="UnityWebRequest"/>. Works with OpenAI itself and compatible vendors such as
     /// DeepSeek by pointing the base URL at the vendor (e.g. <c>https://api.deepseek.com</c>) and setting
-    /// the model (e.g. <c>deepseek-chat</c>). Non-streaming, with OpenAI-style function calling.
+    /// the model (e.g. <c>deepseek-chat</c>). Also drives local/self-hosted runtimes that expose the same
+    /// wire format — notably Ollama (<c>http://localhost:11434/v1</c>) — by constructing with
+    /// <see cref="LlmProviderKind.Local"/> and an optional (often empty) key. Streaming SSE and
+    /// OpenAI-style function calling.
     /// </summary>
     /// <remarks>
-    /// Reports its <see cref="Kind"/> as <see cref="LlmProviderKind.OpenAI"/>. This is a deliberately
-    /// vendor-neutral implementation of the OpenAI wire format — it is not Anthropic/Claude code.
+    /// Reports its <see cref="Kind"/> as whatever kind it was constructed for (<see cref="LlmProviderKind.OpenAI"/>
+    /// or <see cref="LlmProviderKind.Local"/>). This is a deliberately vendor-neutral implementation of the
+    /// OpenAI wire format — it is not Anthropic/Claude code. When <c>requireApiKey</c> is <c>false</c> (local
+    /// runtimes that don't authenticate), an empty key is allowed and the <c>Authorization</c> header is only
+    /// sent when a key is actually present.
     /// </remarks>
     public sealed class OpenAiCompatibleLlmProvider : ILlmProvider
     {
         private readonly string _baseUrl;
         private readonly string _apiKey;
+        private readonly LlmProviderKind _kind;
+        private readonly bool _requireApiKey;
+        private readonly int _maxAttempts;
 
-        /// <summary>Creates the provider with a base URL (no trailing slash needed) and API key.</summary>
+        /// <summary>
+        /// Creates an OpenAI-cloud provider with a base URL (no trailing slash needed) and required API key.
+        /// </summary>
         public OpenAiCompatibleLlmProvider(string baseUrl, string apiKey)
+            : this(baseUrl, apiKey, LlmProviderKind.OpenAI, requireApiKey: true)
+        {
+        }
+
+        /// <summary>
+        /// Creates the provider for a specific <paramref name="kind"/>, allowing a keyless endpoint when
+        /// <paramref name="requireApiKey"/> is <c>false</c> (e.g. a local Ollama server).
+        /// </summary>
+        /// <param name="baseUrl">OpenAI-compatible base URL (no trailing slash needed).</param>
+        /// <param name="apiKey">Bearer key, or empty/null when the endpoint does not authenticate.</param>
+        /// <param name="kind">The provider kind this instance reports as.</param>
+        /// <param name="requireApiKey">When <c>true</c>, an empty key throws at send time.</param>
+        /// <param name="maxAttempts">Maximum total HTTP attempts per call including the first (Sprint 68); <c>1</c> disables retry.</param>
+        public OpenAiCompatibleLlmProvider(string baseUrl, string apiKey, LlmProviderKind kind, bool requireApiKey, int maxAttempts = 1)
         {
             _baseUrl = (baseUrl ?? string.Empty).TrimEnd('/');
             _apiKey = apiKey;
+            _kind = kind;
+            _requireApiKey = requireApiKey;
+            _maxAttempts = maxAttempts < 1 ? 1 : maxAttempts;
         }
 
         /// <inheritdoc/>
-        public LlmProviderKind Kind => LlmProviderKind.OpenAI;
+        public LlmProviderKind Kind => _kind;
 
         /// <inheritdoc/>
         public async Awaitable<LlmResponse> SendAsync(LlmRequest request, CancellationToken cancellationToken, IProgress<string> onTextDelta = null)
         {
-            if (string.IsNullOrEmpty(_apiKey))
+            if (_requireApiKey && string.IsNullOrEmpty(_apiKey))
                 throw new InvalidOperationException("No API key configured.");
             if (string.IsNullOrEmpty(_baseUrl))
                 throw new InvalidOperationException("No base URL configured.");
@@ -42,20 +70,24 @@ namespace Molca.Editor.Mcp.Assistant
             var streaming = onTextDelta != null;
             var url = _baseUrl + "/chat/completions";
             var body = BuildBody(request, streaming);
+            // Reassignable so a streaming retry (Sprint 68) can drop a partially-filled accumulator and start
+            // clean; the SSE callback closes over the variable, not the instance, so it always feeds the live one.
             var accumulator = streaming ? new OpenAiStreamAccumulator(onTextDelta) : null;
 
             // Pause-independent transport (Sprint 65): HttpClient on a background task pumped via the editor
             // update loop, so the turn streams and completes while Play mode is paused. The SSE callback runs
             // on the main thread.
-            var headers = new System.Collections.Generic.Dictionary<string, string>
-            {
-                ["Authorization"] = "Bearer " + _apiKey
-            };
+            // Only authenticate when a key is present: local runtimes (Ollama) reject/ignore a bogus header.
+            var headers = new System.Collections.Generic.Dictionary<string, string>();
+            if (!string.IsNullOrEmpty(_apiKey))
+                headers["Authorization"] = "Bearer " + _apiKey;
 
             var result = await AssistantHttp.PostAsync(
                 url, headers, body, streaming,
-                streaming ? accumulator.OnLine : (Action<string>)null,
-                timeoutSeconds: 120, cancellationToken);
+                streaming ? (Action<string>)(line => accumulator.OnLine(line)) : null,
+                timeoutSeconds: 120, cancellationToken,
+                maxAttempts: _maxAttempts,
+                onStreamRestart: streaming ? () => accumulator = new OpenAiStreamAccumulator(onTextDelta) : null);
 
             if (!result.IsSuccess)
                 throw new Exception(ExtractError(result.Body, result.StatusCode));
@@ -63,7 +95,8 @@ namespace Molca.Editor.Mcp.Assistant
             return streaming ? accumulator.Build() : ParseResponse(result.Body);
         }
 
-        private static string BuildBody(LlmRequest request, bool streaming)
+        /// <summary>Builds the OpenAI-compatible request body; internal for streaming-options tests (Sprint 68).</summary>
+        internal static string BuildBody(LlmRequest request, bool streaming)
         {
             var messages = new JArray();
 
@@ -124,7 +157,13 @@ namespace Molca.Editor.Mcp.Assistant
                 ["max_tokens"] = request.MaxTokens,
                 ["messages"] = messages
             };
-            if (streaming) root["stream"] = true;
+            if (streaming)
+            {
+                root["stream"] = true;
+                // Ask for usage on the terminal SSE chunk (Sprint 68) so streaming turns report real input/output
+                // token counts instead of silently billing 0; the accumulator reads it from the final chunk.
+                root["stream_options"] = new JObject { ["include_usage"] = true };
+            }
 
             if (request.Tools != null && request.Tools.Count > 0)
             {

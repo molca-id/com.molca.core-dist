@@ -372,6 +372,14 @@ namespace Molca.Editor.Mcp.Assistant
         private long _sessionInputTokens;
         private long _sessionOutputTokens;
 
+        // Unproductive-loop breaker (Sprint 68): counts identical tool-call signatures (name + normalized
+        // args) within the current turn. When one crosses AssistantSettings.LoopBreakThreshold the turn stops
+        // with a resumable notice instead of burning every remaining round. Reset at the start of each turn.
+        private readonly Dictionary<string, int> _toolSignatureCounts = new Dictionary<string, int>();
+        // Set to the offending signature once a loop is detected this turn; consumed after the round's tool
+        // results are recorded so history stays a valid call/result pairing before the turn stops.
+        private string _detectedLoopSignature;
+
         // Surfacing state for the most recent auto-compaction (Sprint 46): the generated summary text (null
         // when the last relief was digest-only) and how many tool results were digested. Drives the composer
         // "context compacted" affordance; reset to defaults the moment a new chat/session begins.
@@ -811,6 +819,9 @@ namespace Molca.Editor.Mcp.Assistant
             _activePlanTurn = null;
             _planAbortRequested = false;
             _subAgentsThisTurn = 0;
+            // Unproductive-loop tracking (Sprint 68) is per-turn.
+            _toolSignatureCounts.Clear();
+            _detectedLoopSignature = null;
             // Anchor the visible user turn to the history message it produces, so retry/edit can trim both
             // precisely later (Sprint 25.8) without scanning for "the last user message".
             var userHistoryIndex = _history.Count;
@@ -826,14 +837,21 @@ namespace Molca.Editor.Mcp.Assistant
                 var registry = mcpSettings?.BuildRegistry();
                 Func<string, bool> isActionAllowed = mcpSettings != null ? mcpSettings.IsActionAllowed : null;
 
-                // Tiered tool exposure (Sprint 67): instead of sending every tool's schema each request, the
-                // model gets a compact grouped catalog (names + summaries) in the system prompt and fetches a
-                // tool's schema on demand via molca_tool_schema. Only the meta-tool + tools it has activated
-                // this turn carry their full schema in the request, slashing the per-request token cost.
+                // Tool exposure. Tiered (Sprint 67, the cloud default): the model gets a compact grouped
+                // catalog in the system prompt and fetches a tool's schema on demand via molca_tool_schema —
+                // only the meta-tool + tools activated this turn carry their full schema, slashing per-request
+                // tokens. Flat (Sprint 68.9): every tool's full schema is sent directly with no fetch step, for
+                // weaker/local models that can't navigate the fetch-then-call indirection (token cost is
+                // irrelevant for a local runtime). UseFlatToolExposure resolves Auto → flat for Local.
                 _activatedTools.Clear();
-                var toolCatalog = AssistantToolBridge.BuildToolCatalog(registry, isActionAllowed);
-                var systemPrompt = BuildSystemPromptWithCatalog(toolCatalog);
-                var tools = AssistantToolBridge.GetTieredToolSpecs(registry, isActionAllowed, _activatedTools);
+                var useFlatTools = _settings.UseFlatToolExposure;
+                var flatTools = useFlatTools ? AssistantToolBridge.GetFlatToolSpecs(registry, isActionAllowed) : null;
+                var systemPrompt = useFlatTools
+                    ? SystemPrompt
+                    : BuildSystemPromptWithCatalog(AssistantToolBridge.BuildToolCatalog(registry, isActionAllowed));
+                var tools = useFlatTools
+                    ? flatTools
+                    : AssistantToolBridge.GetTieredToolSpecs(registry, isActionAllowed, _activatedTools);
 
                 // Confirmation policy (Sprint 25 + later): Ask mode confirms every action through the
                 // in-chat docked prompt bar. Auto mode runs allowlisted actions without prompting — except
@@ -881,9 +899,11 @@ namespace Molca.Editor.Mcp.Assistant
 
                 for (var round = 0; round < maxToolRounds; round++)
                 {
-                    // Recompute the tiered tool set each round: it grows as the model activates tools via
-                    // molca_tool_schema (Sprint 67). Record the payload this round actually sends.
-                    tools = AssistantToolBridge.GetTieredToolSpecs(registry, isActionAllowed, _activatedTools);
+                    // Recompute the tool set each round. Tiered grows as the model activates tools via
+                    // molca_tool_schema (Sprint 67); flat is fixed for the whole turn (Sprint 68.9). Record the
+                    // payload this round actually sends.
+                    if (!useFlatTools)
+                        tools = AssistantToolBridge.GetTieredToolSpecs(registry, isActionAllowed, _activatedTools);
                     ToolSpecCount = tools.Count;
                     ToolSpecTokenEstimate = AssistantToolBridge.EstimateSpecTokens(tools);
 
@@ -910,8 +930,9 @@ namespace Molca.Editor.Mcp.Assistant
                     StreamingText = string.Empty;
 
                     // Tiered exposure (Sprint 67): when the model fetches a tool's schema, mark it activated
-                    // so the next round offers that tool's full spec and the model can call it.
-                    if (response.ToolCalls != null)
+                    // so the next round offers that tool's full spec and the model can call it. No-op in flat
+                    // mode — molca_tool_schema isn't offered there (Sprint 68.9).
+                    if (!useFlatTools && response.ToolCalls != null)
                         foreach (var schemaCall in response.ToolCalls)
                             if (schemaCall.Name == AssistantToolBridge.ToolSchemaToolName)
                                 ActivateRequestedTools(schemaCall.ArgumentsJson);
@@ -924,7 +945,11 @@ namespace Molca.Editor.Mcp.Assistant
                     // Accumulate session token spend (Sprint 49): input is the vendor-reported prompt size of
                     // this request (billed per call), output is estimated from the response text when the
                     // vendor doesn't report it. Both feed the read-only telemetry and cost estimate.
-                    _sessionInputTokens += response.PromptTokens;
+                    // Prefer the vendor's real prompt count; fall back to a request-size estimate only when usage
+                    // is genuinely absent (Sprint 68) so a streaming turn never silently bills 0 input tokens.
+                    _sessionInputTokens += response.PromptTokens > 0
+                        ? response.PromptTokens
+                        : EstimateRequestInputTokens(request);
                     // Prefer the vendor's real output count (Sprint 53); fall back to the char heuristic only
                     // when it is not reported (e.g. a streaming endpoint without usage).
                     _sessionOutputTokens += response.CompletionTokens > 0
@@ -947,6 +972,11 @@ namespace Molca.Editor.Mcp.Assistant
                         break;
                     }
 
+                    // Unproductive-loop breaker (Sprint 68): count this round's tool-call signatures; if any
+                    // identical call (same name + normalized args) crosses the threshold, flag it. The round's
+                    // tools still run and get answered below so history stays valid, then the turn stops.
+                    RecordToolCallSignatures(response.ToolCalls);
+
                     // Execute each requested tool and feed results back as one user turn.
                     var resultMsg = new LlmMessage { Role = LlmRole.User };
                     if (IsParallelizableReadRound(response.ToolCalls, registry))
@@ -964,7 +994,24 @@ namespace Molca.Editor.Mcp.Assistant
                                 (reqs, ct) => RunSubtasksAsync(reqs, registry, ct))));
                         foreach (var entry in started)
                         {
-                            var readResult = await entry.Task;
+                            // Fault-isolate each started read (Sprint 68): a throw becomes an error result for
+                            // that call so the siblings already in flight still resolve and the history's
+                            // call/result pairing stays intact. A real cancellation still aborts the turn.
+                            LlmToolResult readResult;
+                            try
+                            {
+                                readResult = await entry.Task;
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                throw;
+                            }
+                            catch (Exception ex)
+                            {
+                                readResult = new LlmToolResult(entry.Call.Id,
+                                    new JObject { ["error"] = ex.Message }.ToString(Newtonsoft.Json.Formatting.None),
+                                    isError: true);
+                            }
                             resultMsg.ToolResults.Add(readResult);
                             Append(BuildToolSummary(registry, entry.Call, readResult), isAction: false);
                         }
@@ -1111,6 +1158,10 @@ namespace Molca.Editor.Mcp.Assistant
                         // structured plan, the failure UX above already decided how to proceed.
                         if (isAction && result.IsError && _activePlanTurn == null) _planApprovedThisTurn = false;
                     }
+                    // Result-size guard (Sprint 68): cap each tool result before it enters history so one
+                    // oversized payload can't bloat the remaining rounds of this turn (complements the
+                    // pre-turn digest/compaction tiers).
+                    CapToolResults(resultMsg);
                     _history.Add(resultMsg);
 
                     // The user aborted a failed plan step (Sprint 52): the round's calls are all answered, so
@@ -1118,6 +1169,20 @@ namespace Molca.Editor.Mcp.Assistant
                     if (_planAbortRequested)
                     {
                         FlushToolGroup();
+                        break;
+                    }
+
+                    // Unproductive-loop breaker (Sprint 68): the round's calls are all answered (history is a
+                    // valid call/result pairing), so stop with a resumable notice — same UX as the round cap.
+                    if (_detectedLoopSignature != null)
+                    {
+                        FlushToolGroup();
+                        _transcript.Add(new ChatTurn(ChatTurnKind.Error,
+                            $"Stopped: the model repeated the same tool call ({_detectedLoopSignature}) " +
+                            $"{_settings.LoopBreakThreshold}+ times without making progress. The work so far is kept — " +
+                            "click Continue to resume, or rephrase your request.")
+                        { CanContinue = true });
+                        Changed?.Invoke();
                         break;
                     }
 
@@ -1305,6 +1370,86 @@ namespace Molca.Editor.Mcp.Assistant
 
         /// <summary>Rough token count (~4 chars/token) for text the vendor didn't report usage for (Sprint 49).</summary>
         private static long EstimateTokenCount(string text) => string.IsNullOrEmpty(text) ? 0 : text.Length / 4;
+
+        /// <summary>
+        /// Rough input-token estimate (~4 chars/token) for a request whose vendor usage was not reported
+        /// (Sprint 68), summing the system prompt, every message's text/tool-call/tool-result payloads, and the
+        /// tool specs. Used only as a fallback so a streaming turn never silently bills 0 input tokens.
+        /// </summary>
+        private static long EstimateRequestInputTokens(LlmRequest request)
+        {
+            if (request == null) return 0;
+            long chars = request.System?.Length ?? 0;
+            foreach (var m in request.Messages ?? Enumerable.Empty<LlmMessage>())
+            {
+                chars += m.Text?.Length ?? 0;
+                if (m.ToolResults != null)
+                    foreach (var r in m.ToolResults) chars += r.Content?.Length ?? 0;
+                if (m.ToolCalls != null)
+                    foreach (var c in m.ToolCalls) chars += c.ArgumentsJson?.Length ?? 0;
+            }
+            foreach (var t in request.Tools ?? Enumerable.Empty<LlmToolSpec>())
+                chars += (t.Name?.Length ?? 0) + (t.Description?.Length ?? 0) + (t.InputSchemaJson?.Length ?? 0);
+            return chars / 4;
+        }
+
+        /// <summary>
+        /// Caps each tool result in <paramref name="resultMsg"/> at <see cref="AssistantSettings.MaxToolResultChars"/>
+        /// (Sprint 68), truncating an oversized payload with a <c>[truncated N chars]</c> marker before it enters
+        /// history so one large result can't bloat the remaining rounds of the same turn.
+        /// </summary>
+        private void CapToolResults(LlmMessage resultMsg)
+        {
+            var max = _settings.MaxToolResultChars;
+            for (var i = 0; i < resultMsg.ToolResults.Count; i++)
+            {
+                var r = resultMsg.ToolResults[i];
+                if (r.Content == null || r.Content.Length <= max) continue;
+                var dropped = r.Content.Length - max;
+                var truncated = r.Content.Substring(0, max) + $"\n…[truncated {dropped} chars]";
+                resultMsg.ToolResults[i] = new LlmToolResult(r.ToolCallId, truncated, r.IsError);
+            }
+        }
+
+        /// <summary>
+        /// Records this round's tool-call signatures (name + normalized arguments) for the unproductive-loop
+        /// breaker (Sprint 68). When a signature crosses <see cref="AssistantSettings.LoopBreakThreshold"/>,
+        /// stores it in <see cref="_detectedLoopSignature"/> so the turn stops after the round is answered.
+        /// </summary>
+        private void RecordToolCallSignatures(IReadOnlyList<LlmToolCall> calls)
+        {
+            if (calls == null) return;
+            var threshold = _settings.LoopBreakThreshold;
+            foreach (var call in calls)
+            {
+                var signature = NormalizeToolSignature(call);
+                _toolSignatureCounts.TryGetValue(signature, out var count);
+                count++;
+                _toolSignatureCounts[signature] = count;
+                if (count >= threshold && _detectedLoopSignature == null)
+                    _detectedLoopSignature = signature;
+            }
+        }
+
+        /// <summary>
+        /// A stable identity for a tool call (Sprint 68): the tool name plus its arguments normalized to compact
+        /// JSON (falling back to the trimmed raw string when the arguments don't parse), so two calls that differ
+        /// only in whitespace count as the same repetition.
+        /// </summary>
+        private static string NormalizeToolSignature(LlmToolCall call)
+        {
+            var args = call.ArgumentsJson;
+            string normalized;
+            try
+            {
+                normalized = string.IsNullOrWhiteSpace(args) ? "{}" : JToken.Parse(args).ToString(Newtonsoft.Json.Formatting.None);
+            }
+            catch
+            {
+                normalized = (args ?? string.Empty).Trim();
+            }
+            return call.Name + ":" + normalized;
+        }
 
         /// <summary>Clears the last-compaction surfacing state when the conversation changes (Sprint 46).</summary>
         private void ResetCompactionState()

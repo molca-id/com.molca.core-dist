@@ -18,6 +18,24 @@ namespace Molca.Editor.Mcp.Assistant
     }
 
     /// <summary>
+    /// How the assistant exposes the MCP tool surface to the model (Sprint 68.9). <see cref="Tiered"/> sends a
+    /// compact catalog + on-demand <c>molca_tool_schema</c> fetch (Sprint 67) — tiny per-request payload, but a
+    /// fetch-then-call indirection a weak model may not navigate. <see cref="Flat"/> sends every tool's full
+    /// schema directly (one-step calls) at a larger payload. <see cref="Auto"/> picks flat for the keyless
+    /// <see cref="LlmProviderKind.Local"/> backend (small local models, free tokens) and tiered for cloud.
+    /// </summary>
+    /// <remarks>Members are appended for serialization stability — never reorder existing values.</remarks>
+    public enum ToolExposureMode
+    {
+        /// <summary>Flat for the Local backend, tiered for cloud backends.</summary>
+        Auto,
+        /// <summary>Compact catalog + on-demand schema fetch (Sprint 67).</summary>
+        Tiered,
+        /// <summary>Every tool's full schema sent directly — no fetch step (Sprint 68.9).</summary>
+        Flat
+    }
+
+    /// <summary>
     /// Authored configuration for the in-editor assistant chat (Sprint 16): provider, model, enable
     /// flag, and generation knobs. <b>Holds no secrets</b> — the API key lives in
     /// <see cref="AssistantApiAuth"/> (project-scoped EditorPrefs / env var), never on this asset.
@@ -30,13 +48,13 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("Enable the in-editor assistant chat.")]
         [SerializeField] private bool enabled = false;
 
-        [Tooltip("LLM backend. OpenAI-compatible (OpenAI, DeepSeek, …) is the default; Anthropic is also supported.")]
+        [Tooltip("LLM backend. OpenAI-compatible (OpenAI, DeepSeek, …) is the default; Anthropic is also supported; Local drives a self-hosted OpenAI-compatible runtime such as Ollama.")]
         [SerializeField] private LlmProviderKind provider = LlmProviderKind.OpenAI;
 
-        [Tooltip("Model id. Leave empty to use the provider's default.")]
+        [Tooltip("Model id. Leave empty to use the provider's default. For Local/Ollama this is the pulled tag, e.g. gemma4:e4b.")]
         [SerializeField] private string model = "";
 
-        [Tooltip("OpenAI-compatible base URL (OpenAI provider only). Leave empty for OpenAI; set to e.g. https://api.deepseek.com for DeepSeek.")]
+        [Tooltip("OpenAI-compatible base URL (OpenAI and Local providers). Leave empty for the provider default; set to e.g. https://api.deepseek.com for DeepSeek or http://localhost:11434/v1 for Ollama.")]
         [SerializeField] private string baseUrl = "";
 
         [Tooltip("Output token ceiling per response.")]
@@ -47,6 +65,9 @@ namespace Molca.Editor.Mcp.Assistant
 
         [Tooltip("Maximum model→tool→model rounds per turn. A model that calls one tool per round hits roughly this many tool calls; multi-step authoring needs more headroom than read-only queries.")]
         [SerializeField] private int maxToolRounds = 25;
+
+        [Tooltip("How tools are exposed to the model. Auto = flat for Local (full schemas sent directly, one-step calls — best for small local models) and tiered for cloud (compact catalog + on-demand schema fetch). Flat/Tiered force a mode.")]
+        [SerializeField] private ToolExposureMode toolExposure = ToolExposureMode.Auto;
 
         [Tooltip("Automatically summarize the oldest conversation turns when the estimated context size crosses the threshold, so long sessions keep working without manual pruning.")]
         [SerializeField] private bool autoCompact = true;
@@ -82,6 +103,16 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("Per-response output-token ceiling for a sub-agent (kept modest — a sub-agent returns a short digest).")]
         [SerializeField] private int subAgentMaxTokens = 2048;
 
+        [Header("Resilience (Sprint 68)")]
+        [Tooltip("Maximum HTTP attempts per model call, including the first (1 disables retry). A transient 429/5xx/timeout is retried with backoff up to this cap before the turn surfaces an error.")]
+        [SerializeField] private int retryMaxAttempts = 3;
+
+        [Tooltip("Stop a turn after the model issues this many identical tool calls (same name + arguments). Guards against an unproductive loop burning every tool round; the turn stays resumable via Continue.")]
+        [SerializeField] private int loopBreakThreshold = 4;
+
+        [Tooltip("Per-tool-result character ceiling. A tool result longer than this is truncated (with a marker) as it returns, so one oversized payload can't bloat the rest of the turn.")]
+        [SerializeField] private int maxToolResultChars = 100000;
+
         /// <summary>Whether the assistant is enabled.</summary>
         public bool Enabled { get => enabled; set => enabled = value; }
 
@@ -99,6 +130,22 @@ namespace Molca.Editor.Mcp.Assistant
 
         /// <summary>Maximum model→tool→model rounds per turn, clamped to a safe range.</summary>
         public int MaxToolRounds => Mathf.Clamp(maxToolRounds, 1, 100);
+
+        /// <summary>How the tool surface is exposed to the model (Sprint 68.9).</summary>
+        public ToolExposureMode ToolExposure { get => toolExposure; set => toolExposure = value; }
+
+        /// <summary>
+        /// Whether to send every tool's full schema directly (flat) rather than the tiered catalog +
+        /// on-demand fetch (Sprint 68.9). Resolves <see cref="ToolExposureMode.Auto"/> to flat for the keyless
+        /// <see cref="LlmProviderKind.Local"/> backend (small local models can't reliably navigate the tiered
+        /// fetch-then-call step, and local tokens are free) and tiered for the cloud backends.
+        /// </summary>
+        public bool UseFlatToolExposure => toolExposure switch
+        {
+            ToolExposureMode.Flat => true,
+            ToolExposureMode.Tiered => false,
+            _ => provider == LlmProviderKind.Local
+        };
 
         /// <summary>
         /// Whether the assistant auto-summarizes the oldest turns once the estimated context size crosses
@@ -154,23 +201,86 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>Per-response output-token ceiling for a sub-agent, clamped (Sprint 56).</summary>
         public int SubAgentMaxTokens => Mathf.Clamp(subAgentMaxTokens, 256, 16000);
 
+        /// <summary>
+        /// Maximum HTTP attempts per model call (including the first), clamped to a safe range (Sprint 68).
+        /// <c>1</c> disables retry; higher values let <see cref="AssistantHttp"/> retry a transient
+        /// 429/5xx/connection/timeout failure with jittered backoff before the turn surfaces an error.
+        /// </summary>
+        public int RetryMaxAttempts => Mathf.Clamp(retryMaxAttempts, 1, 10);
+
+        /// <summary>
+        /// How many identical tool calls (same name + normalized arguments) the model may issue in a turn
+        /// before <see cref="AssistantChatController"/> breaks the unproductive loop and stops the turn with a
+        /// resumable notice, clamped to a safe range (Sprint 68).
+        /// </summary>
+        public int LoopBreakThreshold => Mathf.Clamp(loopBreakThreshold, 2, 20);
+
+        /// <summary>
+        /// Per-tool-result character ceiling, clamped to a safe range (Sprint 68). A result longer than this is
+        /// truncated with a marker as it returns, so a single oversized payload can't bloat the remaining rounds
+        /// of the same turn (complements the pre-turn digest/compaction tiers).
+        /// </summary>
+        public int MaxToolResultChars => Mathf.Clamp(maxToolResultChars, 4000, 2000000);
+
         /// <summary>The default model id for a provider.</summary>
         public static string DefaultModelFor(LlmProviderKind p) => p switch
         {
             LlmProviderKind.Anthropic => "claude-opus-4-8",
             LlmProviderKind.OpenAI => "gpt-4o-mini",
+            LlmProviderKind.Local => "gemma4:e4b",
             _ => ""
         };
 
         /// <summary>The default base URL for an OpenAI-compatible provider (OpenAI itself).</summary>
         public const string DefaultOpenAiBaseUrl = "https://api.openai.com/v1";
 
-        /// <summary>The resolved OpenAI-compatible base URL (configured value, or OpenAI's if blank).</summary>
-        public string BaseUrl => string.IsNullOrWhiteSpace(baseUrl) ? DefaultOpenAiBaseUrl : baseUrl.Trim();
+        /// <summary>The default base URL for the Local provider (a stock Ollama OpenAI-compatible endpoint).</summary>
+        public const string DefaultLocalBaseUrl = "http://localhost:11434/v1";
+
+        /// <summary>The default base URL for a base-URL-driven provider.</summary>
+        public static string DefaultBaseUrlFor(LlmProviderKind p) =>
+            p == LlmProviderKind.Local ? DefaultLocalBaseUrl : DefaultOpenAiBaseUrl;
+
+        /// <summary>True if the selected provider is driven by a configurable OpenAI-compatible base URL.</summary>
+        public bool UsesBaseUrl =>
+            provider == LlmProviderKind.OpenAI || provider == LlmProviderKind.Local;
+
+        /// <summary>
+        /// True when the configured backend is a local model known to be unreliable at the assistant's
+        /// tool-calling loop (e.g. Gemma 3n e2b/e4b). Such models answer read-only questions acceptably but
+        /// frequently drop or malform tool calls, so multi-step authoring should not be relied on. Surfaced
+        /// as a non-blocking warning in the Hub — the model still runs.
+        /// </summary>
+        public bool IsWeakToolModel => IsKnownWeakLocalToolModel(provider, Model);
+
+        /// <summary>
+        /// Whether <paramref name="model"/> on <paramref name="p"/> is a local model known to be too small
+        /// for reliable function-calling. Heuristic, matched case-insensitively against the Ollama tag:
+        /// Gemma 3n (e2b/e4b) and other ≤2B-class tags.
+        /// </summary>
+        /// <param name="p">The selected provider; only <see cref="LlmProviderKind.Local"/> is considered.</param>
+        /// <param name="model">The resolved model id / Ollama tag.</param>
+        /// <returns><c>true</c> if the model is a known-weak local tool model.</returns>
+        public static bool IsKnownWeakLocalToolModel(LlmProviderKind p, string model)
+        {
+            if (p != LlmProviderKind.Local || string.IsNullOrWhiteSpace(model)) return false;
+            var m = model.ToLowerInvariant();
+            // Gemma 3n (e2b/e4b) shipped without tool tuning and is weak at function calling. Match the
+            // family prefix, NOT a bare "e4b"/"e2b" substring: Gemma 4's same-named edge tags
+            // (gemma4:e2b / :e4b, released 2026-03) ARE trained for function calling and must not be flagged.
+            // The generic ≤2B tags stay a rough heuristic for other tiny, non-tool-tuned models.
+            return m.Contains("gemma3n")
+                || m.Contains(":1b") || m.Contains(":2b");
+        }
+
+        /// <summary>The resolved OpenAI-compatible base URL (configured value, or the provider default if blank).</summary>
+        public string BaseUrl => string.IsNullOrWhiteSpace(baseUrl) ? DefaultBaseUrlFor(provider) : baseUrl.Trim();
 
         /// <summary>True if the selected provider has an implementation in this release.</summary>
         public bool IsProviderImplemented =>
-            provider == LlmProviderKind.Anthropic || provider == LlmProviderKind.OpenAI;
+            provider == LlmProviderKind.Anthropic
+            || provider == LlmProviderKind.OpenAI
+            || provider == LlmProviderKind.Local;
 
         /// <summary>
         /// Reports the configuration status for the settings UI and validator (Sprint 16.7): missing key
@@ -189,12 +299,15 @@ namespace Molca.Editor.Mcp.Assistant
                 message = $"Provider '{provider}' is not implemented in this release.";
                 return AssistantConfigStatus.Misconfigured;
             }
-            if (!AssistantApiAuth.HasKey(provider))
+            // Local runtimes (Ollama) are keyless by default, so a missing key is not a misconfiguration.
+            if (provider != LlmProviderKind.Local && !AssistantApiAuth.HasKey(provider))
             {
                 message = $"No API key. Set it in the Assistant settings or via the {AssistantApiAuth.EnvVarFor(provider)} env var.";
                 return AssistantConfigStatus.Misconfigured;
             }
-            message = $"Ready ({Model}).";
+            message = provider == LlmProviderKind.Local
+                ? $"Ready ({Model} @ {BaseUrl})."
+                : $"Ready ({Model}).";
             return AssistantConfigStatus.Configured;
         }
 
@@ -206,12 +319,15 @@ namespace Molca.Editor.Mcp.Assistant
         public ILlmProvider CreateProvider()
         {
             var key = AssistantApiAuth.GetKey(provider);
+            var attempts = RetryMaxAttempts;
             return provider switch
             {
-                LlmProviderKind.Anthropic => new AnthropicLlmProvider(key),
-                LlmProviderKind.OpenAI => new OpenAiCompatibleLlmProvider(BaseUrl, key),
+                LlmProviderKind.Anthropic => new AnthropicLlmProvider(key, attempts),
+                LlmProviderKind.OpenAI => new OpenAiCompatibleLlmProvider(BaseUrl, key, LlmProviderKind.OpenAI, requireApiKey: true, maxAttempts: attempts),
+                // Local (Ollama): same OpenAI wire format, optional key (the header is omitted when blank).
+                LlmProviderKind.Local => new OpenAiCompatibleLlmProvider(BaseUrl, key, LlmProviderKind.Local, requireApiKey: false, maxAttempts: attempts),
                 _ => throw new NotImplementedException(
-                    $"LLM provider '{provider}' is not implemented in this release. Use Anthropic or OpenAI.")
+                    $"LLM provider '{provider}' is not implemented in this release. Use Anthropic, OpenAI, or Local.")
             };
         }
 

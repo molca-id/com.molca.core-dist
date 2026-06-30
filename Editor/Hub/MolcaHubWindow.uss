@@ -350,7 +350,8 @@
 }
 
 .molca-hub-field-label {
-    width: 118px;
+    width: 160px;
+    flex-shrink: 0;
     color: var(--hub-label);
     font-size: 11px;
 }

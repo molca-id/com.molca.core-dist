@@ -1,11 +1,12 @@
-﻿com.molca.core@1.10.5
-Published: 2026-06-30 10:43:31Z
-Source commit: 792e235c
-Files: 1394
+﻿com.molca.core@1.10.6
+Published: 2026-06-30 20:40:10Z
+Source commit: 666cc895
+Files: 1395
 
 CHANGELOG.md
 CHANGELOG.md.meta
 Documentation~/README.md
+Documentation~/reference/ASSISTANT_RESILIENCE.md
 Documentation~/reference/CORE_MCP_TOOLS.md
 Documentation~/reference/EDITOR_DESIGN_LANGUAGE.md
 Documentation~/reference/FIGMA_TO_UGUI.md

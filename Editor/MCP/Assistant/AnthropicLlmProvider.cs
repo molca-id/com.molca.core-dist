@@ -23,11 +23,15 @@ namespace Molca.Editor.Mcp.Assistant
         private const string AnthropicVersion = "2023-06-01";
 
         private readonly string _apiKey;
+        private readonly int _maxAttempts;
 
         /// <summary>Creates the provider with an API key (resolved by the caller from <see cref="AssistantApiAuth"/>).</summary>
-        public AnthropicLlmProvider(string apiKey)
+        /// <param name="apiKey">Anthropic API key.</param>
+        /// <param name="maxAttempts">Maximum total HTTP attempts per call including the first (Sprint 68); <c>1</c> disables retry.</param>
+        public AnthropicLlmProvider(string apiKey, int maxAttempts = 1)
         {
             _apiKey = apiKey;
+            _maxAttempts = maxAttempts < 1 ? 1 : maxAttempts;
         }
 
         /// <inheritdoc/>
@@ -41,6 +45,8 @@ namespace Molca.Editor.Mcp.Assistant
 
             var streaming = onTextDelta != null;
             var body = BuildBody(request, streaming);
+            // Reassignable so a streaming retry (Sprint 68) starts from a clean accumulator; the SSE callback
+            // closes over the variable, not the instance.
             var accumulator = streaming ? new AnthropicStreamAccumulator(onTextDelta) : null;
 
             // Pause-independent transport (Sprint 65): HttpClient on a background task, pumped via the editor
@@ -54,8 +60,10 @@ namespace Molca.Editor.Mcp.Assistant
 
             var result = await AssistantHttp.PostAsync(
                 Endpoint, headers, body, streaming,
-                streaming ? accumulator.OnLine : (Action<string>)null,
-                timeoutSeconds: 120, cancellationToken);
+                streaming ? (Action<string>)(line => accumulator.OnLine(line)) : null,
+                timeoutSeconds: 120, cancellationToken,
+                maxAttempts: _maxAttempts,
+                onStreamRestart: streaming ? () => accumulator = new AnthropicStreamAccumulator(onTextDelta) : null);
 
             if (!result.IsSuccess)
                 throw new Exception(ExtractError(result.Body, result.StatusCode));

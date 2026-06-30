@@ -6,6 +6,8 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using HttpErrorKind = Molca.Networking.Http.Models.HttpErrorKind;
+using UnityEditor;
 using UnityEngine;
 
 namespace Molca.Editor.Mcp.Assistant
@@ -19,13 +21,19 @@ namespace Molca.Editor.Mcp.Assistant
         public bool IsSuccess { get; }
         /// <summary>Full body for non-streaming or error responses; empty for a successful streamed response.</summary>
         public string Body { get; }
+        /// <summary>
+        /// Server-advised retry delay parsed from a <c>Retry-After</c> header (seconds), or <c>null</c> when the
+        /// header is absent/unparseable. Honored by the retry backoff on a 429/503 (Sprint 68).
+        /// </summary>
+        public double? RetryAfterSeconds { get; }
 
         /// <summary>Creates an HTTP result.</summary>
-        public AssistantHttpResult(int statusCode, bool isSuccess, string body)
+        public AssistantHttpResult(int statusCode, bool isSuccess, string body, double? retryAfterSeconds = null)
         {
             StatusCode = statusCode;
             IsSuccess = isSuccess;
             Body = body ?? string.Empty;
+            RetryAfterSeconds = retryAfterSeconds;
         }
     }
 
@@ -37,11 +45,26 @@ namespace Molca.Editor.Mcp.Assistant
     /// firing during pause). This replaces <c>UnityWebRequest</c> + <c>Awaitable.NextFrameAsync</c>, both of
     /// which the player-loop pause freezes (Sprint 65).
     /// </summary>
-    /// <remarks>Editor-only. The returned awaitable resumes on the main thread; <paramref name="onSseLine"/>
-    /// is always invoked on the main thread, so providers can update UI/streaming state directly.</remarks>
+    /// <remarks>
+    /// Editor-only. The returned awaitable resumes on the main thread; <paramref name="onSseLine"/> is always
+    /// invoked on the main thread, so providers can update UI/streaming state directly.
+    /// <para>
+    /// Sprint 68: the POST is wrapped in a bounded retry with full-jitter exponential backoff. Failures are
+    /// classified with the same <see cref="HttpErrorKind"/> taxonomy the Networking layer ships
+    /// (Sprint 39): a 429 (honoring <c>Retry-After</c>), 5xx, connection, or timeout failure is retried up to
+    /// <c>maxAttempts</c> total tries; a 4xx auth/validation error or a real cancellation is never retried.
+    /// On a streaming retry the provider's <c>onStreamRestart</c> callback resets its SSE accumulator so a
+    /// partially-streamed attempt can't corrupt the reassembled response.
+    /// </para>
+    /// </remarks>
     public static class AssistantHttp
     {
-        /// <summary>POSTs <paramref name="jsonBody"/> and returns the response.</summary>
+        /// <summary>First-attempt backoff base (seconds); doubles each attempt before full jitter.</summary>
+        private const double BaseBackoffSeconds = 0.5;
+        /// <summary>Upper bound on a single computed backoff delay (seconds), Retry-After included.</summary>
+        private const double MaxBackoffSeconds = 30.0;
+
+        /// <summary>POSTs <paramref name="jsonBody"/> and returns the response, retrying transient failures.</summary>
         /// <param name="url">Target endpoint.</param>
         /// <param name="headers">Request headers (content-type is set from the JSON body and ignored here).</param>
         /// <param name="jsonBody">UTF-8 JSON request body.</param>
@@ -49,7 +72,81 @@ namespace Molca.Editor.Mcp.Assistant
         /// <param name="onSseLine">Per-line callback for a successful streamed response (main thread); ignored otherwise.</param>
         /// <param name="timeoutSeconds">Per-request timeout.</param>
         /// <param name="cancellationToken">Cancels the request and the pump (surfaces as <see cref="OperationCanceledException"/>).</param>
+        /// <param name="maxAttempts">Maximum total attempts including the first (Sprint 68); <c>1</c> disables retry.</param>
+        /// <param name="onStreamRestart">
+        /// Invoked before a streaming retry so the provider can reset its SSE accumulator to a clean state
+        /// (Sprint 68); ignored for non-streaming calls.
+        /// </param>
         public static async Awaitable<AssistantHttpResult> PostAsync(
+            string url, IReadOnlyDictionary<string, string> headers, string jsonBody,
+            bool streaming, Action<string> onSseLine, int timeoutSeconds, CancellationToken cancellationToken,
+            int maxAttempts = 1, Action onStreamRestart = null)
+        {
+            return await RunWithRetryAsync(
+                ct => AttemptOnceAsync(url, headers, jsonBody, streaming, onSseLine, timeoutSeconds, ct),
+                streaming, onStreamRestart, maxAttempts, cancellationToken, DelayAsync);
+        }
+
+        /// <summary>
+        /// Drives the bounded retry policy around a single-attempt delegate (Sprint 68). Extracted from
+        /// <see cref="PostAsync"/> so tests can inject a scripted <paramref name="attempt"/> and a no-op
+        /// <paramref name="delay"/> to exercise retry/backoff/give-up/cancellation deterministically without a
+        /// live network. Returns the final result, or rethrows the terminal fault after the cap.
+        /// </summary>
+        internal static async Awaitable<AssistantHttpResult> RunWithRetryAsync(
+            Func<CancellationToken, Awaitable<AssistantHttpResult>> attempt,
+            bool streaming, Action onStreamRestart, int maxAttempts, CancellationToken cancellationToken,
+            Func<double, CancellationToken, Awaitable> delay)
+        {
+            if (maxAttempts < 1) maxAttempts = 1;
+            // De-correlate retry backoff across editors so a provider-wide outage doesn't make every client
+            // retry in lockstep. Not cryptographic; only needs to spread the delay window.
+            var rng = new System.Random();
+
+            for (var attemptNo = 1; ; attemptNo++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                AssistantHttpResult result;
+                double? retryAfter;
+                try
+                {
+                    result = await attempt(cancellationToken);
+                    retryAfter = result.RetryAfterSeconds;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // A real turn cancellation is never retried and stays quiet (async contract rule 6).
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // Transport-level fault: connection or timeout. HttpClient's own timeout surfaces as a
+                    // TaskCanceledException whose token is NOT the caller's, so it reaches here (the filtered
+                    // catch above only swallows a caller-requested cancel).
+                    var kind = ClassifyException(ex);
+                    var retryable = kind == HttpErrorKind.Network || kind == HttpErrorKind.Timeout;
+                    if (!retryable || attemptNo >= maxAttempts)
+                        throw;
+                    if (streaming) onStreamRestart?.Invoke();
+                    await delay(ComputeBackoffSeconds(attemptNo, null, rng), cancellationToken);
+                    continue;
+                }
+
+                if (result.IsSuccess || attemptNo >= maxAttempts || !IsRetryableStatus(result.StatusCode))
+                    return result;
+
+                // Retryable HTTP error (429/5xx/408): reset any partial stream, back off, and try again.
+                if (streaming) onStreamRestart?.Invoke();
+                await delay(ComputeBackoffSeconds(attemptNo, retryAfter, rng), cancellationToken);
+            }
+        }
+
+        /// <summary>
+        /// Performs a single POST attempt: runs the request on a background task and pumps completion/SSE lines
+        /// onto the main thread via the editor update loop. Throws the transport exception on a faulted task.
+        /// </summary>
+        private static async Awaitable<AssistantHttpResult> AttemptOnceAsync(
             string url, IReadOnlyDictionary<string, string> headers, string jsonBody,
             bool streaming, Action<string> onSseLine, int timeoutSeconds, CancellationToken cancellationToken)
         {
@@ -91,7 +188,7 @@ namespace Molca.Editor.Mcp.Assistant
                 }
 
                 var bodyText = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-                return new AssistantHttpResult(status, resp.IsSuccessStatusCode, bodyText);
+                return new AssistantHttpResult(status, resp.IsSuccessStatusCode, bodyText, ParseRetryAfter(resp));
             }, cancellationToken);
 
             // Pump on the editor-update loop (fires while Play mode is paused), draining streamed lines onto
@@ -111,6 +208,80 @@ namespace Molca.Editor.Mcp.Assistant
                 throw task.Exception?.GetBaseException() ?? new Exception("HTTP request failed.");
 
             return task.Result;
+        }
+
+        /// <summary>
+        /// Classifies a transport exception into the Networking <see cref="HttpErrorKind"/> taxonomy
+        /// (Sprint 39): connection faults are <see cref="HttpErrorKind.Network"/>, an <see cref="HttpClient"/>
+        /// timeout (a <see cref="TaskCanceledException"/> with no caller cancel) is
+        /// <see cref="HttpErrorKind.Timeout"/>; anything else is left un-retryable.
+        /// </summary>
+        internal static HttpErrorKind ClassifyException(Exception ex)
+        {
+            // HttpClient timeout: TaskCanceledException is a subclass of OperationCanceledException. The
+            // caller-cancel case was already filtered out before we reach here, so treat it as a timeout.
+            if (ex is TaskCanceledException || ex is OperationCanceledException)
+                return HttpErrorKind.Timeout;
+            if (ex is HttpRequestException || ex is System.Net.Sockets.SocketException || ex is IOException)
+                return HttpErrorKind.Network;
+            return HttpErrorKind.None;
+        }
+
+        /// <summary>
+        /// Whether an HTTP status code is a transient failure worth retrying: any 5xx, or the transient 4xx
+        /// codes 408 (request timeout) and 429 (rate limit). Mirrors the Networking retry policy.
+        /// </summary>
+        internal static bool IsRetryableStatus(int status)
+        {
+            if (status is >= 500 and < 600) return true;     // Http5xx
+            return status == 429 || status == 408;           // transient Http4xx
+        }
+
+        /// <summary>
+        /// Full-jitter exponential backoff for a 1-based attempt, clamped to <see cref="MaxBackoffSeconds"/>.
+        /// A server-advised <paramref name="retryAfterSeconds"/> (from a 429/503 <c>Retry-After</c>) takes
+        /// precedence — honored as a floor, still capped — so we never hammer ahead of the server's advice.
+        /// </summary>
+        internal static double ComputeBackoffSeconds(int attempt, double? retryAfterSeconds, System.Random rng)
+        {
+            if (retryAfterSeconds is > 0)
+                return Math.Min(retryAfterSeconds.Value, MaxBackoffSeconds);
+
+            double cap = Math.Min(BaseBackoffSeconds * (1 << (attempt - 1)), MaxBackoffSeconds);
+            double fraction = rng?.NextDouble() ?? 1.0;
+            return fraction * cap;
+        }
+
+        /// <summary>
+        /// Reads a <c>Retry-After</c> header as seconds: a delta value directly, or an HTTP-date converted to a
+        /// delay from now. Returns <c>null</c> when the header is absent or unparseable.
+        /// </summary>
+        private static double? ParseRetryAfter(HttpResponseMessage resp)
+        {
+            var retryAfter = resp?.Headers?.RetryAfter;
+            if (retryAfter == null) return null;
+            if (retryAfter.Delta is { } delta) return delta.TotalSeconds;
+            if (retryAfter.Date is { } date)
+            {
+                var seconds = (date - DateTimeOffset.UtcNow).TotalSeconds;
+                return seconds > 0 ? seconds : 0;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Waits <paramref name="seconds"/> on the editor update loop (so backoff elapses even while Play mode
+        /// is paused, consistent with the rest of this transport). A non-positive delay returns immediately.
+        /// </summary>
+        private static async Awaitable DelayAsync(double seconds, CancellationToken cancellationToken)
+        {
+            if (seconds <= 0) return;
+            double end = EditorApplication.timeSinceStartup + seconds;
+            while (EditorApplication.timeSinceStartup < end)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await EditorUpdateAwaiter.NextAsync(cancellationToken);
+            }
         }
     }
 }

@@ -16,6 +16,8 @@ namespace Molca.Editor.Mcp.Assistant
         {
             LlmProviderKind.Anthropic => "ANTHROPIC_API_KEY",
             LlmProviderKind.OpenAI => "OPENAI_API_KEY",
+            // Local runtimes are usually keyless; the env var only matters for a secured/remote Ollama.
+            LlmProviderKind.Local => "OLLAMA_API_KEY",
             _ => null
         };
 

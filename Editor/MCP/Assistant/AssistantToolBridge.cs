@@ -59,6 +59,32 @@ namespace Molca.Editor.Mcp.Assistant
             return chars / 4;
         }
 
+        /// <summary>
+        /// Full tool-spec payload for flat exposure (Sprint 68.9): every read-only tool plus allowlisted
+        /// actions, each carrying its complete input schema, sent directly with no on-demand fetch step. The
+        /// tiered meta-tools (<see cref="ToolSchemaToolName"/> / <see cref="ListToolsToolName"/>) are omitted —
+        /// they are pointless when every schema is already present, and offering them only tempts a weak model
+        /// back into the fetch-then-call indirection. Trades a larger per-request payload for a single-step
+        /// call path; intended for weaker/local models that cannot reliably navigate the tiered flow (token
+        /// cost is irrelevant for a local runtime).
+        /// </summary>
+        /// <param name="registry">The tool registry.</param>
+        /// <param name="isActionAllowed">Allowlist predicate for Action tools; non-allowlisted ones are omitted.</param>
+        public static List<LlmToolSpec> GetFlatToolSpecs(McpToolRegistry registry, Func<string, bool> isActionAllowed = null)
+        {
+            var specs = new List<LlmToolSpec>();
+            if (registry == null) return specs;
+            foreach (var tool in registry.Tools)
+            {
+                if (tool.Name == ToolSchemaToolName || tool.Name == ListToolsToolName)
+                    continue; // meta-tools serve no purpose when full schemas are already sent
+                if (tool.Kind == McpToolKind.Action && !(isActionAllowed?.Invoke(tool.Name) ?? false))
+                    continue;
+                specs.Add(new LlmToolSpec(tool.Name, tool.Description, tool.InputSchemaJson));
+            }
+            return specs;
+        }
+
         /// <summary>The meta-tool that fetches full schemas on demand for tiered exposure (Sprint 67).</summary>
         public const string ToolSchemaToolName = "molca_tool_schema";
 
