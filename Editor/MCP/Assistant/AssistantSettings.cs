@@ -36,6 +36,22 @@ namespace Molca.Editor.Mcp.Assistant
     }
 
     /// <summary>
+    /// How the assistant transports tool calls to and from the model (Sprint 69). Function-calling uses the
+    /// provider's structured tool-call fields and tool-role results. Text renders tool specs into the system
+    /// prompt, parses XML tool calls from normal assistant text, and returns results as user-role text.
+    /// </summary>
+    /// <remarks>Members are appended for serialization stability - never reorder existing values.</remarks>
+    public enum ToolCallTransport
+    {
+        /// <summary>Text for the Local backend, structured function-calling for cloud backends.</summary>
+        Auto,
+        /// <summary>Use provider-native structured function calling.</summary>
+        FunctionCalling,
+        /// <summary>Use the text/XML tool protocol intended for weaker local models.</summary>
+        Text
+    }
+
+    /// <summary>
     /// Authored configuration for the in-editor assistant chat (Sprint 16): provider, model, enable
     /// flag, and generation knobs. <b>Holds no secrets</b> — the API key lives in
     /// <see cref="AssistantApiAuth"/> (project-scoped EditorPrefs / env var), never on this asset.
@@ -68,6 +84,9 @@ namespace Molca.Editor.Mcp.Assistant
 
         [Tooltip("How tools are exposed to the model. Auto = flat for Local (full schemas sent directly, one-step calls — best for small local models) and tiered for cloud (compact catalog + on-demand schema fetch). Flat/Tiered force a mode.")]
         [SerializeField] private ToolExposureMode toolExposure = ToolExposureMode.Auto;
+
+        [Tooltip("How tool calls are transported. Auto = Text/XML for Local models and structured function-calling for cloud providers. Text returns tool results as normal user text for weaker local models.")]
+        [SerializeField] private ToolCallTransport toolCallTransport = ToolCallTransport.Auto;
 
         [Tooltip("Automatically summarize the oldest conversation turns when the estimated context size crosses the threshold, so long sessions keep working without manual pruning.")]
         [SerializeField] private bool autoCompact = true;
@@ -134,6 +153,9 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>How the tool surface is exposed to the model (Sprint 68.9).</summary>
         public ToolExposureMode ToolExposure { get => toolExposure; set => toolExposure = value; }
 
+        /// <summary>How tool calls and tool results are transported between the assistant and model (Sprint 69).</summary>
+        public ToolCallTransport ToolCallTransport { get => toolCallTransport; set => toolCallTransport = value; }
+
         /// <summary>
         /// Whether to send every tool's full schema directly (flat) rather than the tiered catalog +
         /// on-demand fetch (Sprint 68.9). Resolves <see cref="ToolExposureMode.Auto"/> to flat for the keyless
@@ -144,6 +166,19 @@ namespace Molca.Editor.Mcp.Assistant
         {
             ToolExposureMode.Flat => true,
             ToolExposureMode.Tiered => false,
+            _ => provider == LlmProviderKind.Local
+        };
+
+        /// <summary>
+        /// Whether to use the Sprint-69 text/XML tool protocol instead of provider-native function calling.
+        /// <see cref="ToolCallTransport.Auto"/> resolves to text for <see cref="LlmProviderKind.Local"/> so
+        /// weaker local models see both calls and results as ordinary chat text, while cloud providers keep
+        /// the proven structured function-calling path.
+        /// </summary>
+        public bool UseTextToolProtocol => toolCallTransport switch
+        {
+            ToolCallTransport.Text => true,
+            ToolCallTransport.FunctionCalling => false,
             _ => provider == LlmProviderKind.Local
         };
 

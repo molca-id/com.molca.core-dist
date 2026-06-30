@@ -92,6 +92,7 @@ namespace Molca.Editor.Hub.Sections
             configCard.Body.Add(BoundRow(so, "maxTokens", "Max Tokens"));
             configCard.Body.Add(BoundRow(so, "maxToolRounds", "Max Tool Rounds"));
             configCard.Body.Add(BoundRow(so, "toolExposure", "Tool Exposure"));
+            configCard.Body.Add(BoundRow(so, "toolCallTransport", "Tool Call Transport"));
             configCard.Body.Add(BoundRow(so, "streamResponses", "Stream Responses"));
             configCard.Body.Add(BoundRow(so, "autoCompact", "Auto Compact"));
             configCard.Body.Add(BoundRow(so, "autoCompactThreshold", "Auto Compact Threshold"));

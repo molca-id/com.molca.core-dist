@@ -1,12 +1,13 @@
-﻿com.molca.core@1.10.6
-Published: 2026-06-30 20:40:10Z
-Source commit: 666cc895
-Files: 1395
+﻿com.molca.core@1.10.7
+Published: 2026-07-01 02:03:28Z
+Source commit: 1b6080bd
+Files: 1398
 
 CHANGELOG.md
 CHANGELOG.md.meta
 Documentation~/README.md
 Documentation~/reference/ASSISTANT_RESILIENCE.md
+Documentation~/reference/ASSISTANT_TEXT_TOOL_PROTOCOL.md
 Documentation~/reference/CORE_MCP_TOOLS.md
 Documentation~/reference/EDITOR_DESIGN_LANGUAGE.md
 Documentation~/reference/FIGMA_TO_UGUI.md
@@ -358,6 +359,8 @@ Editor/MCP/Assistant/AssistantSubAgent.cs
 Editor/MCP/Assistant/AssistantSubAgent.cs.meta
 Editor/MCP/Assistant/AssistantSystemPrompt.txt
 Editor/MCP/Assistant/AssistantSystemPrompt.txt.meta
+Editor/MCP/Assistant/AssistantTextToolProtocol.cs
+Editor/MCP/Assistant/AssistantTextToolProtocol.cs.meta
 Editor/MCP/Assistant/AssistantToolBridge.cs
 Editor/MCP/Assistant/AssistantToolBridge.cs.meta
 Editor/MCP/Assistant/AssistantTranscriptFormatter.cs

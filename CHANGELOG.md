@@ -2,6 +2,13 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.10.7] - 2026-07-01
+
+### Added
+- **Text/XML tool-call protocol for weak local models (Sprint 69).** The in-editor assistant can drive tool
+  calls via a text/XML protocol instead of native function-calling, so local/weak models that lack reliable
+  structured tool-calling can still invoke tools.
+
 ## [1.10.6] - 2026-06-30
 
 ### Added

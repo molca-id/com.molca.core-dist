@@ -836,6 +836,7 @@ namespace Molca.Editor.Mcp.Assistant
                 var mcpSettings = MolcaEditorSettings.Instance.McpSettings;
                 var registry = mcpSettings?.BuildRegistry();
                 Func<string, bool> isActionAllowed = mcpSettings != null ? mcpSettings.IsActionAllowed : null;
+                var useTextToolProtocol = _settings.UseTextToolProtocol;
 
                 // Tool exposure. Tiered (Sprint 67, the cloud default): the model gets a compact grouped
                 // catalog in the system prompt and fetches a tool's schema on demand via molca_tool_schema —
@@ -844,14 +845,18 @@ namespace Molca.Editor.Mcp.Assistant
                 // weaker/local models that can't navigate the fetch-then-call indirection (token cost is
                 // irrelevant for a local runtime). UseFlatToolExposure resolves Auto → flat for Local.
                 _activatedTools.Clear();
-                var useFlatTools = _settings.UseFlatToolExposure;
+                var useFlatTools = useTextToolProtocol || _settings.UseFlatToolExposure;
                 var flatTools = useFlatTools ? AssistantToolBridge.GetFlatToolSpecs(registry, isActionAllowed) : null;
-                var systemPrompt = useFlatTools
-                    ? SystemPrompt
-                    : BuildSystemPromptWithCatalog(AssistantToolBridge.BuildToolCatalog(registry, isActionAllowed));
-                var tools = useFlatTools
+                var systemPrompt = useTextToolProtocol
+                    ? AssistantTextToolProtocol.BuildSystemPrompt(SystemPrompt, flatTools)
+                    : useFlatTools
+                        ? SystemPrompt
+                        : BuildSystemPromptWithCatalog(AssistantToolBridge.BuildToolCatalog(registry, isActionAllowed));
+                var tools = useTextToolProtocol
                     ? flatTools
-                    : AssistantToolBridge.GetTieredToolSpecs(registry, isActionAllowed, _activatedTools);
+                    : useFlatTools
+                        ? flatTools
+                        : AssistantToolBridge.GetTieredToolSpecs(registry, isActionAllowed, _activatedTools);
 
                 // Confirmation policy (Sprint 25 + later): Ask mode confirms every action through the
                 // in-chat docked prompt bar. Auto mode runs allowlisted actions without prompting — except
@@ -902,16 +907,16 @@ namespace Molca.Editor.Mcp.Assistant
                     // Recompute the tool set each round. Tiered grows as the model activates tools via
                     // molca_tool_schema (Sprint 67); flat is fixed for the whole turn (Sprint 68.9). Record the
                     // payload this round actually sends.
-                    if (!useFlatTools)
+                    if (!useTextToolProtocol && !useFlatTools)
                         tools = AssistantToolBridge.GetTieredToolSpecs(registry, isActionAllowed, _activatedTools);
-                    ToolSpecCount = tools.Count;
+                    ToolSpecCount = tools?.Count ?? 0;
                     ToolSpecTokenEstimate = AssistantToolBridge.EstimateSpecTokens(tools);
 
                     var request = new LlmRequest
                     {
                         System = systemPrompt,
-                        Messages = BuildRequestMessages(),
-                        Tools = tools,
+                        Messages = BuildRequestMessages(useTextToolProtocol, tools),
+                        Tools = useTextToolProtocol ? new List<LlmToolSpec>() : tools,
                         Model = _settings.Model,
                         MaxTokens = _settings.MaxTokens
                     };
@@ -929,11 +934,23 @@ namespace Molca.Editor.Mcp.Assistant
                     var response = await provider.SendAsync(request, cancellationToken, onDelta);
                     StreamingText = string.Empty;
 
+                    var rawResponseText = response.Text ?? string.Empty;
+                    var visibleResponseText = rawResponseText;
+                    var responseToolCalls = response.ToolCalls ?? new List<LlmToolCall>();
+                    if (useTextToolProtocol)
+                    {
+                        var parsed = AssistantTextToolProtocol.ParseToolCall(rawResponseText, tools, round + 1);
+                        visibleResponseText = parsed.VisibleText;
+                        responseToolCalls = parsed.HasToolCall
+                            ? new List<LlmToolCall> { parsed.ToolCall }
+                            : new List<LlmToolCall>();
+                    }
+
                     // Tiered exposure (Sprint 67): when the model fetches a tool's schema, mark it activated
                     // so the next round offers that tool's full spec and the model can call it. No-op in flat
                     // mode — molca_tool_schema isn't offered there (Sprint 68.9).
-                    if (!useFlatTools && response.ToolCalls != null)
-                        foreach (var schemaCall in response.ToolCalls)
+                    if (!useTextToolProtocol && !useFlatTools && responseToolCalls != null)
+                        foreach (var schemaCall in responseToolCalls)
                             if (schemaCall.Name == AssistantToolBridge.ToolSchemaToolName)
                                 ActivateRequestedTools(schemaCall.ArgumentsJson);
 
@@ -957,16 +974,21 @@ namespace Molca.Editor.Mcp.Assistant
                         : EstimateTokenCount(response.Text);
 
                     // Record the assistant turn (text + any tool calls) in history.
-                    var assistantMsg = new LlmMessage { Role = LlmRole.Assistant, Text = response.Text, ToolCalls = response.ToolCalls };
+                    var assistantMsg = new LlmMessage
+                    {
+                        Role = LlmRole.Assistant,
+                        Text = rawResponseText,
+                        ToolCalls = useTextToolProtocol ? new List<LlmToolCall>() : responseToolCalls
+                    };
                     _history.Add(assistantMsg);
-                    if (!string.IsNullOrWhiteSpace(response.Text))
+                    if (!string.IsNullOrWhiteSpace(visibleResponseText))
                     {
                         // Close any open tool group before the note/answer so ordering stays faithful.
                         FlushToolGroup();
-                        AddTurn(ChatTurnKind.Assistant, response.Text);
+                        AddTurn(ChatTurnKind.Assistant, visibleResponseText);
                     }
 
-                    if (!response.WantsToolUse)
+                    if (responseToolCalls.Count == 0)
                     {
                         FlushToolGroup();
                         break;
@@ -975,20 +997,41 @@ namespace Molca.Editor.Mcp.Assistant
                     // Unproductive-loop breaker (Sprint 68): count this round's tool-call signatures; if any
                     // identical call (same name + normalized args) crosses the threshold, flag it. The round's
                     // tools still run and get answered below so history stays valid, then the turn stops.
-                    RecordToolCallSignatures(response.ToolCalls);
+                    RecordToolCallSignatures(responseToolCalls);
+
+                    // Placeholder-argument guard (Sprint 69.8, text protocol): if the model put an
+                    // example/placeholder value into a call (e.g. "[Your Target Path Here]"), the call is doomed —
+                    // don't run it. Answer it with a corrective result steering the model to resolve the real
+                    // value (typically via a discovery tool), then continue so the round still pairs cleanly.
+                    if (useTextToolProtocol && responseToolCalls.Count == 1)
+                    {
+                        var guardCall = responseToolCalls[0];
+                        var placeholderError = AssistantTextToolProtocol.DetectPlaceholderArguments(guardCall);
+                        if (placeholderError != null)
+                        {
+                            var corrective = new LlmToolResult(guardCall.Id, placeholderError, isError: true);
+                            var guardMsg = new LlmMessage { Role = LlmRole.User };
+                            AddToolResult(guardMsg, guardCall, corrective, useTextToolProtocol);
+                            _history.Add(guardMsg);
+                            Append(BuildToolSummary(registry, guardCall, corrective), isAction: false);
+                            FlushToolGroup();
+                            if (TryEmitLoopBreakNotice(FlushToolGroup)) break;
+                            continue;
+                        }
+                    }
 
                     // Execute each requested tool and feed results back as one user turn.
                     var resultMsg = new LlmMessage { Role = LlmRole.User };
-                    if (IsParallelizableReadRound(response.ToolCalls, registry))
+                    if (IsParallelizableReadRound(responseToolCalls, registry))
                     {
                         // Sprint 67.5: a round of only read-only tools has no confirmation, undo, or plan
                         // sequencing — start them all at once (so I/O-bound reads overlap) and collect results
                         // in order, preserving the transcript/history pairing. Actions still run sequentially
                         // through the loop below.
-                        ActiveToolName = $"{response.ToolCalls.Count} tools";
+                        ActiveToolName = $"{responseToolCalls.Count} tools";
                         Changed?.Invoke();
-                        var started = new List<(LlmToolCall Call, Awaitable<LlmToolResult> Task)>(response.ToolCalls.Count);
-                        foreach (var readCall in response.ToolCalls)
+                        var started = new List<(LlmToolCall Call, Awaitable<LlmToolResult> Task)>(responseToolCalls.Count);
+                        foreach (var readCall in responseToolCalls)
                             started.Add((readCall, AssistantToolBridge.ExecuteAsync(registry, readCall, cancellationToken,
                                 isActionAllowed, confirmAction, AskUserAsync, confirmActionAsync, ReportToolProgress, ProposePlanAsync,
                                 (reqs, ct) => RunSubtasksAsync(reqs, registry, ct))));
@@ -1012,21 +1055,22 @@ namespace Molca.Editor.Mcp.Assistant
                                     new JObject { ["error"] = ex.Message }.ToString(Newtonsoft.Json.Formatting.None),
                                     isError: true);
                             }
-                            resultMsg.ToolResults.Add(readResult);
+                            readResult = AddToolResult(resultMsg, entry.Call, readResult, useTextToolProtocol);
                             Append(BuildToolSummary(registry, entry.Call, readResult), isAction: false);
                         }
                         ActiveToolName = null;
                         ActiveToolProgress = null;
                     }
                     else
-                    for (var callIndex = 0; callIndex < response.ToolCalls.Count; callIndex++)
+                    for (var callIndex = 0; callIndex < responseToolCalls.Count; callIndex++)
                     {
-                        var call = response.ToolCalls[callIndex];
+                        var call = responseToolCalls[callIndex];
                         // Once the user aborts a failed plan (Sprint 52), every remaining tool_use in this
                         // round is answered with an abort result so the model's call/result pairing stays valid.
                         if (_planAbortRequested)
                         {
-                            resultMsg.ToolResults.Add(new LlmToolResult(call.Id, PlanAbortedResultJson, isError: true));
+                            AddToolResult(resultMsg, call, new LlmToolResult(call.Id, PlanAbortedResultJson, isError: true),
+                                useTextToolProtocol);
                             continue;
                         }
                         McpToolDefinition toolDef = null;
@@ -1034,7 +1078,7 @@ namespace Molca.Editor.Mcp.Assistant
                         var isAction = hasDef && toolDef.Kind == McpToolKind.Action;
                         if (ShouldGroupActionConfirmations(isAction, isActionAllowed, toolDef))
                         {
-                            var actionCalls = CollectConsecutiveActionCalls(response.ToolCalls, callIndex, registry, isActionAllowed);
+                            var actionCalls = CollectConsecutiveActionCalls(responseToolCalls, callIndex, registry, isActionAllowed);
                             if (actionCalls.Count > 1)
                             {
                                 // Auto mode runs the batch without prompting — but only when every action in
@@ -1066,7 +1110,7 @@ namespace Molca.Editor.Mcp.Assistant
                                         McpActionAuditLog.Record(actionCall.Tool.Name, actionCall.Call.ArgumentsJson, "chat", "denied");
                                         var denied = new LlmToolResult(actionCall.Call.Id,
                                             "{\"error\":\"The user declined to run this action batch.\"}", isError: true);
-                                        resultMsg.ToolResults.Add(denied);
+                                        denied = AddToolResult(resultMsg, actionCall.Call, denied, useTextToolProtocol);
                                         Append(BuildToolSummary(registry, actionCall.Call, denied), isAction: true);
                                     }
                                     callIndex += actionCalls.Count - 1;
@@ -1079,7 +1123,7 @@ namespace Molca.Editor.Mcp.Assistant
                                     if (_planAbortRequested)
                                     {
                                         var ar = new LlmToolResult(actionCall.Call.Id, PlanAbortedResultJson, isError: true);
-                                        resultMsg.ToolResults.Add(ar);
+                                        ar = AddToolResult(resultMsg, actionCall.Call, ar, useTextToolProtocol);
                                         Append(BuildToolSummary(registry, actionCall.Call, ar), isAction: true);
                                         continue;
                                     }
@@ -1096,7 +1140,7 @@ namespace Molca.Editor.Mcp.Assistant
                                         groupedSummary = BuildToolSummary(registry, actionCall.Call, groupedResult);
                                     }
                                     CompletePlanStep(groupedStep, !groupedResult.IsError);
-                                    resultMsg.ToolResults.Add(groupedResult);
+                                    groupedResult = AddToolResult(resultMsg, actionCall.Call, groupedResult, useTextToolProtocol);
                                     Append(groupedSummary, isAction: true);
                                     // Without a structured plan, a failed step re-gates the legacy plan (Sprint 48).
                                     if (groupedResult.IsError && _activePlanTurn == null) _planApprovedThisTurn = false;
@@ -1132,7 +1176,7 @@ namespace Molca.Editor.Mcp.Assistant
                             result = await HandlePlanStepFailureAsync(registry, call, toolDef, planStep, result,
                                 isActionAllowed, confirmAction, confirmActionAsync, cancellationToken);
                         CompletePlanStep(planStep, !result.IsError);
-                        resultMsg.ToolResults.Add(result);
+                        result = AddToolResult(resultMsg, call, result, useTextToolProtocol);
 
                         string undoId = null;
                         var undoGroup = -1;
@@ -1174,17 +1218,7 @@ namespace Molca.Editor.Mcp.Assistant
 
                     // Unproductive-loop breaker (Sprint 68): the round's calls are all answered (history is a
                     // valid call/result pairing), so stop with a resumable notice — same UX as the round cap.
-                    if (_detectedLoopSignature != null)
-                    {
-                        FlushToolGroup();
-                        _transcript.Add(new ChatTurn(ChatTurnKind.Error,
-                            $"Stopped: the model repeated the same tool call ({_detectedLoopSignature}) " +
-                            $"{_settings.LoopBreakThreshold}+ times without making progress. The work so far is kept — " +
-                            "click Continue to resume, or rephrase your request.")
-                        { CanContinue = true });
-                        Changed?.Invoke();
-                        break;
-                    }
+                    if (TryEmitLoopBreakNotice(FlushToolGroup)) break;
 
                     if (round == maxToolRounds - 1)
                     {
@@ -1394,6 +1428,48 @@ namespace Molca.Editor.Mcp.Assistant
         }
 
         /// <summary>
+        /// Emits the resumable unproductive-loop notice (Sprint 68) when a repeated tool-call signature has
+        /// been flagged this turn, and reports whether the turn should stop. Shared by the normal round path
+        /// and the text-protocol placeholder-guard path (Sprint 69.8) so both break identically.
+        /// </summary>
+        /// <param name="flushToolGroup">Flushes the in-flight tool-activity group before the notice is shown.</param>
+        /// <returns><c>true</c> when a loop was detected and the turn should break; otherwise <c>false</c>.</returns>
+        private bool TryEmitLoopBreakNotice(Action flushToolGroup)
+        {
+            if (_detectedLoopSignature == null) return false;
+            flushToolGroup?.Invoke();
+            _transcript.Add(new ChatTurn(ChatTurnKind.Error,
+                $"Stopped: the model repeated the same tool call ({_detectedLoopSignature}) " +
+                $"{_settings.LoopBreakThreshold}+ times without making progress. The work so far is kept — " +
+                "click Continue to resume, or rephrase your request.")
+            { CanContinue = true });
+            Changed?.Invoke();
+            return true;
+        }
+
+        /// <summary>
+        /// Adds one tool result to the model-facing history message using either structured tool-role
+        /// results or the Sprint-69 user-text encoding, returning the capped result that was recorded.
+        /// </summary>
+        private LlmToolResult AddToolResult(
+            LlmMessage resultMsg, LlmToolCall call, LlmToolResult result, bool useTextToolProtocol)
+        {
+            var capped = CapToolResult(result);
+            if (useTextToolProtocol)
+            {
+                var text = AssistantTextToolProtocol.FormatToolResult(call, capped);
+                resultMsg.Text = string.IsNullOrEmpty(resultMsg.Text)
+                    ? text
+                    : resultMsg.Text + "\n\n" + text;
+            }
+            else
+            {
+                resultMsg.ToolResults.Add(capped);
+            }
+            return capped;
+        }
+
+        /// <summary>
         /// Caps each tool result in <paramref name="resultMsg"/> at <see cref="AssistantSettings.MaxToolResultChars"/>
         /// (Sprint 68), truncating an oversized payload with a <c>[truncated N chars]</c> marker before it enters
         /// history so one large result can't bloat the remaining rounds of the same turn.
@@ -1409,6 +1485,15 @@ namespace Molca.Editor.Mcp.Assistant
                 var truncated = r.Content.Substring(0, max) + $"\n…[truncated {dropped} chars]";
                 resultMsg.ToolResults[i] = new LlmToolResult(r.ToolCallId, truncated, r.IsError);
             }
+        }
+
+        private LlmToolResult CapToolResult(LlmToolResult result)
+        {
+            var max = _settings.MaxToolResultChars;
+            if (result?.Content == null || result.Content.Length <= max) return result;
+            var dropped = result.Content.Length - max;
+            var truncated = result.Content.Substring(0, max) + $"\n...[truncated {dropped} chars]";
+            return new LlmToolResult(result.ToolCallId, truncated, result.IsError);
         }
 
         /// <summary>
@@ -1490,9 +1575,12 @@ namespace Molca.Editor.Mcp.Assistant
         /// turn's user message prefixed by the transient retrieved context, if any. The prefix lives only in
         /// the request copy so it is never persisted and does not accumulate across turns.
         /// </summary>
-        private List<LlmMessage> BuildRequestMessages()
+        private List<LlmMessage> BuildRequestMessages(
+            bool useTextToolProtocol = false, IReadOnlyList<LlmToolSpec> textTools = null)
         {
-            var messages = new List<LlmMessage>(_history);
+            var messages = useTextToolProtocol ? BuildTextProtocolHistory() : new List<LlmMessage>(_history);
+            if (useTextToolProtocol)
+                AddTextToolReminderToCurrentUserMessage(messages, textTools);
             if (string.IsNullOrEmpty(_pendingRetrievedContext)) return messages;
 
             // Prefix the most recent genuine user prompt (the current turn) — a fresh message instance so the
@@ -1506,9 +1594,64 @@ namespace Molca.Editor.Mcp.Assistant
                     Role = LlmRole.User,
                     Text = AssistantContextRetriever.RetrievedContextHeader + "\n" + _pendingRetrievedContext +
                            "\n\n" + m.Text,
-                    ToolCalls = m.ToolCalls
+                    ToolCalls = useTextToolProtocol ? new List<LlmToolCall>() : m.ToolCalls
                 };
                 break;
+            }
+            return messages;
+        }
+
+        private static void AddTextToolReminderToCurrentUserMessage(
+            IList<LlmMessage> messages, IReadOnlyList<LlmToolSpec> textTools)
+        {
+            if (messages == null || messages.Count == 0) return;
+            for (var i = messages.Count - 1; i >= 0; i--)
+            {
+                var message = messages[i];
+                if (message.Role != LlmRole.User || IsTextToolResultMessage(message)) continue;
+                message.Text = AssistantTextToolProtocol.AppendTurnToolReminder(message.Text, textTools);
+                return;
+            }
+        }
+
+        private static bool IsTextToolResultMessage(LlmMessage message)
+        {
+            if (message?.ToolResults != null && message.ToolResults.Count > 0) return true;
+            var text = message?.Text?.TrimStart();
+            return !string.IsNullOrEmpty(text)
+                && (text.StartsWith("[tool:", StringComparison.Ordinal)
+                    || text.StartsWith("[tool result:", StringComparison.Ordinal));
+        }
+
+        private List<LlmMessage> BuildTextProtocolHistory()
+        {
+            var messages = new List<LlmMessage>(_history.Count);
+            foreach (var message in _history)
+            {
+                if (message.Role == LlmRole.Assistant)
+                {
+                    var text = message.Text ?? string.Empty;
+                    if (message.ToolCalls != null && message.ToolCalls.Count > 0)
+                    {
+                        var calls = message.ToolCalls.Select(call =>
+                            $"[assistant tool call: {call.Name}] args: {call.ArgumentsJson ?? "{}"}");
+                        text = string.IsNullOrWhiteSpace(text)
+                            ? string.Join("\n", calls)
+                            : text + "\n" + string.Join("\n", calls);
+                    }
+                    messages.Add(new LlmMessage { Role = LlmRole.Assistant, Text = text });
+                    continue;
+                }
+
+                if (message.ToolResults != null && message.ToolResults.Count > 0)
+                {
+                    var text = string.Join("\n\n", message.ToolResults.Select(result =>
+                        $"[tool result: {result.ToolCallId}] {(result.IsError ? "error" : "result")}:\n{result.Content ?? string.Empty}"));
+                    messages.Add(LlmMessage.UserText(text));
+                    continue;
+                }
+
+                messages.Add(LlmMessage.UserText(message.Text ?? string.Empty));
             }
             return messages;
         }
