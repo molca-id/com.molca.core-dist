@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
 using Molca.Editor.UI.Components;
 using Molca.Editor.KnowledgeGraph;
 using Molca.Editor.Mcp;
@@ -28,21 +29,33 @@ namespace Molca.Editor.Hub.Sections
         private const int AllowlistPageSize = 12;
 
         private readonly SerializedObject _editorSettings;
+        private readonly List<(McpToolProvider provider, VisualElement dot, Label status)> _providerStatusBindings = new();
 
         private bool _revealToken;
         private int _allowlistPage;
         private int _readOnlyPage;
+        private IVisualElementScheduledItem _providerRefreshPoll;
+        private string _providerSignature;
 
         internal MolcaHubMcpSection()
         {
             AddToClassList("molca-hub-mcp-section");
             _editorSettings = new SerializedObject(MolcaEditorSettings.Instance);
             Build();
+
+            RegisterCallback<AttachToPanelEvent>(_ =>
+                _providerRefreshPoll = schedule.Execute(RefreshProvidersIfChanged).Every(500));
+            RegisterCallback<DetachFromPanelEvent>(_ =>
+            {
+                _providerRefreshPoll?.Pause();
+                _providerRefreshPoll = null;
+            });
         }
 
         private void Build()
         {
             Clear();
+            _providerStatusBindings.Clear();
 
             var intro = new Label("Exposes Molca tooling to MCP clients (Claude Code, Cursor) over an authenticated loopback channel. The TypeScript proxy connects to this bridge.");
             intro.AddToClassList("molca-hub-mcp-intro");
@@ -50,6 +63,7 @@ namespace Molca.Editor.Hub.Sections
 
             var settingsProperty = _editorSettings.FindProperty("mcpSettings");
             var settings = settingsProperty.objectReferenceValue as McpSettings;
+            _providerSignature = BuildProviderSignature(settings);
 
             if (settings == null)
             {
@@ -82,6 +96,33 @@ namespace Molca.Editor.Hub.Sections
             Add(BuildReadOnlyToolsCard(settings));
             Add(BuildAllowlistCard(settings));
             Add(BuildKnowledgeGraphCard());
+        }
+
+        private void RefreshProvidersIfChanged()
+        {
+            _editorSettings.Update();
+            var settingsProperty = _editorSettings.FindProperty("mcpSettings");
+            var settings = settingsProperty.objectReferenceValue as McpSettings;
+            var signature = BuildProviderSignature(settings);
+            if (signature != _providerSignature)
+            {
+                Build();
+                return;
+            }
+
+            foreach (var (provider, dot, status) in _providerStatusBindings)
+            {
+                if (provider == null)
+                    continue;
+
+                dot.RemoveFromClassList("molca-hub-status-dot--ok");
+                dot.RemoveFromClassList("molca-hub-status-dot--idle");
+                dot.RemoveFromClassList("molca-hub-status-dot--error");
+                dot.AddToClassList(StatusDotClass(provider.GetStatus()));
+
+                var toolCount = provider.GetTools()?.Count() ?? 0;
+                status.text = $"{provider.GetStatusMessage()} · {toolCount} tools registered";
+            }
         }
 
         // -------------------------------------------------------------------
@@ -357,6 +398,7 @@ namespace Molca.Editor.Hub.Sections
                 var status = new Label($"{provider.GetStatusMessage()} · {toolCount} tools registered");
                 status.AddToClassList("molca-hub-provider-row__status");
                 stack.Add(status);
+                _providerStatusBindings.Add((provider, dot, status));
 
                 var inspect = new Button(() => EditorGUIUtility.PingObject(provider)) { text = "Inspect", tooltip = "Locate this provider asset." };
                 inspect.AddToClassList("molca-hub-mini-button");
@@ -744,6 +786,27 @@ namespace Molca.Editor.Hub.Sections
             row.Add(control);
 
             return row;
+        }
+
+        private static string BuildProviderSignature(McpSettings settings)
+        {
+            if (settings == null)
+                return "<null>";
+
+            var providers = settings.Providers;
+            if (providers == null)
+                return $"{settings.GetInstanceID()}:<null>";
+
+            var signature = $"{settings.GetInstanceID()}:{providers.Count}";
+            for (int i = 0; i < providers.Count; i++)
+            {
+                var provider = providers[i];
+                signature += provider != null
+                    ? $":{provider.GetInstanceID()}:{provider.DisplayName}:{provider.Namespace}:{provider.GetTools()?.Count() ?? 0}"
+                    : ":0:<missing>";
+            }
+
+            return signature;
         }
     }
 }

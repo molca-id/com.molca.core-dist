@@ -25,9 +25,12 @@ namespace Molca.Editor.Hub.Sections
     internal sealed class MolcaHubEditorSection : VisualElement
     {
         private readonly SerializedObject _editorSettings;
+        private readonly List<(NotificationProvider provider, VisualElement dot, Label status)> _notificationStatusBindings = new();
 
         private MolcaSectionCard _areaPickerCard;
         private VisualElement _notificationsHost;
+        private IVisualElementScheduledItem _notificationRefreshPoll;
+        private string _notificationProviderSignature;
 
         internal MolcaHubEditorSection()
         {
@@ -41,6 +44,14 @@ namespace Molca.Editor.Hub.Sections
             _notificationsHost = new VisualElement();
             Add(_notificationsHost);
             BuildNotificationsCard();
+
+            RegisterCallback<AttachToPanelEvent>(_ =>
+                _notificationRefreshPoll = schedule.Execute(RefreshNotificationsIfChanged).Every(500));
+            RegisterCallback<DetachFromPanelEvent>(_ =>
+            {
+                _notificationRefreshPoll?.Pause();
+                _notificationRefreshPoll = null;
+            });
         }
 
         // -------------------------------------------------------------------
@@ -195,9 +206,11 @@ namespace Molca.Editor.Hub.Sections
         private void BuildNotificationsCard()
         {
             _notificationsHost.Clear();
+            _notificationStatusBindings.Clear();
 
             var settingsProperty = _editorSettings.FindProperty("notificationSettings");
             var settings = settingsProperty.objectReferenceValue as NotificationSettings;
+            _notificationProviderSignature = BuildNotificationProviderSignature(settings);
 
             if (settings == null)
             {
@@ -259,6 +272,30 @@ namespace Molca.Editor.Hub.Sections
             _notificationsHost.Add(providersCard);
         }
 
+        private void RefreshNotificationsIfChanged()
+        {
+            _editorSettings.Update();
+            var settingsProperty = _editorSettings.FindProperty("notificationSettings");
+            var settings = settingsProperty.objectReferenceValue as NotificationSettings;
+            var signature = BuildNotificationProviderSignature(settings);
+            if (signature != _notificationProviderSignature)
+            {
+                BuildNotificationsCard();
+                return;
+            }
+
+            foreach (var (provider, dot, status) in _notificationStatusBindings)
+            {
+                if (provider == null)
+                    continue;
+
+                dot.EnableInClassList("molca-hub-status-dot--ok", provider.IsEnabled);
+                dot.EnableInClassList("molca-hub-status-dot--idle", !provider.IsEnabled);
+                dot.EnableInClassList("molca-hub-status-dot--error", false);
+                status.text = provider.GetStatusMessage();
+            }
+        }
+
         private VisualElement BuildProviderRow(SerializedObject settingsSO, SerializedProperty providersProperty, int index)
         {
             var element = providersProperty.GetArrayElementAtIndex(index);
@@ -284,6 +321,9 @@ namespace Molca.Editor.Hub.Sections
             var status = new Label(provider != null ? provider.GetStatusMessage() : "Assign a NotificationProvider asset");
             status.AddToClassList("molca-hub-provider-row__status");
             stack.Add(status);
+
+            if (provider != null)
+                _notificationStatusBindings.Add((provider, dot, status));
 
             if (provider != null)
             {
@@ -339,6 +379,28 @@ namespace Molca.Editor.Hub.Sections
             row.Add(control);
 
             return row;
+        }
+
+        private static string BuildNotificationProviderSignature(NotificationSettings settings)
+        {
+            if (settings == null)
+                return "<null>";
+
+            var so = new SerializedObject(settings);
+            var providers = so.FindProperty("providers");
+            if (providers == null)
+                return $"{settings.GetInstanceID()}:<null>";
+
+            var signature = $"{settings.GetInstanceID()}:{providers.arraySize}";
+            for (int i = 0; i < providers.arraySize; i++)
+            {
+                var provider = providers.GetArrayElementAtIndex(i).objectReferenceValue as NotificationProvider;
+                signature += provider != null
+                    ? $":{provider.GetInstanceID()}:{provider.DisplayName}"
+                    : ":0:<missing>";
+            }
+
+            return signature;
         }
     }
 }

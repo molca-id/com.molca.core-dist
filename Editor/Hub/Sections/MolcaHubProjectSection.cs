@@ -21,6 +21,8 @@ namespace Molca.Editor.Hub.Sections
     {
         private readonly SerializedObject _projectSettings;
         private readonly SerializedObject _editorSettings;
+        private Label _projectNameLabel;
+        private Label _projectIdLabel;
 
         internal MolcaHubProjectSection()
         {
@@ -53,9 +55,13 @@ namespace Molca.Editor.Hub.Sections
             title.AddToClassList("molca-hub-project-title");
             textStack.Add(title);
 
-            var projectName = new Label(MolcaProjectSettings.Instance != null ? MolcaProjectSettings.Instance.ProjectName : "Molca Project");
-            projectName.AddToClassList("molca-hub-project-subtitle");
-            textStack.Add(projectName);
+            _projectNameLabel = new Label(MolcaProjectSettings.Instance != null ? MolcaProjectSettings.Instance.ProjectName : "Molca Project");
+            _projectNameLabel.AddToClassList("molca-hub-project-subtitle");
+            textStack.Add(_projectNameLabel);
+
+            var projectNameProperty = _projectSettings.FindProperty("projectName");
+            if (projectNameProperty != null)
+                textStack.TrackPropertyValue(projectNameProperty, _ => RefreshIdentityLabels());
         }
 
         private void BuildIdentityCard()
@@ -80,6 +86,7 @@ namespace Molca.Editor.Hub.Sections
             var field = new PropertyField(property, string.Empty);
             field.AddToClassList("molca-hub-field-control");
             field.BindProperty(property);
+            field.RegisterCallback<SerializedPropertyChangeEvent>(_ => RefreshIdentityLabels());
             row.Add(field);
 
             return row;
@@ -95,9 +102,9 @@ namespace Molca.Editor.Hub.Sections
             box.AddToClassList("molca-hub-project-id-box");
             row.Add(box);
 
-            var value = new Label(ProjectIdText());
-            value.AddToClassList("molca-hub-project-id-text");
-            box.Add(value);
+            _projectIdLabel = new Label(ProjectIdText());
+            _projectIdLabel.AddToClassList("molca-hub-project-id-text");
+            box.Add(_projectIdLabel);
 
             var copy = new Button(() =>
             {
@@ -109,6 +116,10 @@ namespace Molca.Editor.Hub.Sections
             };
             copy.AddToClassList("molca-hub-mini-button");
             box.Add(copy);
+
+            var projectIdProperty = _projectSettings.FindProperty("projectId");
+            if (projectIdProperty != null)
+                row.TrackPropertyValue(projectIdProperty, _ => RefreshIdentityLabels());
 
             return row;
         }
@@ -252,6 +263,18 @@ namespace Molca.Editor.Hub.Sections
         {
             var id = _projectSettings.FindProperty("projectId").stringValue;
             return string.IsNullOrEmpty(id) ? "MOLCA-0001" : id;
+        }
+
+        private void RefreshIdentityLabels()
+        {
+            _projectSettings.Update();
+            if (_projectNameLabel != null)
+                _projectNameLabel.text = MolcaProjectSettings.Instance != null
+                    ? MolcaProjectSettings.Instance.ProjectName
+                    : "Molca Project";
+
+            if (_projectIdLabel != null)
+                _projectIdLabel.text = ProjectIdText();
         }
 
         private static string ShortUrl(string url)

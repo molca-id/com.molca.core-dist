@@ -32,6 +32,8 @@ namespace Molca.Editor.Hub.Sections
         private VisualElement _modulesContainer;
         private VisualElement _chipStrip;
         private VisualElement _moduleDetail;
+        private IVisualElementScheduledItem _moduleRefreshPoll;
+        private string _moduleSignature;
         private int _selectedModuleIndex = -1;
 
         internal MolcaHubRuntimeSection(MolcaHubState state)
@@ -50,6 +52,14 @@ namespace Molca.Editor.Hub.Sections
             Add(_modulesContainer);
 
             RebuildModulesArea();
+
+            RegisterCallback<AttachToPanelEvent>(_ =>
+                _moduleRefreshPoll = schedule.Execute(RefreshModulesIfChanged).Every(250));
+            RegisterCallback<DetachFromPanelEvent>(_ =>
+            {
+                _moduleRefreshPoll?.Pause();
+                _moduleRefreshPoll = null;
+            });
         }
 
         // -------------------------------------------------------------------
@@ -153,6 +163,7 @@ namespace Molca.Editor.Hub.Sections
         private void RebuildModulesArea()
         {
             _modulesContainer.Clear();
+            _moduleSignature = BuildModuleSignature(_globalSettings);
 
             if (_globalSettings == null)
             {
@@ -194,6 +205,21 @@ namespace Molca.Editor.Hub.Sections
 
             RebuildChips();
             RebuildModuleDetail();
+        }
+
+        private void RefreshModulesIfChanged()
+        {
+            if (_projectSO != null)
+                _projectSO.Update();
+
+            var currentGlobalSettings = _projectSettings != null ? _projectSettings.GlobalSettings : null;
+            var currentSignature = BuildModuleSignature(currentGlobalSettings);
+            if (ReferenceEquals(currentGlobalSettings, _globalSettings) && currentSignature == _moduleSignature)
+                return;
+
+            _globalSettings = currentGlobalSettings;
+            _selectedModuleIndex = ResolveSelectedModuleIndex(_state.SelectedRuntimeModule);
+            RebuildModulesArea();
         }
 
         private void RebuildChips()
@@ -322,6 +348,27 @@ namespace Molca.Editor.Hub.Sections
                     return i;
 
             return 0;
+        }
+
+        private static string BuildModuleSignature(GlobalSettings settings)
+        {
+            if (settings == null)
+                return "<null>";
+
+            var modules = settings.modules;
+            if (modules == null)
+                return $"{settings.GetInstanceID()}:<null>";
+
+            var signature = $"{settings.GetInstanceID()}:{modules.Length}";
+            for (int i = 0; i < modules.Length; i++)
+            {
+                var module = modules[i];
+                signature += module != null
+                    ? $":{module.GetInstanceID()}:{module.name}"
+                    : ":0:<missing>";
+            }
+
+            return signature;
         }
     }
 }

@@ -1,6 +1,6 @@
-﻿com.molca.core@1.10.4
-Published: 2026-06-29 21:20:50Z
-Source commit: 22bf4119
+﻿com.molca.core@1.10.5
+Published: 2026-06-30 10:43:31Z
+Source commit: 792e235c
 Files: 1394
 
 CHANGELOG.md

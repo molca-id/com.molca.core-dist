@@ -42,6 +42,14 @@ namespace Molca.Editor.Hub.Sections
         private VisualElement _viewContainer;
         private VisualElement _profileRail;
         private VisualElement _profileDetail;
+        private IVisualElementScheduledItem _refreshPoll;
+        private Label _activeTargetLabel;
+        private Label _headerVersionLabel;
+        private Label _summaryVersionLabel;
+        private Label _summaryMetaLabel;
+        private Label _playerSettingsVersionLabel;
+        private Button _buildAllButton;
+        private Button _releaseButton;
 
         private int _selectedProfileIndex;
 
@@ -74,6 +82,14 @@ namespace Molca.Editor.Hub.Sections
             BuildFooter();
 
             SelectView(_state.BuildVersionView);
+
+            RegisterCallback<AttachToPanelEvent>(_ =>
+                _refreshPoll = schedule.Execute(RefreshDynamicLabels).Every(250));
+            RegisterCallback<DetachFromPanelEvent>(_ =>
+            {
+                _refreshPoll?.Pause();
+                _refreshPoll = null;
+            });
         }
 
         private void BuildMissingAssetNotice()
@@ -113,25 +129,27 @@ namespace Molca.Editor.Hub.Sections
             sep.AddToClassList("molca-hub-bv-context__sep");
             header.Add(sep);
 
-            var target = new Label($"active target  {EditorUserBuildSettings.activeBuildTarget}");
-            target.AddToClassList("molca-hub-bv-context__meta");
-            header.Add(target);
+            _activeTargetLabel = new Label();
+            _activeTargetLabel.AddToClassList("molca-hub-bv-context__meta");
+            header.Add(_activeTargetLabel);
 
-            var version = new Label($"· v{_versionSettings.GetFullVersionString()}");
-            version.AddToClassList("molca-hub-bv-context__meta");
-            header.Add(version);
+            _headerVersionLabel = new Label();
+            _headerVersionLabel.AddToClassList("molca-hub-bv-context__meta");
+            header.Add(_headerVersionLabel);
 
             var spacer = new VisualElement();
             spacer.AddToClassList("molca-hub-spacer");
             header.Add(spacer);
 
-            var buildAll = new Button(BuildAllForActiveTarget)
+            _buildAllButton = new Button(BuildAllForActiveTarget)
             {
                 text = "Build All",
-                tooltip = $"Build every profile targeting {EditorUserBuildSettings.activeBuildTarget}."
+                tooltip = string.Empty
             };
-            buildAll.AddToClassList("molca-hub-bv-primary-pill");
-            header.Add(buildAll);
+            _buildAllButton.AddToClassList("molca-hub-bv-primary-pill");
+            header.Add(_buildAllButton);
+
+            RefreshDynamicLabels();
         }
 
         private void BuildSegmentedToggle()
@@ -518,13 +536,15 @@ namespace Molca.Editor.Hub.Sections
             currentLabel.AddToClassList("molca-hub-bv-summary__caption");
             currentStack.Add(currentLabel);
 
-            var big = new Label(_versionSettings.GetFullVersionString());
-            big.AddToClassList("molca-hub-bv-summary__value");
-            currentStack.Add(big);
+            _summaryVersionLabel = new Label();
+            _summaryVersionLabel.AddToClassList("molca-hub-bv-summary__value");
+            currentStack.Add(_summaryVersionLabel);
 
-            var meta = new Label($"Version  {_versionSettings.GetVersionString()}      Build  {_versionSettings.GetBuildNumberString()}");
-            meta.AddToClassList("molca-hub-bv-summary__meta");
-            summary.Add(meta);
+            _summaryMetaLabel = new Label();
+            _summaryMetaLabel.AddToClassList("molca-hub-bv-summary__meta");
+            summary.Add(_summaryMetaLabel);
+
+            RefreshDynamicLabels();
 
             return summary;
         }
@@ -560,6 +580,7 @@ namespace Molca.Editor.Hub.Sections
             var field = new PropertyField(property, string.Empty);
             field.AddToClassList("molca-hub-field-control");
             field.BindProperty(property);
+            field.RegisterCallback<SerializedPropertyChangeEvent>(_ => RefreshDynamicLabels());
             row.Add(field);
 
             return row;
@@ -644,7 +665,7 @@ namespace Molca.Editor.Hub.Sections
             var createTag = new Toggle($"Create git tag (v{_versionSettings.GetVersionString()})") { value = false };
             foldout.Add(createTag);
 
-            var release = new Button(() =>
+            _releaseButton = new Button(() =>
             {
                 var confirm = EditorUtility.DisplayDialog("Create Release",
                     $"Release v{_versionSettings.GetVersionString()}? This syncs PlayerSettings and appends a changelog entry" +
@@ -656,10 +677,11 @@ namespace Molca.Editor.Hub.Sections
                 EditorUtility.DisplayDialog(result.Success ? "Release" : "Release Failed", result.Message, "OK");
                 SelectView(VersionView);
             })
-            { text = $"Create Release v{_versionSettings.GetVersionString()}" };
-            release.AddToClassList("molca-hub-action-full");
-            release.AddToClassList("molca-hub-action-full--primary");
-            foldout.Add(release);
+            { text = string.Empty };
+            _releaseButton.AddToClassList("molca-hub-action-full");
+            _releaseButton.AddToClassList("molca-hub-action-full--primary");
+            foldout.Add(_releaseButton);
+            RefreshDynamicLabels();
 
             return foldout;
         }
@@ -735,6 +757,7 @@ namespace Molca.Editor.Hub.Sections
             var field = new PropertyField(property, string.Empty);
             field.AddToClassList("molca-hub-field-control");
             field.BindProperty(property);
+            field.RegisterCallback<SerializedPropertyChangeEvent>(_ => RefreshDynamicLabels());
             row.Add(field);
 
             return row;
@@ -754,14 +777,17 @@ namespace Molca.Editor.Hub.Sections
             {
                 _versionSettings.SyncToUnityPlayerSettings(force: true);
                 EditorUtility.SetDirty(_versionSettings);
+                RefreshDynamicLabels();
             })
             { text = "Sync to Player Settings", tooltip = "Write the current version to Unity PlayerSettings." };
             sync.AddToClassList("molca-hub-bv-footer__button");
             footer.Add(sync);
 
-            var note = new Label($"PlayerSettings version: {PlayerSettings.bundleVersion}");
-            note.AddToClassList("molca-hub-bv-footer__note");
-            footer.Add(note);
+            _playerSettingsVersionLabel = new Label();
+            _playerSettingsVersionLabel.AddToClassList("molca-hub-bv-footer__note");
+            footer.Add(_playerSettingsVersionLabel);
+
+            RefreshDynamicLabels();
         }
 
         private VisualElement BuildProfileField(SerializedProperty profile, string relativeName, string label)
@@ -776,6 +802,12 @@ namespace Molca.Editor.Hub.Sections
             var field = new PropertyField(property, string.Empty);
             field.AddToClassList("molca-hub-field-control");
             field.BindProperty(property);
+            field.RegisterCallback<SerializedPropertyChangeEvent>(_ =>
+            {
+                _buildSerialized.ApplyModifiedProperties();
+                RebuildProfileRail();
+                RefreshDynamicLabels();
+            });
             row.Add(field);
 
             return row;
@@ -794,9 +826,42 @@ namespace Molca.Editor.Hub.Sections
             var toggle = new Toggle();
             toggle.AddToClassList("molca-hub-bv-toggle");
             toggle.BindProperty(property);
+            toggle.RegisterCallback<SerializedPropertyChangeEvent>(_ =>
+            {
+                _buildSerialized.ApplyModifiedProperties();
+                RebuildProfileRail();
+                RefreshDynamicLabels();
+            });
             row.Add(toggle);
 
             return row;
+        }
+
+        private void RefreshDynamicLabels()
+        {
+            _versionSerialized?.Update();
+            _buildSerialized?.Update();
+
+            if (_activeTargetLabel != null)
+                _activeTargetLabel.text = $"active target  {EditorUserBuildSettings.activeBuildTarget}";
+
+            if (_headerVersionLabel != null)
+                _headerVersionLabel.text = $"· v{_versionSettings.GetFullVersionString()}";
+
+            if (_buildAllButton != null)
+                _buildAllButton.tooltip = $"Build every profile targeting {EditorUserBuildSettings.activeBuildTarget}.";
+
+            if (_summaryVersionLabel != null)
+                _summaryVersionLabel.text = _versionSettings.GetFullVersionString();
+
+            if (_summaryMetaLabel != null)
+                _summaryMetaLabel.text = $"Version  {_versionSettings.GetVersionString()}      Build  {_versionSettings.GetBuildNumberString()}";
+
+            if (_releaseButton != null)
+                _releaseButton.text = $"Create Release v{_versionSettings.GetVersionString()}";
+
+            if (_playerSettingsVersionLabel != null)
+                _playerSettingsVersionLabel.text = $"PlayerSettings version: {PlayerSettings.bundleVersion}";
         }
 
         private static (VisualElement root, VisualElement body) MakeCard(string title)

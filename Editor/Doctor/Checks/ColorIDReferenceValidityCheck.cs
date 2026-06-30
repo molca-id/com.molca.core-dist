@@ -1,10 +1,13 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using UnityEditor;
 using UnityEngine;
 using Molca.ColorID;
 using Molca.Settings;
+using Object = UnityEngine.Object;
 
 namespace Molca.Editor.Doctor
 {
@@ -29,6 +32,8 @@ namespace Molca.Editor.Doctor
     /// </remarks>
     public class ColorIDReferenceValidityCheck : IDoctorCheck
     {
+        private const int PropertyYieldBudget = 512;
+
         public string Id => "color-id-reference-invalid";
         public string Description => "ColorIDReference swatch/colorId pairs not defined in any ColorModule";
 
@@ -87,6 +92,7 @@ namespace Molca.Editor.Doctor
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .Distinct()
                 .Where(p => !context.IsIgnored(p))
+                .Where(AssetMayContainColorIdReference)
                 .ToList();
 
             for (int p = 0; p < assetPaths.Count; p++)
@@ -102,7 +108,7 @@ namespace Molca.Editor.Doctor
                     ScriptableObject so => new[] { (Object)so },
                     _ => Enumerable.Empty<Object>(),
                 };
-                issues.AddRange(ScanObjects(targets, path, validSwatches, validKeys));
+                issues.AddRange(await ScanObjectsAsync(targets, path, validSwatches, validKeys, cancellationToken));
             }
 
             for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
@@ -119,7 +125,69 @@ namespace Molca.Editor.Doctor
                     .SelectMany(r => r.GetComponentsInChildren<MonoBehaviour>(true))
                     .Where(c => c != null)
                     .Cast<Object>();
-                issues.AddRange(ScanObjects(behaviours, scene.path ?? scene.name, validSwatches, validKeys));
+                issues.AddRange(await ScanObjectsAsync(behaviours, scene.path ?? scene.name, validSwatches, validKeys, cancellationToken));
+            }
+
+            return issues;
+        }
+
+        private async Awaitable<List<DoctorIssue>> ScanObjectsAsync(
+            IEnumerable<Object> objects, string assetPath,
+            HashSet<string> validSwatches, HashSet<string> validKeys,
+            CancellationToken cancellationToken)
+        {
+            var issues = new List<DoctorIssue>();
+            var scannedProperties = 0;
+
+            foreach (var obj in objects)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var serialized = new SerializedObject(obj);
+                var property = serialized.GetIterator();
+                bool enterChildren = true;
+                while (property.Next(enterChildren))
+                {
+                    if (++scannedProperties >= PropertyYieldBudget)
+                    {
+                        scannedProperties = 0;
+                        await EditorYieldAsync(cancellationToken);
+                    }
+
+                    enterChildren = true;
+                    if (property.propertyType != SerializedPropertyType.Generic)
+                        continue;
+
+                    var swatchProp = property.FindPropertyRelative("_swatchName");
+                    var colorIdProp = property.FindPropertyRelative("_colorId");
+                    if (swatchProp == null || colorIdProp == null
+                        || swatchProp.propertyType != SerializedPropertyType.String
+                        || colorIdProp.propertyType != SerializedPropertyType.String)
+                        continue;
+
+                    enterChildren = false;
+                    var swatch = swatchProp.stringValue;
+                    var colorId = colorIdProp.stringValue;
+
+                    if (string.IsNullOrEmpty(swatch) || string.IsNullOrEmpty(colorId))
+                    {
+                        issues.Add(new DoctorIssue(Id, DoctorSeverity.Warning,
+                            $"ColorIDReference `{property.propertyPath}` on {obj.name} has a blank swatch or colorId - it will fall back to the field defaults.",
+                            assetPath));
+                        continue;
+                    }
+
+                    if (validKeys.Contains($"{swatch}.{colorId}"))
+                        continue;
+
+                    var detail = validSwatches.Contains(swatch)
+                        ? $"colorId \"{colorId}\" is not defined in swatch \"{swatch}\""
+                        : $"swatch \"{swatch}\" is not defined in any ColorModule";
+
+                    issues.Add(new DoctorIssue(Id, DoctorSeverity.Error,
+                        $"ColorIDReference `{property.propertyPath}` on {obj.name} - {detail}. It resolves to magenta at runtime.",
+                        assetPath));
+                }
             }
 
             return issues;
@@ -172,6 +240,37 @@ namespace Molca.Editor.Doctor
                         $"ColorIDReference `{property.propertyPath}` on {obj.name} — {detail}. It resolves to magenta at runtime.",
                         assetPath);
                 }
+            }
+        }
+
+        private static bool AssetMayContainColorIdReference(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath))
+                return false;
+
+            // Unity text-serialized prefabs/assets expose ColorIDReference's private
+            // fields directly. This avoids loading and walking unrelated assets while
+            // keeping unreadable/binary assets on the conservative full-scan path.
+            try
+            {
+                if (!File.Exists(assetPath))
+                    return true;
+
+                var sawSwatch = false;
+                var sawColorId = false;
+                foreach (var line in File.ReadLines(assetPath))
+                {
+                    sawSwatch |= line.IndexOf("_swatchName", StringComparison.Ordinal) >= 0;
+                    sawColorId |= line.IndexOf("_colorId", StringComparison.Ordinal) >= 0;
+                    if (sawSwatch && sawColorId)
+                        return true;
+                }
+
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
             }
         }
 

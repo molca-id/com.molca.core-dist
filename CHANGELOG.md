@@ -2,6 +2,14 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.10.5] - 2026-06-30
+
+### Changed
+- **Doctor color-id validation prefilters prefabs.** `ColorIDReferenceValidityCheck` now prefilters prefabs
+  before validating color-id references, avoiding work on prefabs that cannot carry a color-id reference.
+- **MCP fork-provider docs:** documented the reserved tool/family namespaces in `MCP_FORK_PROVIDERS.md` so
+  fork providers avoid colliding with Core-reserved names.
+
 ## [1.10.4] - 2026-06-29
 
 ### Changed
