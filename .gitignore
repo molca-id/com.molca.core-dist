@@ -3,4 +3,16 @@
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# NOTE: do NOT use a bare "*~" here. Unity's special package folders
+# (Documentation~, Samples~, Tools~) end in a literal tilde, and a bare "*~"
+# glob matches directory names too, not just editor backup files — it was
+# silently stripping those folders from every publish (they'd get mirrored to
+# disk by robocopy but never `git add`ed). Anchor to files only.
 *~
+!Documentation~/
+!Documentation~/**
+!Samples~/
+!Samples~/**
+!Tools~/
+!Tools~/**
