@@ -1,7 +1,7 @@
-﻿com.molca.core@1.11.1
-Published: 2026-07-01 13:48:07Z
-Source commit: fedbc5d7
-Files: 1407
+com.molca.core@1.11.2
+Published: 2026-07-01 08:45:08Z
+Source commit: 9db2db6b
+Files: 1403
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -59,6 +59,8 @@ Editor/BuildSystem/BuildManager.cs.meta
 Editor/BuildSystem/BuildVersionProcessor.cs
 Editor/BuildSystem/BuildVersionProcessor.cs.meta
 Editor/BuildSystem/CI_Examples.meta
+Editor/BuildSystem/CI_Examples/README.md
+Editor/BuildSystem/CI_Examples/README.md.meta
 Editor/BuildSystem/CI_Examples/github-actions-example.yml
 Editor/BuildSystem/CI_Examples/github-actions-example.yml.meta
 Editor/BuildSystem/CI_Examples/github-actions-workflow-example.yml
@@ -71,8 +73,6 @@ Editor/BuildSystem/CI_Examples/local-build-mac.sh
 Editor/BuildSystem/CI_Examples/local-build-mac.sh.meta
 Editor/BuildSystem/CI_Examples/local-build-windows.bat
 Editor/BuildSystem/CI_Examples/local-build-windows.bat.meta
-Editor/BuildSystem/CI_Examples/README.md
-Editor/BuildSystem/CI_Examples/README.md.meta
 Editor/BuildSystem/CommandLineBuild.cs
 Editor/BuildSystem/CommandLineBuild.cs.meta
 Editor/BuildSystem/ConventionalCommits.cs
@@ -103,12 +103,12 @@ Editor/ContentPackage/ContentPackageSettingsEditor.AddressablesIntegration.cs
 Editor/ContentPackage/ContentPackageSettingsEditor.AddressablesIntegration.cs.meta
 Editor/ContentPackage/ContentPackageSettingsEditor.BuildPanel.cs
 Editor/ContentPackage/ContentPackageSettingsEditor.BuildPanel.cs.meta
-Editor/ContentPackage/ContentPackageSettingsEditor.cs
-Editor/ContentPackage/ContentPackageSettingsEditor.cs.meta
 Editor/ContentPackage/ContentPackageSettingsEditor.PackagePanel.cs
 Editor/ContentPackage/ContentPackageSettingsEditor.PackagePanel.cs.meta
 Editor/ContentPackage/ContentPackageSettingsEditor.SettingsPanel.cs
 Editor/ContentPackage/ContentPackageSettingsEditor.SettingsPanel.cs.meta
+Editor/ContentPackage/ContentPackageSettingsEditor.cs
+Editor/ContentPackage/ContentPackageSettingsEditor.cs.meta
 Editor/ContentPackage/PackageReferenceDrawer.cs
 Editor/ContentPackage/PackageReferenceDrawer.cs.meta
 Editor/Doctor.meta
@@ -253,14 +253,14 @@ Editor/Hub/Sections/MolcaHubSequencesSection.cs.meta
 Editor/Hub/Sections/MolcaHubTasksSection.cs
 Editor/Hub/Sections/MolcaHubTasksSection.cs.meta
 Editor/Icons.meta
+Editor/Icons/MolcaEditorIcons.cs
+Editor/Icons/MolcaEditorIcons.cs.meta
 Editor/Icons/molca-audio.png
 Editor/Icons/molca-audio.png.meta
 Editor/Icons/molca-content.png
 Editor/Icons/molca-content.png.meta
 Editor/Icons/molca-doctor.png
 Editor/Icons/molca-doctor.png.meta
-Editor/Icons/MolcaEditorIcons.cs
-Editor/Icons/MolcaEditorIcons.cs.meta
 Editor/Icons/molca-localization.png
 Editor/Icons/molca-localization.png.meta
 Editor/Icons/molca-logo.png
@@ -445,8 +445,6 @@ Editor/MCP/Providers/CoreMcpToolProvider.ContentPackages.cs
 Editor/MCP/Providers/CoreMcpToolProvider.ContentPackages.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.CreateMcpTool.cs
 Editor/MCP/Providers/CoreMcpToolProvider.CreateMcpTool.cs.meta
-Editor/MCP/Providers/CoreMcpToolProvider.cs
-Editor/MCP/Providers/CoreMcpToolProvider.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Doctor.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Doctor.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.EditSource.cs
@@ -507,6 +505,8 @@ Editor/MCP/Providers/CoreMcpToolProvider.ToolSchema.cs
 Editor/MCP/Providers/CoreMcpToolProvider.ToolSchema.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.ValidateAll.cs
 Editor/MCP/Providers/CoreMcpToolProvider.ValidateAll.cs.meta
+Editor/MCP/Providers/CoreMcpToolProvider.cs
+Editor/MCP/Providers/CoreMcpToolProvider.cs.meta
 Editor/MCP/Providers/UnityMcpToolProvider.Addressables.cs
 Editor/MCP/Providers/UnityMcpToolProvider.Addressables.cs.meta
 Editor/MCP/Providers/UnityMcpToolProvider.Assets.cs
@@ -517,8 +517,6 @@ Editor/MCP/Providers/UnityMcpToolProvider.Components.cs
 Editor/MCP/Providers/UnityMcpToolProvider.Components.cs.meta
 Editor/MCP/Providers/UnityMcpToolProvider.Console.cs
 Editor/MCP/Providers/UnityMcpToolProvider.Console.cs.meta
-Editor/MCP/Providers/UnityMcpToolProvider.cs
-Editor/MCP/Providers/UnityMcpToolProvider.cs.meta
 Editor/MCP/Providers/UnityMcpToolProvider.GameObjects.cs
 Editor/MCP/Providers/UnityMcpToolProvider.GameObjects.cs.meta
 Editor/MCP/Providers/UnityMcpToolProvider.Importers.cs
@@ -545,6 +543,8 @@ Editor/MCP/Providers/UnityMcpToolProvider.UIToolkit.cs
 Editor/MCP/Providers/UnityMcpToolProvider.UIToolkit.cs.meta
 Editor/MCP/Providers/UnityMcpToolProvider.Workflow.cs
 Editor/MCP/Providers/UnityMcpToolProvider.Workflow.cs.meta
+Editor/MCP/Providers/UnityMcpToolProvider.cs
+Editor/MCP/Providers/UnityMcpToolProvider.cs.meta
 Editor/Molca.Editor.asmdef
 Editor/Molca.Editor.asmdef.meta
 Editor/MolcaEditorPrefs.cs
@@ -572,10 +572,10 @@ Editor/Notifications/NotificationSettingsEditor.cs.meta
 Editor/Notifications/README.md
 Editor/Notifications/README.md.meta
 Editor/ReferenceSystem.meta
-Editor/ReferenceSystem/ReferenceManagerSettingsEditor.cs
-Editor/ReferenceSystem/ReferenceManagerSettingsEditor.cs.meta
 Editor/ReferenceSystem/RefIdEditorUtility.cs
 Editor/ReferenceSystem/RefIdEditorUtility.cs.meta
+Editor/ReferenceSystem/ReferenceManagerSettingsEditor.cs
+Editor/ReferenceSystem/ReferenceManagerSettingsEditor.cs.meta
 Editor/ReferenceSystem/SceneObjectReferenceDrawer.cs
 Editor/ReferenceSystem/SceneObjectReferenceDrawer.cs.meta
 Editor/ReferenceSystem/SceneObjectReferenceGenericDrawer.cs
@@ -622,8 +622,6 @@ Editor/Sequence/SequenceValidationSweep.cs
 Editor/Sequence/SequenceValidationSweep.cs.meta
 Editor/Sequence/SequenceValidator.cs
 Editor/Sequence/SequenceValidator.cs.meta
-Editor/Sequence/SequenceVisualizerView.cs
-Editor/Sequence/SequenceVisualizerView.cs.meta
 Editor/Sequence/SequenceVisualizerView.Details.cs
 Editor/Sequence/SequenceVisualizerView.Details.cs.meta
 Editor/Sequence/SequenceVisualizerView.Layout.cs
@@ -636,6 +634,8 @@ Editor/Sequence/SequenceVisualizerView.Tree.cs
 Editor/Sequence/SequenceVisualizerView.Tree.cs.meta
 Editor/Sequence/SequenceVisualizerView.Validation.cs
 Editor/Sequence/SequenceVisualizerView.Validation.cs.meta
+Editor/Sequence/SequenceVisualizerView.cs
+Editor/Sequence/SequenceVisualizerView.cs.meta
 Editor/Sequence/SequenceVisualizerWindow.cs
 Editor/Sequence/SequenceVisualizerWindow.cs.meta
 Editor/Sequence/StepEditingService.cs
@@ -864,12 +864,6 @@ Editor/Validation/Validators/ReferenceResolutionValidator.cs
 Editor/Validation/Validators/ReferenceResolutionValidator.cs.meta
 Editor/Validation/Validators/StructuralFlowValidator.cs
 Editor/Validation/Validators/StructuralFlowValidator.cs.meta
-FORK_GUIDE.md
-FORK_GUIDE.md.meta
-package.json
-package.json.meta
-README.md
-README.md.meta
 Runtime.meta
 Runtime/Attributes.meta
 Runtime/Attributes/DependsOnAttribute.cs
@@ -1001,8 +995,6 @@ Runtime/Events/TypedEvents.Audio.cs
 Runtime/Events/TypedEvents.Audio.cs.meta
 Runtime/Events/TypedEvents.ContentPackage.cs
 Runtime/Events/TypedEvents.ContentPackage.cs.meta
-Runtime/Events/TypedEvents.cs
-Runtime/Events/TypedEvents.cs.meta
 Runtime/Events/TypedEvents.Input.cs
 Runtime/Events/TypedEvents.Input.cs.meta
 Runtime/Events/TypedEvents.Network.cs
@@ -1013,6 +1005,8 @@ Runtime/Events/TypedEvents.Template.cs
 Runtime/Events/TypedEvents.Template.cs.meta
 Runtime/Events/TypedEvents.UI.cs
 Runtime/Events/TypedEvents.UI.cs.meta
+Runtime/Events/TypedEvents.cs
+Runtime/Events/TypedEvents.cs.meta
 Runtime/Localization.meta
 Runtime/Localization/DynamicLocalization.cs
 Runtime/Localization/DynamicLocalization.cs.meta
@@ -1103,10 +1097,10 @@ Runtime/Networking/Data/DataProviderRegistry.cs
 Runtime/Networking/Data/DataProviderRegistry.cs.meta
 Runtime/Networking/Data/DataSubscriptionHub.cs
 Runtime/Networking/Data/DataSubscriptionHub.cs.meta
-Runtime/Networking/Data/ImmutableData.cs
-Runtime/Networking/Data/ImmutableData.cs.meta
 Runtime/Networking/Data/ITrackedId.cs
 Runtime/Networking/Data/ITrackedId.cs.meta
+Runtime/Networking/Data/ImmutableData.cs
+Runtime/Networking/Data/ImmutableData.cs.meta
 Runtime/Networking/Data/JsonPreProcessor.meta
 Runtime/Networking/Data/JsonPreProcessor/ComplexJsonProcessor.cs
 Runtime/Networking/Data/JsonPreProcessor/ComplexJsonProcessor.cs.meta
@@ -1138,15 +1132,15 @@ Runtime/Networking/Data/Provider/DataProvider.cs
 Runtime/Networking/Data/Provider/DataProvider.cs.meta
 Runtime/Networking/Data/Provider/HttpDataProvider.cs
 Runtime/Networking/Data/Provider/HttpDataProvider.cs.meta
+Runtime/Networking/Data/Provider/SSEEventStreamParser.cs
+Runtime/Networking/Data/Provider/SSEEventStreamParser.cs.meta
+Runtime/Networking/Data/Provider/SSEProvider.cs
+Runtime/Networking/Data/Provider/SSEProvider.cs.meta
 Runtime/Networking/Data/Provider/SocketIO.meta
 Runtime/Networking/Data/Provider/SocketIO/Molca.Networking.SocketIO.asmdef
 Runtime/Networking/Data/Provider/SocketIO/Molca.Networking.SocketIO.asmdef.meta
 Runtime/Networking/Data/Provider/SocketIO/SocketIODataProvider.cs
 Runtime/Networking/Data/Provider/SocketIO/SocketIODataProvider.cs.meta
-Runtime/Networking/Data/Provider/SSEEventStreamParser.cs
-Runtime/Networking/Data/Provider/SSEEventStreamParser.cs.meta
-Runtime/Networking/Data/Provider/SSEProvider.cs
-Runtime/Networking/Data/Provider/SSEProvider.cs.meta
 Runtime/Networking/Data/Provider/StreamReconnectPolicy.cs
 Runtime/Networking/Data/Provider/StreamReconnectPolicy.cs.meta
 Runtime/Networking/Data/Provider/WebSocket.meta
@@ -1206,8 +1200,6 @@ Runtime/ReferenceSystem/Molca.ReferenceSystem.asmdef
 Runtime/ReferenceSystem/Molca.ReferenceSystem.asmdef.meta
 Runtime/ReferenceSystem/README.md
 Runtime/ReferenceSystem/README.md.meta
-Runtime/ReferenceSystem/ReferenceableComponent.cs
-Runtime/ReferenceSystem/ReferenceableComponent.cs.meta
 Runtime/ReferenceSystem/ReferenceGenerator.cs
 Runtime/ReferenceSystem/ReferenceGenerator.cs.meta
 Runtime/ReferenceSystem/ReferenceId.cs
@@ -1222,6 +1214,8 @@ Runtime/ReferenceSystem/ReferenceResolutionException.cs
 Runtime/ReferenceSystem/ReferenceResolutionException.cs.meta
 Runtime/ReferenceSystem/ReferenceTracker.cs
 Runtime/ReferenceSystem/ReferenceTracker.cs.meta
+Runtime/ReferenceSystem/ReferenceableComponent.cs
+Runtime/ReferenceSystem/ReferenceableComponent.cs.meta
 Runtime/ReferenceSystem/SceneObjectReference.cs
 Runtime/ReferenceSystem/SceneObjectReference.cs.meta
 Runtime/ReferenceSystem/SceneObjectReferenceGeneric.cs
@@ -1231,12 +1225,12 @@ Runtime/Runtime/BootstrapExtension.cs
 Runtime/Runtime/BootstrapExtension.cs.meta
 Runtime/Runtime/DEPENDENCY_INJECTION.md
 Runtime/Runtime/DEPENDENCY_INJECTION.md.meta
-Runtime/Runtime/InjectOnAwake.cs
-Runtime/Runtime/InjectOnAwake.cs.meta
 Runtime/Runtime/IRuntimeSubsystem.cs
 Runtime/Runtime/IRuntimeSubsystem.cs.meta
 Runtime/Runtime/ISceneLoader.cs
 Runtime/Runtime/ISceneLoader.cs.meta
+Runtime/Runtime/InjectOnAwake.cs
+Runtime/Runtime/InjectOnAwake.cs.meta
 Runtime/Runtime/LogHandler.cs
 Runtime/Runtime/LogHandler.cs.meta
 Runtime/Runtime/LogManager.cs
@@ -1342,11 +1336,6 @@ Runtime/UIToolkit.meta
 Runtime/UIToolkit/MolcaDefaultTheme.tss
 Runtime/UIToolkit/MolcaDefaultTheme.tss.meta
 Runtime/Utilities.meta
-Runtime/Utilities/_SO.meta
-Runtime/Utilities/_SO/Rect Utility.asset
-Runtime/Utilities/_SO/Rect Utility.asset.meta
-Runtime/Utilities/_SO/Scene Utility.asset
-Runtime/Utilities/_SO/Scene Utility.asset.meta
 Runtime/Utilities/AudioUtility.cs
 Runtime/Utilities/AudioUtility.cs.meta
 Runtime/Utilities/BudgetMonitor.meta
@@ -1398,6 +1387,11 @@ Runtime/Utilities/StringUtility.cs
 Runtime/Utilities/StringUtility.cs.meta
 Runtime/Utilities/TopologicalSort.cs
 Runtime/Utilities/TopologicalSort.cs.meta
+Runtime/Utilities/_SO.meta
+Runtime/Utilities/_SO/Rect Utility.asset
+Runtime/Utilities/_SO/Rect Utility.asset.meta
+Runtime/Utilities/_SO/Scene Utility.asset
+Runtime/Utilities/_SO/Scene Utility.asset.meta
 Samples~/ContentPackageDemos/DependencyResolutionDemo.cs
 Samples~/ContentPackageDemos/DependencyValidationDemo.cs
 Samples~/ContentPackageDemos/Editor/PackageManifestTestRunner.cs
@@ -1405,8 +1399,10 @@ Samples~/ContentPackageDemos/PackageManifestIntegrationDemo.cs
 Samples~/ContentPackageDemos/PackageManifestTests.cs
 Samples~/ContentPackageDemos/README.md
 Samples~/ContentPackageDemos/StateManagementDemo.cs
-Tools~/molca-mcp/package.json
-Tools~/molca-mcp/package-lock.json
 Tools~/molca-mcp/README.md
+Tools~/molca-mcp/package-lock.json
+Tools~/molca-mcp/package.json
 Tools~/molca-mcp/src/index.ts
 Tools~/molca-mcp/tsconfig.json
+package.json
+package.json.meta

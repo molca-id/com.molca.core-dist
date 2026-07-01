@@ -2,6 +2,17 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.11.2] - 2026-07-01
+
+### Fixed
+- **Dist-repo publish pipeline no longer strips `Tools~`/`Documentation~`/`Samples~`.** The
+  `com.molca.core-dist` repo's `.gitignore` used a bare `*~` rule meant for OS/editor backup files, which
+  also matched directory names ending in a tilde — so `Tools~/molca-mcp` (and `Documentation~`,
+  `Samples~`) were silently dropped from every published release even though `PUBLISH_MANIFEST.txt`
+  reported them as shipped. This broke "Build MCP Proxy" for any consumer installing via the Git-URL
+  package (`Could not locate the proxy source in the package (Tools~/molca-mcp)`). The dist repo's
+  `.gitignore` is fixed; this release republishes with the folders actually included.
+
 ## [1.11.1] - 2026-07-01
 
 ### Added
