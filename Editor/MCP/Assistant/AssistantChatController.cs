@@ -279,7 +279,9 @@ namespace Molca.Editor.Mcp.Assistant
             "names plainly. Use a context link only when useful: [pin live selection](molca-context://selection-live), " +
             "[pin selection snapshot](molca-context://selection-snapshot), [pin active scene](molca-context://active-scene), " +
             "[pin framework graph](molca-context://framework-graph), [pin KG status](molca-context://kg-status), " +
-            "[pin asset](molca-context://asset/GUID).";
+            "[pin asset](molca-context://asset/GUID). Once a tool call returns, its result is the answer: report " +
+            "the concrete outcome rather than a generic status line, and never claim a tool or capability is " +
+            "unavailable after it has already returned a result.";
 
         // Lazily loaded so prompt tuning means editing the .txt asset, not recompiling. Cached for the
         // session; falls back to the embedded prompt if the asset cannot be loaded.
@@ -1581,6 +1583,10 @@ namespace Molca.Editor.Mcp.Assistant
             var messages = useTextToolProtocol ? BuildTextProtocolHistory() : new List<LlmMessage>(_history);
             if (useTextToolProtocol)
                 AddTextToolReminderToCurrentUserMessage(messages, textTools);
+            // Goal-persistence reinforcement (Sprint 72): a short/low-info turn ("continue", "okay then")
+            // otherwise loses the standing goal. Applied here so BOTH transports get it (the asymmetry that
+            // let this reach FunctionCalling unmitigated is what caused the bug). Transient — request-only.
+            AddGoalReinforcementToCurrentUserMessage(messages);
             if (string.IsNullOrEmpty(_pendingRetrievedContext)) return messages;
 
             // Prefix the most recent genuine user prompt (the current turn) — a fresh message instance so the
@@ -1612,6 +1618,83 @@ namespace Molca.Editor.Mcp.Assistant
                 message.Text = AssistantTextToolProtocol.AppendTurnToolReminder(message.Text, textTools);
                 return;
             }
+        }
+
+        /// <summary>
+        /// Known short acknowledgment / continuation phrases that carry no goal of their own (Sprint 72).
+        /// A turn matching one of these (or a very short turn) re-inherits the standing goal for the request.
+        /// </summary>
+        private static readonly string[] ContinuationPhrases =
+        {
+            "continue", "keep going", "carry on", "go on", "go ahead", "proceed", "next", "next step",
+            "and then", "more", "ok", "okay", "ok then", "okay then", "yes", "yep", "yeah", "sure", "do it",
+            "please continue", "continue please", "keep it up"
+        };
+
+        /// <summary>
+        /// Prepends a transient "[Continuing the current task: …]" note to the current user message when that
+        /// message is a short/low-information acknowledgment (Sprint 72), so the model doesn't drop the
+        /// standing goal. The note lives only in the request copy — never persisted to <see cref="_history"/> —
+        /// and is applied for both transports.
+        /// </summary>
+        private static void AddGoalReinforcementToCurrentUserMessage(IList<LlmMessage> messages)
+        {
+            if (messages == null || messages.Count == 0) return;
+
+            var currentIndex = -1;
+            for (var i = messages.Count - 1; i >= 0; i--)
+            {
+                var m = messages[i];
+                if (m.Role != LlmRole.User || IsTextToolResultMessage(m)) continue;
+                currentIndex = i;
+                break;
+            }
+            if (currentIndex < 0) return;
+
+            var current = messages[currentIndex];
+            if (!IsLowInformationTurn(current.Text)) return;
+
+            var goal = FindStandingGoal(messages, currentIndex);
+            if (string.IsNullOrWhiteSpace(goal)) return;
+
+            // Replace with a fresh instance (never mutate a shared _history message under FunctionCalling).
+            messages[currentIndex] = new LlmMessage
+            {
+                Role = LlmRole.User,
+                Text = $"[Continuing the current task: {Truncate(goal.Trim(), 240)}]\n\n{current.Text}",
+                ToolCalls = current.ToolCalls
+            };
+        }
+
+        /// <summary>Whether a user turn is a short acknowledgment/continuation with no goal of its own.</summary>
+        private static bool IsLowInformationTurn(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            var normalized = new string(text.Trim().ToLowerInvariant().Where(c => !char.IsPunctuation(c)).ToArray()).Trim();
+            if (normalized.Length == 0) return false;
+
+            foreach (var phrase in ContinuationPhrases)
+                if (normalized == phrase || normalized.StartsWith(phrase + " ", StringComparison.Ordinal))
+                    return true;
+
+            // A very short turn (≤ 2 words) carries too little to stand as its own goal.
+            return normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 2;
+        }
+
+        /// <summary>
+        /// Finds the most recent substantive user message before <paramref name="beforeIndex"/> to reinstate
+        /// as the standing goal — skipping tool-result turns and other low-information acknowledgments.
+        /// </summary>
+        private static string FindStandingGoal(IList<LlmMessage> messages, int beforeIndex)
+        {
+            for (var i = beforeIndex - 1; i >= 0; i--)
+            {
+                var m = messages[i];
+                if (m.Role != LlmRole.User || IsTextToolResultMessage(m)) continue;
+                if (string.IsNullOrWhiteSpace(m.Text) || IsLowInformationTurn(m.Text)) continue;
+                return m.Text;
+            }
+            return null;
         }
 
         private static bool IsTextToolResultMessage(LlmMessage message)

@@ -2,6 +2,28 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.11.1] - 2026-07-01
+
+### Added
+- **In-window model & provider switcher (Sprint 71).** The assistant window gains a provider/model picker
+  backed by model discovery (Ollama `/api/tags`, curated cloud models, free-text); applying a selection
+  re-resolves the transport.
+- **Weak-model eval harness (Sprint 70).** A deterministic-replay + opt-in live (`MOLCA_EVAL_LIVE`) eval
+  harness over both transports, exercising golden tool-execution and comprehension scenarios against the
+  real send path.
+
+### Changed
+- **Assistant header shows the chat title**, not the model line; model-picker hint moved to its own line.
+- **Collapsible "Advanced" group** in the assistant settings section.
+
+### Fixed
+- **Coherence fixes (Sprint 72):** blank-required-arg guard on both transports, a goal-persistence note in
+  the request messages, and a `componentType` filter on `molca_unity_scene_objects`; plus expanded eval
+  coverage.
+- **Eval grounding mock + report-outcome rule** applied on both transports.
+- **Guard against a stale `MolcaEditorSettings` asset** in the settings inspector.
+- **`MediaLoader` HTTP-asset anti-pattern** call-site corrected.
+
 ## [1.10.7] - 2026-07-01
 
 ### Added

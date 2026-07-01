@@ -697,3 +697,49 @@
     white-space: normal;
     min-width: 0;
 }
+
+/* In-window provider + model picker (Sprint 71). */
+.chat-model-picker {
+    flex-direction: column;
+    margin-bottom: 4px;
+}
+
+.chat-model-picker__controls {
+    flex-direction: row;
+    align-items: center;
+}
+
+.chat-model-picker__provider {
+    margin-right: 4px;
+    min-width: 120px;
+}
+
+.chat-model-picker__model {
+    margin-right: 2px;
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.chat-model-picker__menu {
+    width: 22px;
+    margin-right: 2px;
+}
+
+.chat-model-picker__detect {
+    margin-right: 6px;
+}
+
+.chat-model-picker__hint {
+    color: var(--muted-text);
+    -unity-font-style: italic;
+    white-space: normal;
+    min-width: 0;
+    font-size: 11px;
+    margin-top: 2px;
+}
+
+.chat-model-picker__hint--warn {
+    color: var(--molca-status-warn);
+    -unity-font-style: normal;
+}

@@ -109,7 +109,6 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("Per-model USD-per-million-token price overrides for the session cost estimate. Model is substring-matched (e.g. 'claude-opus'); shipped defaults apply to anything not overridden.")]
         [SerializeField] private List<ModelPriceOverride> modelPriceOverrides = new List<ModelPriceOverride>();
 
-        [Header("Research Sub-Agents (Sprint 56)")]
         [Tooltip("Maximum read-only research sub-agents the model may spawn per turn. A hard cap so a runaway swarm can't cost more than it saves.")]
         [SerializeField] private int maxSubAgentsPerTurn = 4;
 
@@ -122,7 +121,6 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("Per-response output-token ceiling for a sub-agent (kept modest — a sub-agent returns a short digest).")]
         [SerializeField] private int subAgentMaxTokens = 2048;
 
-        [Header("Resilience (Sprint 68)")]
         [Tooltip("Maximum HTTP attempts per model call, including the first (1 disables retry). A transient 429/5xx/timeout is retried with backoff up to this cap before the turn surfaces an error.")]
         [SerializeField] private int retryMaxAttempts = 3;
 

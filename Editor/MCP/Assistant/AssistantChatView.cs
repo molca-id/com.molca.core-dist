@@ -33,6 +33,7 @@ namespace Molca.Editor.Mcp.Assistant
 
         private AssistantTranscriptView _transcript;
         private AssistantComposer _composer;
+        private AssistantModelPicker _modelPicker;
 
         private Label _status;
         private Label _lastQuestionBanner;
@@ -93,6 +94,12 @@ namespace Molca.Editor.Mcp.Assistant
 
             _composer = new AssistantComposer(this, _controller,
                 onSend: SendCurrent, onStop: StopCurrent, onAddContext: ShowAddContextMenu);
+
+            // In-window provider + model switcher (Sprint 71). Sits at the top of the composer card so
+            // switching backends never requires a Hub round-trip; it applies to the next turn and persists.
+            _modelPicker = new AssistantModelPicker(_settings, _controller, RefreshTranscript);
+            var composerRoot = this.Q<VisualElement>("composer");
+            composerRoot?.Insert(0, _modelPicker.Root);
 
             _promptBar = this.Q<VisualElement>("prompt-bar");
             _promptBarQuestion = this.Q<Label>("prompt-bar-question");
@@ -264,15 +271,18 @@ namespace Molca.Editor.Mcp.Assistant
 
             var status = _settings.GetStatus(out var message);
             var busy = _controller.IsBusy;
-            // Show the active chat's title alongside the ready/model line so the current session is obvious.
-            // Prefer the LLM-generated session title; fall back to the derived first-message title until the
-            // chat has been auto-named.
+            // The provider/model now live in the in-window picker (Sprint 71), so the header shows the chat
+            // title (not the redundant model line) prefixed by the config status dot; the full ready/model
+            // detail is preserved on the tooltip. Prefer the LLM-generated session title, fall back to the
+            // derived first-message title, then "New chat" until the chat is auto-named.
             var title = !string.IsNullOrWhiteSpace(_controller.CurrentSessionTitle)
                 ? _controller.CurrentSessionTitle
                 : AssistantSessionLibrary.DeriveTitle(_controller.Transcript);
-            var titleSuffix = string.IsNullOrEmpty(title) || title == "New chat" ? string.Empty : $"  —  {title}";
-            _status.text = busy ? "Thinking…" : $"{StatusIcon(status)} {message}{titleSuffix}";
+            if (string.IsNullOrEmpty(title)) title = "New chat";
+            _status.text = busy ? "Thinking…" : $"{StatusIcon(status)} {title}";
+            _status.tooltip = message;
             _composer.SetBusy(busy);
+            _modelPicker?.SetBusy(busy);
             _composer.UpdateTokenEstimate();
             UpdateLastQuestionBanner(busy);
             UpdateToolProgress(busy);

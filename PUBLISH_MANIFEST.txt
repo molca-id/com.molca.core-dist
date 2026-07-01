@@ -1,11 +1,14 @@
-﻿com.molca.core@1.10.7
-Published: 2026-07-01 02:03:28Z
-Source commit: 1b6080bd
-Files: 1398
+﻿com.molca.core@1.11.1
+Published: 2026-07-01 13:48:07Z
+Source commit: fedbc5d7
+Files: 1407
 
 CHANGELOG.md
 CHANGELOG.md.meta
 Documentation~/README.md
+Documentation~/reference/ASSISTANT_COHERENCE.md
+Documentation~/reference/ASSISTANT_EVAL_HARNESS.md
+Documentation~/reference/ASSISTANT_MODEL_SWITCHER.md
 Documentation~/reference/ASSISTANT_RESILIENCE.md
 Documentation~/reference/ASSISTANT_TEXT_TOOL_PROTOCOL.md
 Documentation~/reference/CORE_MCP_TOOLS.md
@@ -349,6 +352,10 @@ Editor/MCP/Assistant/AssistantEditorContext.cs
 Editor/MCP/Assistant/AssistantEditorContext.cs.meta
 Editor/MCP/Assistant/AssistantHttp.cs
 Editor/MCP/Assistant/AssistantHttp.cs.meta
+Editor/MCP/Assistant/AssistantModelCatalog.cs
+Editor/MCP/Assistant/AssistantModelCatalog.cs.meta
+Editor/MCP/Assistant/AssistantModelPicker.cs
+Editor/MCP/Assistant/AssistantModelPicker.cs.meta
 Editor/MCP/Assistant/AssistantSessionLibrary.cs
 Editor/MCP/Assistant/AssistantSessionLibrary.cs.meta
 Editor/MCP/Assistant/AssistantSessionStore.cs
@@ -741,6 +748,8 @@ Editor/Settings/MolcaEditorSettings.cs
 Editor/Settings/MolcaEditorSettings.cs.meta
 Editor/Settings/MolcaEditorSettingsAsset.cs
 Editor/Settings/MolcaEditorSettingsAsset.cs.meta
+Editor/Settings/MolcaEditorSettingsEditor.cs
+Editor/Settings/MolcaEditorSettingsEditor.cs.meta
 Editor/Settings/MolcaSettingsProvider.cs
 Editor/Settings/MolcaSettingsProvider.cs.meta
 Editor/Settings/Notification.meta

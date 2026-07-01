@@ -461,6 +461,59 @@ namespace Molca.Editor.Mcp.Assistant
             return null;
         }
 
+        /// <summary>
+        /// Detects a required string argument that is missing or empty/whitespace-only before an Action tool
+        /// runs (Sprint 72). Unlike <see cref="DetectPlaceholderArguments"/> (a Text-transport phrase check),
+        /// this reads the tool's JSON-schema <c>required</c> list and works on <b>both</b> transports — the
+        /// blank <c>targets:""</c> that reached FunctionCalling is exactly the gap it closes. Returns a
+        /// corrective error-result JSON steering the model to discover the real value, or <c>null</c> when
+        /// every required string argument is present and non-blank.
+        /// </summary>
+        /// <param name="inputSchemaJson">The tool's input JSON schema (properties + required array).</param>
+        /// <param name="argumentsJson">The model-supplied arguments JSON for the call.</param>
+        /// <returns>Corrective error JSON, or <c>null</c> when no required string argument is blank.</returns>
+        internal static string DetectBlankRequiredArgument(string inputSchemaJson, string argumentsJson)
+        {
+            if (string.IsNullOrWhiteSpace(inputSchemaJson)) return null;
+            JObject schema;
+            try { schema = JObject.Parse(inputSchemaJson); }
+            catch { return null; }
+
+            if (schema["required"] is not JArray required || required.Count == 0) return null;
+            var properties = schema["properties"] as JObject;
+
+            JObject args = null;
+            if (!string.IsNullOrWhiteSpace(argumentsJson))
+                try { args = JObject.Parse(argumentsJson); } catch { args = null; }
+
+            foreach (var req in required)
+            {
+                var name = (string)req;
+                if (string.IsNullOrEmpty(name)) continue;
+
+                // Only guard required *string* arguments; a missing object/array/number is a different error
+                // the tool itself reports, and an empty string is the specific "doomed call" case we saw.
+                var propType = (string)properties?[name]?["type"];
+                if (!string.Equals(propType, "string", StringComparison.Ordinal)) continue;
+
+                var value = args?[name];
+                var blank = value == null
+                    || value.Type == JTokenType.Null
+                    || (value.Type == JTokenType.String && string.IsNullOrWhiteSpace((string)value));
+                if (!blank) continue;
+
+                return new JObject
+                {
+                    ["error"] =
+                        $"The required '{name}' argument was empty, so the action was not run. Do not call an " +
+                        "action with a blank target. First find the real value with a discovery tool (e.g. " +
+                        "molca_unity_scene_objects, optionally filtered by nameContains/componentType), then " +
+                        $"retry this call with a concrete '{name}'."
+                }.ToString(Newtonsoft.Json.Formatting.None);
+            }
+            return null;
+        }
+
         private static bool ValueLooksLikePlaceholder(JToken value)
         {
             if (value == null) return false;

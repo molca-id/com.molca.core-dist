@@ -89,22 +89,47 @@ namespace Molca.Editor.Hub.Sections
                 configCard.Body.Add(weakWarning);
             }
 
+            // Essentials — the handful most users touch. Everything else lives under Advanced (Sprint 71.1),
+            // collapsed by default, so the card isn't a wall of knobs.
             configCard.Body.Add(BoundRow(so, "maxTokens", "Max Tokens"));
-            configCard.Body.Add(BoundRow(so, "maxToolRounds", "Max Tool Rounds"));
-            configCard.Body.Add(BoundRow(so, "toolExposure", "Tool Exposure"));
-            configCard.Body.Add(BoundRow(so, "toolCallTransport", "Tool Call Transport"));
             configCard.Body.Add(BoundRow(so, "streamResponses", "Stream Responses"));
-            configCard.Body.Add(BoundRow(so, "autoCompact", "Auto Compact"));
-            configCard.Body.Add(BoundRow(so, "autoCompactThreshold", "Auto Compact Threshold"));
-            configCard.Body.Add(BoundRow(so, "compactToolResultsFirst", "Compact Tool Results First"));
-            configCard.Body.Add(BoundRow(so, "keepRecentToolResultTurns", "Keep Recent Tool-Result Turns"));
-            configCard.Body.Add(BoundRow(so, "proactiveRetrieval", "Proactive Retrieval"));
-            configCard.Body.Add(BoundRow(so, "retrievalTokenBudget", "Retrieval Token Budget"));
+
+            // Advanced: grouped, collapsible, and remembered per user via the view-data key. Includes the
+            // tool-use, compaction, resilience, research sub-agent (Sprint 56), and cost-override knobs that
+            // were previously either buried in a flat list or not surfaced in the Hub at all.
+            var advanced = new Foldout { text = "Advanced settings", value = false, viewDataKey = "molca-assistant-advanced" };
+            advanced.AddToClassList("molca-hub-assistant-advanced");
+            configCard.Body.Add(advanced);
+
+            AddGroupHeading(advanced, "Tool Use");
+            advanced.Add(BoundRow(so, "maxToolRounds", "Max Tool Rounds"));
+            advanced.Add(BoundRow(so, "toolExposure", "Tool Exposure"));
+            advanced.Add(BoundRow(so, "toolCallTransport", "Tool Call Transport"));
+
+            AddGroupHeading(advanced, "Context & Compaction");
+            advanced.Add(BoundRow(so, "autoCompact", "Auto Compact"));
+            advanced.Add(BoundRow(so, "autoCompactThreshold", "Auto Compact Threshold"));
+            advanced.Add(BoundRow(so, "compactToolResultsFirst", "Compact Tool Results First"));
+            advanced.Add(BoundRow(so, "keepRecentToolResultTurns", "Keep Recent Tool-Result Turns"));
+            advanced.Add(BoundRow(so, "proactiveRetrieval", "Proactive Retrieval"));
+            advanced.Add(BoundRow(so, "retrievalTokenBudget", "Retrieval Token Budget"));
 
             // Resilience knobs (Sprint 68): transport retry cap, unproductive-loop breaker, per-result size cap.
-            configCard.Body.Add(BoundRow(so, "retryMaxAttempts", "Retry Max Attempts"));
-            configCard.Body.Add(BoundRow(so, "loopBreakThreshold", "Loop-Break Threshold"));
-            configCard.Body.Add(BoundRow(so, "maxToolResultChars", "Max Tool-Result Chars"));
+            AddGroupHeading(advanced, "Resilience");
+            advanced.Add(BoundRow(so, "retryMaxAttempts", "Retry Max Attempts"));
+            advanced.Add(BoundRow(so, "loopBreakThreshold", "Loop-Break Threshold"));
+            advanced.Add(BoundRow(so, "maxToolResultChars", "Max Tool-Result Chars"));
+
+            // Research sub-agents (Sprint 56): read-only research swarm caps — now surfaced in the Hub.
+            AddGroupHeading(advanced, "Research Sub-Agents");
+            advanced.Add(BoundRow(so, "maxSubAgentsPerTurn", "Max Sub-Agents / Turn"));
+            advanced.Add(BoundRow(so, "subAgentConcurrency", "Sub-Agent Concurrency"));
+            advanced.Add(BoundRow(so, "subAgentMaxRounds", "Sub-Agent Max Rounds"));
+            advanced.Add(BoundRow(so, "subAgentMaxTokens", "Sub-Agent Max Tokens"));
+
+            // Cost: per-model price overrides for the session cost estimate (a list — full-width field).
+            AddGroupHeading(advanced, "Cost");
+            advanced.Add(BoundListField(so, "modelPriceOverrides", "Model Price Overrides"));
 
             // Provider change flips the Base-URL row and the key env-var, so the card is rebuilt — but only
             // on a real change. PropertyField fires SerializedPropertyChangeEvent on every bind too; without
@@ -259,6 +284,26 @@ namespace Molca.Editor.Hub.Sections
             container.Add(state);
 
             return container;
+        }
+
+        /// <summary>Adds a small group subheading inside the Advanced foldout.</summary>
+        private static void AddGroupHeading(VisualElement parent, string text)
+        {
+            var heading = new Label(text);
+            heading.AddToClassList("molca-hub-bv-option-heading");
+            parent.Add(heading);
+        }
+
+        /// <summary>
+        /// A full-width bound <see cref="PropertyField"/> for a non-scalar property (e.g. a list), which the
+        /// label+control <see cref="BoundRow"/> layout doesn't suit. Keeps the property's own foldout/label.
+        /// </summary>
+        private static VisualElement BoundListField(SerializedObject so, string propertyName, string label)
+        {
+            var property = so.FindProperty(propertyName);
+            var field = new PropertyField(property, label);
+            field.BindProperty(property);
+            return field;
         }
 
         private static VisualElement BoundRow(SerializedObject so, string propertyName, string label) =>

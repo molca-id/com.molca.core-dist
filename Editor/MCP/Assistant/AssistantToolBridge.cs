@@ -297,6 +297,16 @@ namespace Molca.Editor.Mcp.Assistant
                         isError: true);
                 }
 
+                // Blank-argument guard (Sprint 72): a required string argument that is empty/whitespace is a
+                // doomed call (the model guessed a target it hasn't discovered). Intercept it before it runs —
+                // on both transports — with a corrective result steering to filtered discovery.
+                var blankError = AssistantTextToolProtocol.DetectBlankRequiredArgument(tool.InputSchemaJson, args);
+                if (blankError != null)
+                {
+                    McpActionAuditLog.Record(tool.Name, args, "chat", "refused", "blank required argument");
+                    return new LlmToolResult(call.Id, blankError, isError: true);
+                }
+
                 bool confirmed;
                 if (confirmActionAsync != null)
                     confirmed = await confirmActionAsync(tool, args, cancellationToken);

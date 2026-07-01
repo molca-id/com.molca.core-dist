@@ -88,6 +88,50 @@ namespace Molca.Editor.Mcp.Assistant
         }
 
         /// <summary>
+        /// Performs a single GET and returns the response (Sprint 71). Used for model discovery
+        /// (Ollama <c>/api/tags</c>, OpenAI-compatible <c>/models</c>): a short, non-streaming, non-retried
+        /// request that resolves on the main thread like <see cref="PostAsync"/>. A transport fault (endpoint
+        /// down) is caught and surfaced as a non-success <see cref="AssistantHttpResult"/> rather than thrown,
+        /// so callers can degrade to free-text without a try/catch.
+        /// </summary>
+        /// <param name="url">Target endpoint.</param>
+        /// <param name="headers">Optional request headers (e.g. an Authorization bearer for a secured endpoint).</param>
+        /// <param name="timeoutSeconds">Per-request timeout; kept short so an unreachable endpoint fails fast.</param>
+        /// <param name="cancellationToken">Cancels the request (surfaces as <see cref="OperationCanceledException"/>).</param>
+        public static async Awaitable<AssistantHttpResult> GetAsync(
+            string url, IReadOnlyDictionary<string, string> headers, int timeoutSeconds, CancellationToken cancellationToken)
+        {
+            var task = Task.Run(async () =>
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(timeoutSeconds) };
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                if (headers != null)
+                    foreach (var kv in headers)
+                        req.Headers.TryAddWithoutValidation(kv.Key, kv.Value);
+                using var resp = await client.SendAsync(req, HttpCompletionOption.ResponseContentRead, cancellationToken)
+                    .ConfigureAwait(false);
+                var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                return new AssistantHttpResult((int)resp.StatusCode, resp.IsSuccessStatusCode, body);
+            }, cancellationToken);
+
+            while (!task.IsCompleted)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await EditorUpdateAwaiter.NextAsync(cancellationToken);
+            }
+
+            // A caller-cancel rethrows; any other transport fault degrades to a synthetic non-success result so
+            // discovery can fall back to free-text instead of surfacing an exception to the UI.
+            if (task.IsFaulted)
+            {
+                var ex = task.Exception?.GetBaseException();
+                if (ex is OperationCanceledException && cancellationToken.IsCancellationRequested) throw ex;
+                return new AssistantHttpResult(0, false, ex?.Message ?? "GET request failed.");
+            }
+            return task.Result;
+        }
+
+        /// <summary>
         /// Drives the bounded retry policy around a single-attempt delegate (Sprint 68). Extracted from
         /// <see cref="PostAsync"/> so tests can inject a scripted <paramref name="attempt"/> and a no-op
         /// <paramref name="delay"/> to exercise retry/backoff/give-up/cancellation deterministically without a

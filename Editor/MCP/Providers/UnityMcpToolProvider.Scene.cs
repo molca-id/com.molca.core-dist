@@ -18,11 +18,15 @@ namespace Molca.Editor.Mcp.Providers
         private static McpToolDefinition CreateSceneObjectsTool() => new McpToolDefinition(
             name: "molca_unity_scene_objects",
             description: "Lists GameObjects in the loaded scene(s) with their hierarchy path, active state, "
-                       + "instance id, and component type names. Optional 'nameContains' filters by "
-                       + "substring; 'limit' caps results (default 200).",
+                       + "instance id, and component type names. Prefer a filtered call: 'nameContains' "
+                       + "filters by name substring and 'componentType' filters by attached component type "
+                       + "name substring (e.g. 'Light', 'Rigidbody', 'MeshRenderer'); 'limit' caps results "
+                       + "(default 200). Use a filter when the user names a specific object or kind rather "
+                       + "than dumping the whole scene.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
                 "\"nameContains\":{\"type\":\"string\",\"description\":\"Case-insensitive name substring filter.\"}," +
+                "\"componentType\":{\"type\":\"string\",\"description\":\"Case-insensitive attached-component type-name substring filter (e.g. 'Light', 'Rigidbody').\"}," +
                 "\"limit\":{\"type\":\"integer\",\"description\":\"Max entries to return (default 200).\"}}," +
                 "\"additionalProperties\":false}",
             execute: ExecuteSceneObjects,
@@ -33,6 +37,7 @@ namespace Molca.Editor.Mcp.Providers
         {
             var args = ParseArgs(argumentsJson);
             var filter = args.Value<string>("nameContains");
+            var componentFilter = args.Value<string>("componentType");
             var limit = args["limit"] != null ? Math.Max(1, args.Value<int>("limit")) : 200;
 
             var entries = new JArray();
@@ -47,6 +52,15 @@ namespace Molca.Editor.Mcp.Providers
                         go.name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0)
                         continue;
 
+                    var componentNames = go.GetComponents<Component>()
+                        .Where(c => c != null).Select(c => c.GetType().Name).ToArray();
+
+                    // Filter by attached component type name (substring, case-insensitive) so the model can
+                    // find "the lights" / "objects with a Rigidbody" without dumping the whole scene.
+                    if (!string.IsNullOrEmpty(componentFilter) &&
+                        !componentNames.Any(n => n.IndexOf(componentFilter, StringComparison.OrdinalIgnoreCase) >= 0))
+                        continue;
+
                     if (entries.Count >= limit) { truncated = true; break; }
 
                     entries.Add(new JObject
@@ -55,8 +69,7 @@ namespace Molca.Editor.Mcp.Providers
                         ["name"] = go.name,
                         ["active"] = go.activeSelf,
                         ["instanceId"] = go.GetInstanceID(),
-                        ["components"] = new JArray(go.GetComponents<Component>()
-                            .Where(c => c != null).Select(c => c.GetType().Name))
+                        ["components"] = new JArray(componentNames)
                     });
                 }
             }
