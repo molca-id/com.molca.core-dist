@@ -2,6 +2,31 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.11.3] - 2026-07-01
+
+### Added
+- **Onboarding Wizard (`Molca > Onboarding Wizard`), implementing the Sprint 63.7 contract.** Standalone,
+  post-compile-only window with independent, idempotent setup steps: seed/open the consumer-space
+  `MolcaProjectSettings` clone; run the SDK's Quick Setup (via reflection — Core never references the SDK
+  assembly, so the card only appears when an SDK layer is installed); generate a project-root `CLAUDE.md`
+  stub pointing at installed packages' `Documentation~/reference/` (only when absent, never overwrites);
+  build the MCP proxy (reuses `McpProxyBuilder`); optional Doctor smoke test and knowledge-graph build.
+  A one-time `InitializeOnLoadMethod` offers to open it on a genuinely fresh install (no live
+  `MolcaProjectSettings` asset yet), deferred past first compile and never shown again after either choice.
+
+### Fixed
+- **Core no longer depends on an SDK-layer asset.** `Confirmation Short.prefab` / `Confirmation
+  Detailed.prefab` under `Runtime/Modals/` were Prefab Variants of `com.molca.sdk`'s
+  `Runtime/Prefabs/UI/Button.prefab` — a reverse dependency the layer model forbids, and the cause of the
+  "Problem detected while importing the Prefab file... Missing Prefab with guid 5addbc44..." error on a
+  fresh install (an import-order race between the two packages). Both prefabs moved to
+  `com.molca.sdk`'s `Runtime/Prefabs/Modals/` (guids unchanged, so the SDK's `Runtime Manager.prefab`
+  reference resolves without changes); see `com.molca.sdk` 0.2.2.
+- **`BootstrapAssetValidator` error messages now say what to do.** The `RuntimeManager`/`GlobalSettings`
+  null-reference errors on a fresh install pointed at "assign an asset" with no indication that
+  `Molca > SDK > Quick Setup > Install Starter Settings` seeds them; the messages now name that menu path
+  (or the new Onboarding Wizard, which drives the same command).
+
 ## [1.11.2] - 2026-07-01
 
 ### Fixed

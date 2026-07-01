@@ -1,8 +1,9 @@
-com.molca.core@1.11.2
-Published: 2026-07-01 08:45:08Z
-Source commit: 9db2db6b
-Files: 1403
+com.molca.core@1.11.3
+Published: 2026-07-01 09:20:21Z
+Source commit: ffeedb2b
+Files: 1409
 
+.gitignore
 CHANGELOG.md
 CHANGELOG.md.meta
 Documentation~/README.md
@@ -571,6 +572,11 @@ Editor/Notifications/NotificationSettingsEditor.cs
 Editor/Notifications/NotificationSettingsEditor.cs.meta
 Editor/Notifications/README.md
 Editor/Notifications/README.md.meta
+Editor/Onboarding.meta
+Editor/Onboarding/OnboardingWizardView.cs
+Editor/Onboarding/OnboardingWizardView.cs.meta
+Editor/Onboarding/OnboardingWizardWindow.cs
+Editor/Onboarding/OnboardingWizardWindow.cs.meta
 Editor/ReferenceSystem.meta
 Editor/ReferenceSystem/RefIdEditorUtility.cs
 Editor/ReferenceSystem/RefIdEditorUtility.cs.meta
@@ -864,6 +870,10 @@ Editor/Validation/Validators/ReferenceResolutionValidator.cs
 Editor/Validation/Validators/ReferenceResolutionValidator.cs.meta
 Editor/Validation/Validators/StructuralFlowValidator.cs
 Editor/Validation/Validators/StructuralFlowValidator.cs.meta
+FORK_GUIDE.md
+FORK_GUIDE.md.meta
+README.md
+README.md.meta
 Runtime.meta
 Runtime/Attributes.meta
 Runtime/Attributes/DependsOnAttribute.cs
@@ -1040,10 +1050,6 @@ Runtime/Localization/Styles/Default-Title LTSI.asset.meta
 Runtime/Modals.meta
 Runtime/Modals/BaseModal.cs
 Runtime/Modals/BaseModal.cs.meta
-Runtime/Modals/Confirmation Detailed.prefab
-Runtime/Modals/Confirmation Detailed.prefab.meta
-Runtime/Modals/Confirmation Short.prefab
-Runtime/Modals/Confirmation Short.prefab.meta
 Runtime/Modals/Modal Loading.prefab
 Runtime/Modals/Modal Loading.prefab.meta
 Runtime/Modals/Modal Message.prefab

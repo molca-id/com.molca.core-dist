@@ -49,14 +49,19 @@ namespace Molca.Editor.Settings
             if (projectSettings.RuntimeManager == null)
             {
                 Debug.LogError($"{LogPrefix} MolcaProjectSettings.RuntimeManager prefab reference is null. " +
-                               "Assign a RuntimeManager prefab on the project settings asset.", projectSettings);
+                               "Assign a RuntimeManager prefab on the project settings asset. If you're on an SDK " +
+                               "layer (e.g. com.molca.sdk), run Molca > SDK > Quick Setup > Install Starter Settings " +
+                               "first — it seeds this along with the rest of the starter config.", projectSettings);
             }
 
             var globalSettings = projectSettings.GlobalSettings;
             if (globalSettings == null)
             {
                 Debug.LogError($"{LogPrefix} MolcaProjectSettings.GlobalSettings reference is null. " +
-                               "Assign a GlobalSettings asset on the project settings asset.", projectSettings);
+                               "Assign a GlobalSettings asset on the project settings asset. If you're on an SDK " +
+                               "layer (e.g. com.molca.sdk), run Molca > SDK > Quick Setup > Install Starter Settings " +
+                               "to seed a starter GlobalSettings under Assets/_MolcaSDK/Settings/ — the shipped " +
+                               "project-settings template already points at it once that command has run.", projectSettings);
             }
             else
             {

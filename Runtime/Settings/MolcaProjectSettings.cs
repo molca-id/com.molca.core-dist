@@ -250,6 +250,15 @@ namespace Molca
 
 #if UNITY_EDITOR
         /// <summary>
+        /// True if the live, consumer-space settings asset (<see cref="ASSET_PATH"/>) already exists on
+        /// disk. Unlike <see cref="Instance"/>, this never creates it — used by first-run checks (e.g.
+        /// the Onboarding Wizard's auto-offer) that need to know whether the project is genuinely fresh
+        /// without triggering the clone-on-first-access side effect.
+        /// </summary>
+        public static bool LiveAssetExists =>
+            AssetDatabase.LoadAssetAtPath<MolcaProjectSettings>(ASSET_PATH) != null;
+
+        /// <summary>
         /// Seeds the live project instance at <see cref="ASSET_PATH"/> when none exists yet.
         /// Clones the read-only package default at <see cref="DEFAULT_TEMPLATE_PATH"/> into
         /// consumer space so the Core package is never written to; falls back to a fresh
