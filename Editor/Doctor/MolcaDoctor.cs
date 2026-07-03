@@ -15,36 +15,14 @@ namespace Molca.Editor.Doctor
     /// </summary>
     public static class MolcaDoctor
     {
-        /// <summary>All registered checks, in execution order.</summary>
-        public static IReadOnlyList<IDoctorCheck> Checks { get; } = new IDoctorCheck[]
-        {
-            new StaticSingletonUsageCheck(),
-            new RuntimeSoWriteCheck(),
-            new MissingFinishCallbackCheck(),
-            new InjectResolutionCheck(),
-            new SceneObjectReferenceCheck(),
-            new BuildScenesCheck(),
-            new ColorIDReferenceValidityCheck(),
-            new ColorIDReferenceEarlyAccessCheck(),
-            new DynamicLocalizationLocaleValidityCheck(),
-            new DynamicLocalizationInitContractCheck(),
-            new VersionSettingsCheck(),
-            new BuildProfileCheck(),
-            new ContentPackageCheck(),
-            new DesignLanguageCheck(),
-            new HttpHardcodedUrlCheck(),
-            new HttpResponseSuccessMisuseCheck(),
-            new HttpUnredactedLoggingCheck(),
-            new DataProviderLifetimeTokenCheck(),
-            new SequenceValidationCheck(),
-            // Scene-performance audit (Sprint 50) — static scene-graph checks, ids prefixed "scene-".
-            new SceneStructureCheck(),
-            new ScenePolygonBudgetCheck(),
-            new SceneTextureBudgetCheck(),
-            new SceneInstancingBudgetCheck(),
-            new SceneLightingBudgetCheck(),
-            new SubsystemPlacementHintCheck(),
-        };
+        /// <summary>
+        /// All registered checks, in execution order. Discovered by
+        /// <see cref="DoctorCheckRegistry"/>: Core's built-in checks plus any authored by an SDK layer
+        /// or consumer project. Implement <see cref="IDoctorCheck"/> (public parameterless constructor,
+        /// unique kebab-case <see cref="IDoctorCheck.Id"/>) in an Editor assembly to add a check — no
+        /// Core edit required.
+        /// </summary>
+        public static IReadOnlyList<IDoctorCheck> Checks => DoctorCheckRegistry.Checks;
 
         /// <summary>
         /// Runs every enabled check asynchronously and returns all findings, reporting

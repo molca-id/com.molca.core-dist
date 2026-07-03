@@ -1,7 +1,7 @@
-﻿com.molca.core@1.12.0
-Published: 2026-07-04 00:22:02Z
-Source commit: a8f126d0
-Files: 1423
+﻿com.molca.core@1.12.1
+Published: 2026-07-04 00:48:15Z
+Source commit: 00d48475
+Files: 1426
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -17,6 +17,7 @@ Documentation~/reference/ASSISTANT_TEXT_TOOL_PROTOCOL.md
 Documentation~/reference/ASSISTANT_VISION.md
 Documentation~/reference/ASSISTANT_WEB_TOOLS.md
 Documentation~/reference/CORE_MCP_TOOLS.md
+Documentation~/reference/DOCTOR_CHECKS.md
 Documentation~/reference/EDITOR_DESIGN_LANGUAGE.md
 Documentation~/reference/FIGMA_TO_UGUI.md
 Documentation~/reference/KNOWLEDGE_GRAPH.md
@@ -190,6 +191,8 @@ Editor/Doctor/Checks/StaticSingletonUsageCheck.cs
 Editor/Doctor/Checks/StaticSingletonUsageCheck.cs.meta
 Editor/Doctor/Checks/VersionSettingsCheck.cs
 Editor/Doctor/Checks/VersionSettingsCheck.cs.meta
+Editor/Doctor/DoctorCheckRegistry.cs
+Editor/Doctor/DoctorCheckRegistry.cs.meta
 Editor/Doctor/DoctorContext.cs
 Editor/Doctor/DoctorContext.cs.meta
 Editor/Doctor/DoctorIssue.cs

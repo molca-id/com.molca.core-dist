@@ -23,6 +23,14 @@ All notable changes to Molca Core will be documented here.
   listing on `molca_unity_scene_objects`.
 - **Auto-index installed Core/SDK packages** for knowledge-graph retrieval.
 
+## [1.12.1] - 2026-07-04
+
+### Added
+- **Extensible Molca Doctor.** Doctor checks are now discovered via `DoctorCheckRegistry` (TypeCache),
+  so an SDK layer or consumer project adds a check simply by implementing `IDoctorCheck` in an Editor
+  assembly — no Core edit. Core's built-in checks keep their curated order; discovered checks follow,
+  sorted by `Id`. Duplicate/empty ids are rejected loudly. See `Documentation~/reference/DOCTOR_CHECKS.md`.
+
 ## [1.11.3] - 2026-07-01
 
 ### Added
