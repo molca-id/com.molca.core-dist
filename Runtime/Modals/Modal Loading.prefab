@@ -301,8 +301,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: Loading...
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 31c529f294991ef41a24e124f1ea85b6, type: 2}
-  m_sharedMaterial: {fileID: 121198610775760379, guid: 31c529f294991ef41a24e124f1ea85b6, type: 2}
+  m_fontAsset: {fileID: 0}
+  m_sharedMaterial: {fileID: 0}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -382,7 +382,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9602d7ec85270384991e813ac98e4789, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  styleInfo: {fileID: 11400000, guid: 2bba64f86281e3546a1996aa1639af12, type: 2}
+  styleInfo: {fileID: 0}
   localizedString:
     m_TableReference:
       m_TableCollectionName: 

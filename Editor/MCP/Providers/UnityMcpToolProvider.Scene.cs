@@ -18,15 +18,19 @@ namespace Molca.Editor.Mcp.Providers
         private static McpToolDefinition CreateSceneObjectsTool() => new McpToolDefinition(
             name: "molca_unity_scene_objects",
             description: "Lists GameObjects in the loaded scene(s) with their hierarchy path, active state, "
-                       + "instance id, and component type names. Prefer a filtered call: 'nameContains' "
-                       + "filters by name substring and 'componentType' filters by attached component type "
-                       + "name substring (e.g. 'Light', 'Rigidbody', 'MeshRenderer'); 'limit' caps results "
-                       + "(default 200). Use a filter when the user names a specific object or kind rather "
-                       + "than dumping the whole scene.",
+                       + "instance id, component type names, and (for Steps) their auxiliary type names. This "
+                       + "is the discovery primitive: filter to find the objects you need, then act on the "
+                       + "returned path/instanceId with any action tool. Filters (all case-insensitive, "
+                       + "combinable): 'nameContains' by name; 'componentType' by attached component type (e.g. "
+                       + "'Light', 'Rigidbody', 'MeshRenderer'); 'auxiliaryType' by a Step's serialized "
+                       + "auxiliary type (e.g. 'Hint', 'Timer') — auxiliaries are SerializeReference data on a "
+                       + "Step, not components, so 'componentType' will not find them. 'limit' caps results "
+                       + "(default 200). Prefer a filter over dumping the whole scene.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
                 "\"nameContains\":{\"type\":\"string\",\"description\":\"Case-insensitive name substring filter.\"}," +
                 "\"componentType\":{\"type\":\"string\",\"description\":\"Case-insensitive attached-component type-name substring filter (e.g. 'Light', 'Rigidbody').\"}," +
+                "\"auxiliaryType\":{\"type\":\"string\",\"description\":\"Case-insensitive filter matching a Step's serialized auxiliary type name (e.g. 'Hint', 'Timer'). Use this, not componentType, to find Steps by auxiliary.\"}," +
                 "\"limit\":{\"type\":\"integer\",\"description\":\"Max entries to return (default 200).\"}}," +
                 "\"additionalProperties\":false}",
             execute: ExecuteSceneObjects,
@@ -38,6 +42,7 @@ namespace Molca.Editor.Mcp.Providers
             var args = ParseArgs(argumentsJson);
             var filter = args.Value<string>("nameContains");
             var componentFilter = args.Value<string>("componentType");
+            var auxiliaryFilter = args.Value<string>("auxiliaryType");
             var limit = args["limit"] != null ? Math.Max(1, args.Value<int>("limit")) : 200;
 
             var entries = new JArray();
@@ -61,16 +66,33 @@ namespace Molca.Editor.Mcp.Providers
                         !componentNames.Any(n => n.IndexOf(componentFilter, StringComparison.OrdinalIgnoreCase) >= 0))
                         continue;
 
+                    // A Step's auxiliaries are SerializeReference data, not components, so they must be read
+                    // off the Step directly. Only Steps have them; null entries (broken SerializeReference)
+                    // are skipped so a missing script doesn't crash discovery.
+                    var step = go.GetComponent<Molca.Sequence.Step>();
+                    var auxiliaryNames = step?.Auxiliaries
+                        .Where(a => a != null).Select(a => a.GetType().Name).ToArray();
+
+                    if (!string.IsNullOrEmpty(auxiliaryFilter) &&
+                        (auxiliaryNames == null ||
+                         !auxiliaryNames.Any(n => n.IndexOf(auxiliaryFilter, StringComparison.OrdinalIgnoreCase) >= 0)))
+                        continue;
+
                     if (entries.Count >= limit) { truncated = true; break; }
 
-                    entries.Add(new JObject
+                    var entry = new JObject
                     {
                         ["path"] = GameObjectEditingService.GetHierarchyPath(go),
                         ["name"] = go.name,
                         ["active"] = go.activeSelf,
                         ["instanceId"] = go.GetInstanceID(),
                         ["components"] = new JArray(componentNames)
-                    });
+                    };
+                    // Surface auxiliaries only for Steps that have them, so the model can see what to act on
+                    // without a second per-object lookup, while non-Step entries stay unchanged.
+                    if (auxiliaryNames != null && auxiliaryNames.Length > 0)
+                        entry["auxiliaries"] = new JArray(auxiliaryNames);
+                    entries.Add(entry);
                 }
             }
 

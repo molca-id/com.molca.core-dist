@@ -52,6 +52,37 @@ namespace Molca.Editor.Mcp.Assistant
     }
 
     /// <summary>
+    /// Whether the assistant marks the stable request prefix (system prompt + tool specs) as cacheable so a
+    /// multi-round turn re-sends it as a discounted cache read rather than full-price input (Sprint 74).
+    /// </summary>
+    /// <remarks>Members are appended for serialization stability — never reorder existing values.</remarks>
+    public enum PromptCachingMode
+    {
+        /// <summary>On for cloud backends (Anthropic/OpenAI), off for the keyless Local backend.</summary>
+        Auto,
+        /// <summary>Always mark the stable prefix cacheable.</summary>
+        On,
+        /// <summary>Never request caching (every request billed as full-price input).</summary>
+        Off
+    }
+
+    /// <summary>
+    /// Pluggable web-search backend for <c>molca_web_search</c> (Sprint 75). The provider's subscription key
+    /// is a secret and lives in <see cref="AssistantWebAuth"/> (project-scoped EditorPrefs / env var), never on
+    /// the settings asset. <see cref="None"/> disables search (fetch is unaffected).
+    /// </summary>
+    /// <remarks>Members are appended for serialization stability — never reorder existing values.</remarks>
+    public enum WebSearchProviderKind
+    {
+        /// <summary>No search backend configured — <c>molca_web_search</c> degrades to a clear policy result.</summary>
+        None,
+        /// <summary>Brave Search API (GET, <c>X-Subscription-Token</c> header).</summary>
+        Brave,
+        /// <summary>Tavily Search API (POST, <c>api_key</c> in the JSON body).</summary>
+        Tavily
+    }
+
+    /// <summary>
     /// Authored configuration for the in-editor assistant chat (Sprint 16): provider, model, enable
     /// flag, and generation knobs. <b>Holds no secrets</b> — the API key lives in
     /// <see cref="AssistantApiAuth"/> (project-scoped EditorPrefs / env var), never on this asset.
@@ -87,6 +118,9 @@ namespace Molca.Editor.Mcp.Assistant
 
         [Tooltip("How tool calls are transported. Auto = Text/XML for Local models and structured function-calling for cloud providers. Text returns tool results as normal user text for weaker local models.")]
         [SerializeField] private ToolCallTransport toolCallTransport = ToolCallTransport.Auto;
+
+        [Tooltip("Mark the stable request prefix (system prompt + tool specs) as cacheable so a multi-round turn re-sends it as a discounted cache read instead of full-price input. Auto = on for cloud providers, off for the keyless Local backend.")]
+        [SerializeField] private PromptCachingMode promptCaching = PromptCachingMode.Auto;
 
         [Tooltip("Automatically summarize the oldest conversation turns when the estimated context size crosses the threshold, so long sessions keep working without manual pruning.")]
         [SerializeField] private bool autoCompact = true;
@@ -130,6 +164,29 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("Per-tool-result character ceiling. A tool result longer than this is truncated (with a marker) as it returns, so one oversized payload can't bloat the rest of the turn.")]
         [SerializeField] private int maxToolResultChars = 100000;
 
+        [Tooltip("Allow the assistant's read-only web tools (molca_web_fetch / molca_web_search) to make outbound HTTP requests. OFF by default — editor network egress is a policy choice. When on, fetch is still restricted to the host allowlist below.")]
+        [SerializeField] private bool webToolsEnabled = false;
+
+        [Tooltip("Hosts molca_web_fetch may request. An entry matches its exact host and any subdomain (e.g. 'unity3d.com' allows 'docs.unity3d.com'). A fetch to a host not listed is refused. Empty = nothing is allowed even when web tools are enabled.")]
+        [SerializeField] private List<string> webHostAllowlist = new List<string>
+        {
+            "docs.unity3d.com",
+            "docs.unity.com",
+            "learn.microsoft.com",
+            "docs.microsoft.com",
+            "github.com",
+            "raw.githubusercontent.com",
+        };
+
+        [Tooltip("Web-search backend for molca_web_search. None disables search (fetch is unaffected). The provider's subscription key is stored in project-scoped EditorPrefs / an env var, never on this asset.")]
+        [SerializeField] private WebSearchProviderKind webSearchProvider = WebSearchProviderKind.None;
+
+        [Tooltip("Maximum search results molca_web_search returns per query.")]
+        [SerializeField] private int webSearchMaxResults = 5;
+
+        [Tooltip("Reasoning / extended-thinking budget for capable models. Off (default) sends no reasoning. Low/Medium/High map to an Anthropic thinking budget or an OpenAI reasoning_effort; non-reasoning models and the Local backend ignore it. Higher levels cost more output tokens and add latency, but improve hard multi-step and plan-mode answers.")]
+        [SerializeField] private ReasoningEffort reasoningEffort = ReasoningEffort.Off;
+
         /// <summary>Whether the assistant is enabled.</summary>
         public bool Enabled { get => enabled; set => enabled = value; }
 
@@ -153,6 +210,22 @@ namespace Molca.Editor.Mcp.Assistant
 
         /// <summary>How tool calls and tool results are transported between the assistant and model (Sprint 69).</summary>
         public ToolCallTransport ToolCallTransport { get => toolCallTransport; set => toolCallTransport = value; }
+
+        /// <summary>How prompt caching of the stable request prefix is decided (Sprint 74).</summary>
+        public PromptCachingMode PromptCaching { get => promptCaching; set => promptCaching = value; }
+
+        /// <summary>
+        /// Whether to mark the stable request prefix (system prompt + tool specs) as cacheable for the
+        /// configured provider (Sprint 74). <see cref="PromptCachingMode.Auto"/> resolves to on for the cloud
+        /// backends (Anthropic explicit breakpoints, OpenAI implicit prefix caching) and off for the keyless
+        /// <see cref="LlmProviderKind.Local"/> backend, where a self-hosted runtime gains nothing from it.
+        /// </summary>
+        public bool EnablePromptCaching => promptCaching switch
+        {
+            PromptCachingMode.On => true,
+            PromptCachingMode.Off => false,
+            _ => provider != LlmProviderKind.Local
+        };
 
         /// <summary>
         /// Whether to send every tool's full schema directly (flat) rather than the tiered catalog +
@@ -254,6 +327,86 @@ namespace Molca.Editor.Mcp.Assistant
         /// of the same turn (complements the pre-turn digest/compaction tiers).
         /// </summary>
         public int MaxToolResultChars => Mathf.Clamp(maxToolResultChars, 4000, 2000000);
+
+        /// <summary>
+        /// Whether the read-only web tools (<c>molca_web_fetch</c> / <c>molca_web_search</c>) may make outbound
+        /// requests (Sprint 75). <b>Off by default</b> — editor network egress is a policy choice. When off, both
+        /// tools return an actionable policy result instead of touching the network.
+        /// </summary>
+        public bool WebToolsEnabled { get => webToolsEnabled; set => webToolsEnabled = value; }
+
+        /// <summary>
+        /// Hosts <c>molca_web_fetch</c> is permitted to request (Sprint 75). Never null. An entry matches its
+        /// exact host and any subdomain of it — see <see cref="IsHostAllowed(string)"/>.
+        /// </summary>
+        public IReadOnlyList<string> WebHostAllowlist =>
+            webHostAllowlist ?? (webHostAllowlist = new List<string>());
+
+        /// <summary>The configured web-search backend (Sprint 75). <see cref="WebSearchProviderKind.None"/> disables search.</summary>
+        public WebSearchProviderKind WebSearchProvider { get => webSearchProvider; set => webSearchProvider = value; }
+
+        /// <summary>Maximum search results <c>molca_web_search</c> returns per query, clamped (Sprint 75).</summary>
+        public int WebSearchMaxResults => Mathf.Clamp(webSearchMaxResults, 1, 20);
+
+        /// <summary>
+        /// Requested reasoning / extended-thinking budget (Sprint 76). <see cref="ReasoningEffort.Off"/> by
+        /// default (lowest cost/latency); mapped per vendor by the provider and ignored for non-reasoning
+        /// models and the Local backend. Threaded onto each turn's <see cref="LlmRequest.Reasoning"/>.
+        /// </summary>
+        public ReasoningEffort ReasoningEffort { get => reasoningEffort; set => reasoningEffort = value; }
+
+        /// <summary>
+        /// Anthropic thinking-token budget for a reasoning level (Sprint 76), or <c>0</c> for
+        /// <see cref="Molca.Editor.Mcp.Assistant.ReasoningEffort.Off"/>. Anthropic requires
+        /// <c>max_tokens &gt; budget_tokens</c>, so the provider clamps the budget below the output ceiling; these
+        /// are the nominal targets (Low ≈ 2k, Medium ≈ 8k, High ≈ 16k reasoning tokens).
+        /// </summary>
+        /// <param name="effort">The requested reasoning level.</param>
+        /// <returns>The nominal thinking-token budget, or <c>0</c> when reasoning is off.</returns>
+        public static int ThinkingBudgetFor(ReasoningEffort effort) => effort switch
+        {
+            ReasoningEffort.Low => 2048,
+            ReasoningEffort.Medium => 8192,
+            ReasoningEffort.High => 16384,
+            _ => 0
+        };
+
+        /// <summary>
+        /// The OpenAI <c>reasoning_effort</c> string for a reasoning level (Sprint 76), or <c>null</c> for
+        /// <see cref="Molca.Editor.Mcp.Assistant.ReasoningEffort.Off"/> (the field is omitted entirely).
+        /// </summary>
+        /// <param name="effort">The requested reasoning level.</param>
+        /// <returns><c>"low"</c>/<c>"medium"</c>/<c>"high"</c>, or <c>null</c> when reasoning is off.</returns>
+        public static string OpenAiReasoningEffortFor(ReasoningEffort effort) => effort switch
+        {
+            ReasoningEffort.Low => "low",
+            ReasoningEffort.Medium => "medium",
+            ReasoningEffort.High => "high",
+            _ => null
+        };
+
+        /// <summary>
+        /// Whether <paramref name="host"/> is permitted by the fetch allowlist (Sprint 75). Case-insensitive.
+        /// An allowlist entry matches the exact host or any subdomain of it (entry <c>unity3d.com</c> allows
+        /// <c>docs.unity3d.com</c> but not <c>notunity3d.com</c>). A leading <c>"*."</c> or <c>"."</c> on an
+        /// entry is tolerated. Returns <c>false</c> for a blank host or an empty allowlist.
+        /// </summary>
+        /// <param name="host">The request host (no scheme or port), e.g. <c>docs.unity3d.com</c>.</param>
+        /// <returns><c>true</c> if a fetch to <paramref name="host"/> is allowed.</returns>
+        public bool IsHostAllowed(string host)
+        {
+            if (string.IsNullOrWhiteSpace(host)) return false;
+            host = host.Trim().TrimEnd('.').ToLowerInvariant();
+            foreach (var raw in WebHostAllowlist)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                var entry = raw.Trim().TrimStart('*').TrimStart('.').TrimEnd('.').ToLowerInvariant();
+                if (entry.Length == 0) continue;
+                if (host == entry || host.EndsWith("." + entry, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
 
         /// <summary>The default model id for a provider.</summary>
         public static string DefaultModelFor(LlmProviderKind p) => p switch
@@ -367,5 +520,20 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>Loads the existing assistant settings asset, creating one at the default path if absent.</summary>
         public static AssistantSettings GetOrCreateSettings()
             => MolcaEditorSettingsAsset.GetOrCreate<AssistantSettings>("Assistant Settings.asset");
+
+        /// <summary>
+        /// Locates the project's assistant settings asset without creating one (Sprint 75). Returns <c>null</c>
+        /// when none exists. Used by the read-only web tools, which must not create config as a side effect —
+        /// no settings means web egress is off (the shipped default).
+        /// </summary>
+        public static AssistantSettings FindSettings()
+        {
+            foreach (var guid in AssetDatabase.FindAssets($"t:{nameof(AssistantSettings)}"))
+            {
+                var found = AssetDatabase.LoadAssetAtPath<AssistantSettings>(AssetDatabase.GUIDToAssetPath(guid));
+                if (found != null) return found;
+            }
+            return null;
+        }
     }
 }

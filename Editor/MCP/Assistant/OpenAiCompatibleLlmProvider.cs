@@ -69,7 +69,7 @@ namespace Molca.Editor.Mcp.Assistant
 
             var streaming = onTextDelta != null;
             var url = _baseUrl + "/chat/completions";
-            var body = BuildBody(request, streaming);
+            var body = BuildBody(request, streaming, _kind);
             // Reassignable so a streaming retry (Sprint 68) can drop a partially-filled accumulator and start
             // clean; the SSE callback closes over the variable, not the instance, so it always feeds the live one.
             var accumulator = streaming ? new OpenAiStreamAccumulator(onTextDelta) : null;
@@ -96,7 +96,10 @@ namespace Molca.Editor.Mcp.Assistant
         }
 
         /// <summary>Builds the OpenAI-compatible request body; internal for streaming-options tests (Sprint 68).</summary>
-        internal static string BuildBody(LlmRequest request, bool streaming)
+        /// <param name="request">The provider-neutral request.</param>
+        /// <param name="streaming">Whether to request an SSE stream.</param>
+        /// <param name="kind">The provider kind, so reasoning_effort is emitted only for a capable cloud model (Sprint 76).</param>
+        internal static string BuildBody(LlmRequest request, bool streaming, LlmProviderKind kind = LlmProviderKind.OpenAI)
         {
             var messages = new JArray();
 
@@ -122,8 +125,31 @@ namespace Molca.Editor.Mcp.Assistant
                             });
                         }
                     }
-                    if (!string.IsNullOrEmpty(m.Text))
+                    // A multimodal user turn (Sprint 73) sends OpenAI's content-parts array — a text part
+                    // (when present) followed by an image_url part per image, each a base64 data URL. Only a
+                    // vision-capable model reaches here with images; the controller strips them otherwise.
+                    if (m.HasImages)
+                    {
+                        var parts = new JArray();
+                        if (!string.IsNullOrEmpty(m.Text))
+                            parts.Add(new JObject { ["type"] = "text", ["text"] = m.Text });
+                        foreach (var part in m.Content)
+                        {
+                            if (part == null || part.Kind != LlmContentPartKind.Image || string.IsNullOrEmpty(part.Base64Data))
+                                continue;
+                            var mediaType = string.IsNullOrEmpty(part.MediaType) ? "image/png" : part.MediaType;
+                            parts.Add(new JObject
+                            {
+                                ["type"] = "image_url",
+                                ["image_url"] = new JObject { ["url"] = $"data:{mediaType};base64,{part.Base64Data}" }
+                            });
+                        }
+                        messages.Add(new JObject { ["role"] = "user", ["content"] = parts });
+                    }
+                    else if (!string.IsNullOrEmpty(m.Text))
+                    {
                         messages.Add(new JObject { ["role"] = "user", ["content"] = m.Text });
+                    }
                 }
                 else // Assistant
                 {
@@ -157,6 +183,17 @@ namespace Molca.Editor.Mcp.Assistant
                 ["max_tokens"] = request.MaxTokens,
                 ["messages"] = messages
             };
+
+            // Reasoning effort (Sprint 76): sent only for a reasoning-capable cloud model (o-series / GPT-5 /
+            // deepseek-reasoner). IsReasoningModel returns false for the Local kind and for non-reasoning models,
+            // so a plain gpt-4o or a local runtime never receives the field (which they'd reject).
+            if (request.Reasoning != ReasoningEffort.Off
+                && AssistantModelCatalog.IsReasoningModel(kind, request.Model))
+            {
+                var effort = AssistantSettings.OpenAiReasoningEffortFor(request.Reasoning);
+                if (effort != null) root["reasoning_effort"] = effort;
+            }
+
             if (streaming)
             {
                 root["stream"] = true;
@@ -202,7 +239,13 @@ namespace Molca.Editor.Mcp.Assistant
                 StopReason = choice?.Value<string>("finish_reason"),
                 Text = message?.Value<string>("content") ?? string.Empty,
                 PromptTokens = root["usage"]?.Value<int>("prompt_tokens") ?? 0,
-                CompletionTokens = root["usage"]?.Value<int>("completion_tokens") ?? 0
+                CompletionTokens = root["usage"]?.Value<int>("completion_tokens") ?? 0,
+                // OpenAI-compatible endpoints cache the prefix automatically past a vendor threshold and report
+                // the hit as prompt_tokens_details.cached_tokens — a subset already inside prompt_tokens
+                // (Sprint 74). There are no explicit markers and no separately-billed cache writes.
+                CacheReadInputTokens = root["usage"]?["prompt_tokens_details"]?.Value<int?>("cached_tokens") ?? 0,
+                // Reasoning models report their thinking tokens as a subset of completion_tokens (Sprint 76).
+                ReasoningTokens = root["usage"]?["completion_tokens_details"]?.Value<int?>("reasoning_tokens") ?? 0
             };
 
             if (message?["tool_calls"] is JArray toolCalls)
@@ -245,6 +288,8 @@ namespace Molca.Editor.Mcp.Assistant
             private string _finishReason;
             private int _promptTokens;
             private int _completionTokens;
+            private int _cacheReadTokens;
+            private int _reasoningTokens;
 
             public OpenAiStreamAccumulator(IProgress<string> onTextDelta) { _onTextDelta = onTextDelta; }
 
@@ -265,6 +310,8 @@ namespace Molca.Editor.Mcp.Assistant
                 {
                     _promptTokens = usage.Value<int?>("prompt_tokens") ?? _promptTokens;
                     _completionTokens = usage.Value<int?>("completion_tokens") ?? _completionTokens;
+                    _cacheReadTokens = usage["prompt_tokens_details"]?.Value<int?>("cached_tokens") ?? _cacheReadTokens;
+                    _reasoningTokens = usage["completion_tokens_details"]?.Value<int?>("reasoning_tokens") ?? _reasoningTokens;
                 }
 
                 var choice = (root["choices"] as JArray)?.Count > 0 ? root["choices"][0] : null;
@@ -308,7 +355,9 @@ namespace Molca.Editor.Mcp.Assistant
                     Text = _text.ToString(),
                     StopReason = _finishReason,
                     PromptTokens = _promptTokens,
-                    CompletionTokens = _completionTokens
+                    CompletionTokens = _completionTokens,
+                    CacheReadInputTokens = _cacheReadTokens,
+                    ReasoningTokens = _reasoningTokens
                 };
                 foreach (var kv in _tools)
                 {

@@ -103,6 +103,65 @@ namespace Molca.Editor.Mcp.Assistant
                  + Math.Max(0, outputTokens) / 1_000_000.0 * price.OutputPerMillion;
         }
 
+        /// <summary>
+        /// Price multiplier for a cache-read (cached-input) token relative to the model's normal input rate
+        /// (Sprint 74). Anthropic bills cache reads at ~0.1× input; OpenAI-compatible cached input is ~0.5×.
+        /// Substring-matched against the model id, defaulting to the more conservative 0.5×.
+        /// </summary>
+        public static double CacheReadMultiplier(string model)
+        {
+            if (!string.IsNullOrEmpty(model) && model.IndexOf("claude", StringComparison.OrdinalIgnoreCase) >= 0)
+                return 0.1;
+            return 0.5;
+        }
+
+        /// <summary>
+        /// Price multiplier for a cache-write (cache-creation) token relative to the model's normal input rate
+        /// (Sprint 74). Anthropic's 5-minute ephemeral cache write is ~1.25× input; OpenAI doesn't bill cache
+        /// writes separately (it reports none), so the multiplier is 1.0× there.
+        /// </summary>
+        public static double CacheWriteMultiplier(string model)
+        {
+            if (!string.IsNullOrEmpty(model) && model.IndexOf("claude", StringComparison.OrdinalIgnoreCase) >= 0)
+                return 1.25;
+            return 1.0;
+        }
+
+        /// <summary>
+        /// Estimated USD cost distinguishing full-price input, cache-read, and cache-write tokens (Sprint 74).
+        /// <paramref name="inputTokens"/> is the <b>full-price</b> (non-cached) input; cache reads and writes are
+        /// billed at the model's input rate scaled by <see cref="CacheReadMultiplier"/> /
+        /// <see cref="CacheWriteMultiplier"/>. Prefers a matching project <paramref name="overrides"/> entry.
+        /// </summary>
+        public static double EstimateCost(string model, long inputTokens, long outputTokens,
+            long cacheReadTokens, long cacheWriteTokens, IReadOnlyList<ModelPriceOverride> overrides)
+        {
+            var price = PriceFor(model, overrides);
+            var inRate = price.InputPerMillion / 1_000_000.0;
+            return Math.Max(0, inputTokens) * inRate
+                 + Math.Max(0, cacheReadTokens) * inRate * CacheReadMultiplier(model)
+                 + Math.Max(0, cacheWriteTokens) * inRate * CacheWriteMultiplier(model)
+                 + Math.Max(0, outputTokens) / 1_000_000.0 * price.OutputPerMillion;
+        }
+
+        /// <summary>Fallback token estimate for an image whose pixel size is unknown (Sprint 73).</summary>
+        public const int DefaultImageTokens = 1200;
+
+        /// <summary>
+        /// A rough per-image input-token estimate (Sprint 73) so a multimodal turn isn't billed as if the
+        /// image were free. Approximates the vendors' tiled formulas as <c>~(w·h)/750</c> (close to Anthropic's
+        /// guidance and the right order of magnitude for OpenAI), clamped to a sane range; falls back to
+        /// <see cref="DefaultImageTokens"/> when the dimensions are unknown. Estimate only, like every cost here.
+        /// </summary>
+        /// <param name="pixelWidth">Image width in pixels, or <c>0</c> when unknown.</param>
+        /// <param name="pixelHeight">Image height in pixels, or <c>0</c> when unknown.</param>
+        public static int EstimateImageTokens(int pixelWidth, int pixelHeight)
+        {
+            if (pixelWidth <= 0 || pixelHeight <= 0) return DefaultImageTokens;
+            var tokens = (long)pixelWidth * pixelHeight / 750L;
+            return (int)Math.Clamp(tokens, 85, 4000);
+        }
+
         /// <summary>Formats an estimated cost compactly (e.g. "$0.0123"), for read-only telemetry surfaces.</summary>
         public static string FormatCost(double usd) =>
             usd >= 0.01 ? $"${usd:0.00}" : $"${usd:0.0000}";

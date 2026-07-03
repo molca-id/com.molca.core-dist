@@ -2,6 +2,27 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.12.0] - 2026-07-04
+
+### Added
+- **Assistant multimodal image input (Sprint 73).** The in-editor assistant accepts image attachments
+  (screenshots/captures) alongside text on vision-capable models; input is gated by model capability and
+  images are cost-accounted and redaction-marked.
+- **Prompt caching (Sprint 74).** Anthropic `cache_control` breakpoints + OpenAI cached-token accounting,
+  with a stable prompt prefix so the cache stays warm across turns; cache-aware cost + hit-rate reporting
+  and an Auto/On/Off setting.
+- **Web & documentation lookup (Sprint 75).** Read-only, egress-gated `molca_web_fetch` + `molca_web_search`
+  tools (Brave/Tavily) with a host allowlist, HTML→text extraction, size caps, and redaction; disabled by
+  default.
+- **Reasoning effort (Sprint 76).** A neutral `ReasoningEffort` setting mapped to Anthropic thinking budget
+  / OpenAI reasoning effort, with a collapsed "Thought" affordance and distinct reasoning-token billing.
+- **Cross-session memory (Sprint 77).** File-backed assistant facts under `Assets/_Molca/AssistantMemory`
+  with `molca_memory_recall`/`save`/`delete` and turn-start recall injection.
+- **Scene-object tooling upgrades.** Tolerant GameObject resolution + batch targeting + asset duplication;
+  `componentType`/`nameContains` filters on `molca_unity_select`; and `auxiliaryType` filter + auxiliary
+  listing on `molca_unity_scene_objects`.
+- **Auto-index installed Core/SDK packages** for knowledge-graph retrieval.
+
 ## [1.11.3] - 2026-07-01
 
 ### Added

@@ -181,7 +181,9 @@ namespace Molca.Editor.Mcp.Assistant
                     CanPin = t.CanPin,
                     PlanApproved = t.PlanApproved,
                     PlanUndoFileId = t.PlanUndoFileId,
-                    PlanUndoGroup = t.PlanUndoGroup
+                    PlanUndoGroup = t.PlanUndoGroup,
+                    ThoughtText = t.ThoughtText,
+                    ThoughtTokens = t.ThoughtTokens
                 };
                 if (t.PlanSteps != null)
                 {
@@ -241,7 +243,9 @@ namespace Molca.Editor.Mcp.Assistant
                     PlanSteps = planSteps,
                     PlanApproved = d.PlanApproved,
                     PlanUndoFileId = d.PlanUndoFileId,
-                    PlanUndoGroup = d.PlanUndoGroup
+                    PlanUndoGroup = d.PlanUndoGroup,
+                    ThoughtText = d.ThoughtText,
+                    ThoughtTokens = d.ThoughtTokens
                 });
             }
             return list;
@@ -261,6 +265,30 @@ namespace Molca.Editor.Mcp.Assistant
                 if (m.ToolResults != null)
                     foreach (var r in m.ToolResults)
                         dto.Results.Add(new ToolResultDto { Id = r.ToolCallId, Content = r.Content, IsError = r.IsError });
+                // Reasoning blocks (Sprint 76) persist so a reloaded session can still echo them back across a
+                // tool-use turn (Anthropic's requirement) rather than dropping them and 400-ing on resume.
+                if (m.ThinkingBlocks != null)
+                    foreach (var tb in m.ThinkingBlocks)
+                        if (tb != null)
+                            dto.Thinking.Add(new ThinkingBlockDto
+                            {
+                                Kind = (int)tb.Kind, Text = tb.Text, Signature = tb.Signature, Data = tb.Data
+                            });
+                // Image content parts (Sprint 73) persist so a reloaded session keeps its visual context.
+                // Size-capped: an oversized base64 payload is dropped from the saved copy (it was still sent
+                // live) so one attachment can't bloat the session file unboundedly.
+                if (m.Content != null)
+                    foreach (var part in m.Content)
+                    {
+                        if (part == null || part.Kind != LlmContentPartKind.Image) continue;
+                        var data = part.Base64Data ?? string.Empty;
+                        if (data.Length == 0 || data.Length > MaxPersistedImageBase64Chars) continue;
+                        dto.Images.Add(new ContentPartDto
+                        {
+                            MediaType = part.MediaType, Base64 = data,
+                            Width = part.PixelWidth, Height = part.PixelHeight
+                        });
+                    }
                 list.Add(dto);
             }
             return list;
@@ -280,6 +308,18 @@ namespace Molca.Editor.Mcp.Assistant
                 if (d.Results != null)
                     foreach (var r in d.Results)
                         m.ToolResults.Add(new LlmToolResult(r.Id, r.Content, r.IsError));
+                if (d.Thinking != null)
+                    foreach (var tb in d.Thinking)
+                    {
+                        if (tb == null) continue;
+                        m.ThinkingBlocks.Add((LlmThinkingBlockKind)tb.Kind == LlmThinkingBlockKind.Redacted
+                            ? LlmThinkingBlock.Redacted(tb.Data)
+                            : LlmThinkingBlock.Thinking(tb.Text, tb.Signature));
+                    }
+                if (d.Images != null)
+                    foreach (var img in d.Images)
+                        if (img != null && !string.IsNullOrEmpty(img.Base64))
+                            m.Content.Add(LlmContentPart.FromImage(img.Base64, img.MediaType, img.Width, img.Height));
                 list.Add(m);
             }
             return list;
@@ -307,6 +347,8 @@ namespace Molca.Editor.Mcp.Assistant
             public bool PlanApproved;
             public string PlanUndoFileId;
             public int PlanUndoGroup = -1;
+            public string ThoughtText;
+            public int ThoughtTokens;
         }
 
         [Serializable] private sealed class PlanStepDto
@@ -329,12 +371,33 @@ namespace Molca.Editor.Mcp.Assistant
             public int UndoGroup = -1;
         }
 
+        /// <summary>Upper bound on a persisted image's base64 length (Sprint 73) — oversized parts are dropped from the save.</summary>
+        private const int MaxPersistedImageBase64Chars = 8 * 1024 * 1024;
+
         [Serializable] private sealed class MessageDto
         {
             public int Role;
             public string Text;
             public List<ToolCallDto> Calls = new List<ToolCallDto>();
             public List<ToolResultDto> Results = new List<ToolResultDto>();
+            public List<ContentPartDto> Images = new List<ContentPartDto>();
+            public List<ThinkingBlockDto> Thinking = new List<ThinkingBlockDto>();
+        }
+
+        [Serializable] private sealed class ThinkingBlockDto
+        {
+            public int Kind;
+            public string Text;
+            public string Signature;
+            public string Data;
+        }
+
+        [Serializable] private sealed class ContentPartDto
+        {
+            public string MediaType;
+            public string Base64;
+            public int Width;
+            public int Height;
         }
 
         [Serializable] private sealed class ToolCallDto

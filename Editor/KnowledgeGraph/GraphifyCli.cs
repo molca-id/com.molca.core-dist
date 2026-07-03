@@ -69,27 +69,33 @@ namespace Molca.Editor.KnowledgeGraph
         public static bool GraphExists => File.Exists(GraphJsonPath);
 
         /// <summary>
-        /// Builds the graphify argument string for a (re)build. graphify's default build indexes a single
-        /// root and honours <c>.gitignore</c>, so the project root is the right scope: it sweeps in
-        /// <c>Assets/</c> (project + SDK content), the embedded <c>Packages/com.molca.core/</c> framework
-        /// source — the classes "how does X work" questions are actually about — the generated
-        /// <c>graphify-corpus/</c> facts, and the markdown docs, while <c>.gitignore</c> excludes
-        /// <c>Library/</c>, the UPM package cache, and other build junk. <c>--out</c> pins the output under
-        /// the root; <c>--update</c> makes non-full rebuilds incremental. Must be called on the main thread.
+        /// Builds the graphify argument string for a (re)build. The project root is the primary scope: the
+        /// sweep honours <c>.gitignore</c>, so it indexes <c>Assets/</c> (project + SDK content), any embedded
+        /// <c>Packages/com.molca.*</c> framework source, the generated <c>graphify-corpus/</c> facts, and the
+        /// markdown docs, while excluding <c>Library/</c>, the UPM package cache, and other build junk. Every
+        /// installed, non-embedded <c>com.molca.*</c> package is appended as an additional index root so its
+        /// source is graphed in place (see remarks). <c>--out</c> pins the output under the project root;
+        /// <c>--update</c> makes non-full rebuilds incremental. Must be called on the main thread (it queries
+        /// the Package Manager).
         /// </summary>
         /// <remarks>
-        /// A consuming project that installs Core via UPM gets the package source under
-        /// <c>Library/PackageCache</c> (gitignored, so not indexed by the root sweep). To avoid a silently
-        /// project-only graph there, <see cref="CorePackageCorpus.ExportIfExternal"/> mirrors the external
-        /// Core package's reference docs + Runtime/Editor source into <c>graphify-corpus/com.molca.core/</c>
-        /// (under the root → indexed) before the build runs (Sprint 63.8). When Core is embedded (this dev
-        /// repo) the root sweep already covers it and the export is a no-op.
+        /// A consuming project that installs Core/SDK via UPM gets the package source under
+        /// <c>Library/PackageCache</c> (gitignored, so the root sweep misses it) — a silently project-only
+        /// graph. Rather than mirror a copy into the corpus, this appends each external package's
+        /// <see cref="MolcaPackageCorpus.ExternalPackagePaths">resolved path</see> as an extra graphify root:
+        /// graphify treats an explicitly-named path as its own root and does not apply the enclosing repo's
+        /// <c>.gitignore</c> to it, so package-cache source is indexed with zero duplication (Sprint 63.8 →
+        /// in-place indexing). When the packages are embedded (this dev repo) there are no external paths and
+        /// the sweep already covers them.
         /// </remarks>
         public static string BuildIndexArgs(bool full)
         {
-            var cmd = Quote(ProjectRoot) + " --out " + Quote(ProjectRoot);
-            if (!full && GraphExists) cmd += " --update";
-            return cmd;
+            var cmd = new StringBuilder(Quote(ProjectRoot));
+            foreach (var packagePath in MolcaPackageCorpus.ExternalPackagePaths())
+                cmd.Append(' ').Append(Quote(packagePath));
+            cmd.Append(" --out ").Append(Quote(ProjectRoot));
+            if (!full && GraphExists) cmd.Append(" --update");
+            return cmd.ToString();
         }
 
         /// <summary>

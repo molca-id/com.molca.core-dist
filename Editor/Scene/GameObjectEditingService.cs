@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -25,23 +26,72 @@ namespace Molca.Editor
         /// <returns>The resolved GameObject, or null.</returns>
         public static GameObject Resolve(string target, out string error)
         {
+            var matches = ResolveAll(target, out error);
+            if (matches.Count == 1) return matches[0];
+            if (matches.Count > 1)
+            {
+                error = AmbiguityMessage(target, matches);
+                return null;
+            }
+            return null; // error already set by ResolveAll (blank / not found)
+        }
+
+        /// <summary>
+        /// Every GameObject a target selector resolves to across the loaded scenes: exactly one for an
+        /// instance id or an unambiguous path/name, or several when the name collides — same-named siblings
+        /// share a hierarchy path, so a lone name is not a unique handle. Empty (with <paramref name="error"/>
+        /// set) when the selector is blank or nothing matches.
+        /// </summary>
+        /// <remarks>
+        /// Resolution order: (1) integer instance id — always unique; (2) exact '/'-separated path, returning
+        /// <em>all</em> objects at that path (so exact-case duplicates are surfaced, not silently first-won);
+        /// (3) case-insensitive tolerant fallback (see <see cref="FindTolerant"/>) so a weak model that
+        /// mis-cases or shortens a name it was just given still resolves. Callers that must act on a single
+        /// object use <see cref="Resolve"/> (which turns &gt;1 into an ambiguity error); callers that support
+        /// multi-selection, or that need to detect ambiguity to ask the user, use this and inspect the count.
+        /// </remarks>
+        /// <param name="target">Instance id or hierarchy path / object name.</param>
+        /// <param name="error">Set to a reason when the result is empty; null otherwise.</param>
+        /// <returns>All matching GameObjects (0, 1, or many).</returns>
+        public static IReadOnlyList<GameObject> ResolveAll(string target, out string error)
+        {
             error = null;
             if (string.IsNullOrWhiteSpace(target))
             {
                 error = "target is required (a hierarchy path or an instance id).";
-                return null;
+                return Array.Empty<GameObject>();
             }
 
             if (int.TryParse(target, out var instanceId))
             {
-                if (EditorUtility.EntityIdToObject(instanceId) is GameObject byId) return byId;
+                if (EditorUtility.EntityIdToObject(instanceId) is GameObject byId)
+                    return new[] { byId };
                 error = $"no GameObject with instance id {instanceId}.";
-                return null;
+                return Array.Empty<GameObject>();
             }
 
-            var byPath = FindByPath(target);
-            if (byPath == null) error = $"no GameObject at hierarchy path '{target}'.";
-            return byPath;
+            var exact = EnumerateAll()
+                .Where(go => GetHierarchyPath(go) == target)
+                .Distinct().ToList();
+            if (exact.Count > 0) return exact;
+
+            var tolerant = FindTolerant(target);
+            if (tolerant.Count > 0) return tolerant;
+
+            error = $"no GameObject at hierarchy path '{target}'.";
+            return Array.Empty<GameObject>();
+        }
+
+        /// <summary>
+        /// Human/agent-readable ambiguity message listing each candidate as "path (id N)". The instance id is
+        /// the only unique handle when names collide, so it is always included for deterministic re-selection.
+        /// </summary>
+        public static string AmbiguityMessage(string target, IReadOnlyList<GameObject> candidates)
+        {
+            var listed = string.Join(", ",
+                candidates.Select(go => $"'{GetHierarchyPath(go)}' (id {go.GetInstanceID()})"));
+            return $"'{target}' is ambiguous — {candidates.Count} objects match: {listed}. " +
+                   "Ask the user which one(s) to act on, then re-issue targeting the chosen instance id(s).";
         }
 
         /// <summary>The '/'-separated hierarchy path of <paramref name="go"/> (root-to-leaf).</summary>
@@ -68,6 +118,35 @@ namespace Molca.Editor
                 foreach (var root in scene.GetRootGameObjects())
                     yield return root;
             }
+        }
+
+        /// <summary>
+        /// Every GameObject across the loaded scenes matching the optional filters: a name substring and/or
+        /// an attached-component type-name substring, both case-insensitive. A null/blank filter is ignored,
+        /// so passing neither returns every GameObject. Mirrors the <c>molca_unity_scene_objects</c> filter
+        /// semantics so "select all with a MeshRenderer" is a single deterministic query rather than an
+        /// enumerate-then-eyeball loop.
+        /// </summary>
+        /// <param name="nameContains">Case-insensitive substring the object name must contain, or null/blank for any.</param>
+        /// <param name="componentType">Case-insensitive substring an attached component's type name must contain, or null/blank for any.</param>
+        /// <returns>All matching GameObjects (possibly empty).</returns>
+        public static List<GameObject> FindByFilters(string nameContains, string componentType)
+        {
+            var results = new List<GameObject>();
+            foreach (var go in EnumerateAll())
+            {
+                if (!string.IsNullOrEmpty(nameContains) &&
+                    go.name.IndexOf(nameContains, StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                if (!string.IsNullOrEmpty(componentType) &&
+                    !go.GetComponents<Component>().Any(c => c != null &&
+                        c.GetType().Name.IndexOf(componentType, StringComparison.OrdinalIgnoreCase) >= 0))
+                    continue;
+
+                results.Add(go);
+            }
+            return results;
         }
 
         /// <summary>Renames <paramref name="go"/> as one undo group.</summary>
@@ -270,17 +349,34 @@ namespace Molca.Editor
             return new StepFieldEditingService.SetFieldsResult(applied, rejected);
         }
 
-        private static GameObject FindByPath(string path)
+        /// <summary>
+        /// Case-insensitive resolution used only after an exact path miss (see <see cref="ResolveAll"/>).
+        /// Matches, in order of preference: (1) the full '/'-separated path compared case-insensitively; failing that,
+        /// (2) the target's last segment as a bare object name anywhere in the loaded scenes. Distinct
+        /// GameObjects only — a single object reachable by both rules is returned once.
+        /// </summary>
+        /// <returns>All distinct case-insensitive matches (empty when none, &gt;1 when ambiguous).</returns>
+        private static List<GameObject> FindTolerant(string target)
         {
-            var segments = path.Split('/');
+            var all = EnumerateAll().ToList();
+
+            var byPath = all
+                .Where(go => string.Equals(GetHierarchyPath(go), target, StringComparison.OrdinalIgnoreCase))
+                .Distinct().ToList();
+            if (byPath.Count > 0) return byPath;
+
+            var leaf = target.Split('/').Last();
+            return all
+                .Where(go => string.Equals(go.name, leaf, StringComparison.OrdinalIgnoreCase))
+                .Distinct().ToList();
+        }
+
+        /// <summary>Every GameObject across the loaded scenes (roots and all descendants).</summary>
+        private static IEnumerable<GameObject> EnumerateAll()
+        {
             foreach (var root in EnumerateRoots())
-            {
-                if (root.name != segments[0]) continue;
-                if (segments.Length == 1) return root;
-                var child = root.transform.Find(string.Join("/", segments, 1, segments.Length - 1));
-                if (child != null) return child.gameObject;
-            }
-            return null;
+                foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                    yield return t.gameObject;
         }
 
         private static string[] GetSiblingNames(Transform parent)

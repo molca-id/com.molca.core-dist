@@ -54,6 +54,77 @@ namespace Molca.Editor.Mcp.Assistant
         };
 
         /// <summary>
+        /// Whether <paramref name="model"/> on <paramref name="provider"/> can accept image input (Sprint 73),
+        /// so the composer only offers attach — and the controller only sends images — on a vision-capable
+        /// target. Heuristic, matched case-insensitively against the model id / Ollama tag; conservative
+        /// (unknown → not vision) so a non-vision model never receives an image that would 400 at the API.
+        /// </summary>
+        /// <param name="provider">The configured backend.</param>
+        /// <param name="model">The resolved model id / Ollama tag.</param>
+        /// <returns><c>true</c> when the model is known to accept image input.</returns>
+        public static bool IsVisionModel(LlmProviderKind provider, string model)
+        {
+            if (string.IsNullOrWhiteSpace(model)) return false;
+            var m = model.ToLowerInvariant();
+            switch (provider)
+            {
+                case LlmProviderKind.Anthropic:
+                    // Every shipping Claude 3.5+ / 4.x family model is multimodal; the legacy Claude 2 line is not.
+                    return m.Contains("claude-opus") || m.Contains("claude-sonnet") || m.Contains("claude-haiku")
+                        || m.Contains("claude-fable") || m.Contains("claude-3-5") || m.Contains("claude-3-7");
+                case LlmProviderKind.OpenAI:
+                    // 4o / 4.1 / 5 / o-series reasoning models and any explicit -vision/-vl tag accept images;
+                    // gpt-4o-mini is vision too. DeepSeek's OpenAI-compat chat model is text-only unless -vl.
+                    return m.Contains("gpt-4o") || m.Contains("gpt-4.1") || m.Contains("gpt-5")
+                        || m.Contains("gpt-4-vision") || m.StartsWith("o3", StringComparison.Ordinal)
+                        || m.StartsWith("o4", StringComparison.Ordinal)
+                        || m.Contains("vision") || m.Contains("-vl");
+                case LlmProviderKind.Local:
+                    // Common Ollama vision tags. Kept as a substring set; a new vision tag simply needs adding.
+                    return m.Contains("llava") || m.Contains("vision") || m.Contains("-vl") || m.Contains("bakllava")
+                        || m.Contains("moondream") || m.Contains("minicpm-v") || m.Contains("llama3.2-vision")
+                        || m.Contains("qwen2-vl") || m.Contains("qwen2.5-vl") || m.Contains("gemma3")
+                        || m.Contains("gemma4");
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Whether <paramref name="model"/> on <paramref name="provider"/> supports a reasoning / extended-thinking
+        /// budget (Sprint 76), so the controller only sends the mapped thinking budget / <c>reasoning_effort</c>
+        /// to a capable target. Heuristic, matched case-insensitively; conservative (unknown → not reasoning)
+        /// so a non-reasoning model never receives a field it would reject.
+        /// </summary>
+        /// <param name="provider">The configured backend.</param>
+        /// <param name="model">The resolved model id / Ollama tag.</param>
+        /// <returns><c>true</c> when the model is known to support extended reasoning.</returns>
+        public static bool IsReasoningModel(LlmProviderKind provider, string model)
+        {
+            if (string.IsNullOrWhiteSpace(model)) return false;
+            var m = model.ToLowerInvariant();
+            switch (provider)
+            {
+                case LlmProviderKind.Anthropic:
+                    // Extended thinking ships on Claude 3.7+ and the 4.x family (Opus/Sonnet/Haiku/Fable).
+                    // The legacy Claude 3.5 / 3 / 2 line has no thinking budget.
+                    return m.Contains("claude-opus-4") || m.Contains("claude-sonnet-4") || m.Contains("claude-haiku-4")
+                        || m.Contains("claude-fable") || m.Contains("claude-3-7")
+                        // Unversioned family aliases (claude-opus/-sonnet/-haiku) resolve to a current 4.x model.
+                        || m == "claude-opus" || m == "claude-sonnet" || m == "claude-haiku";
+                case LlmProviderKind.OpenAI:
+                    // The o-series reasoning models and GPT-5 accept reasoning_effort; DeepSeek's reasoner too.
+                    // gpt-4o / 4.1 are not reasoning models. Guard the o-prefix so "gpt-4o" isn't matched.
+                    return m.StartsWith("o1", StringComparison.Ordinal) || m.StartsWith("o3", StringComparison.Ordinal)
+                        || m.StartsWith("o4", StringComparison.Ordinal) || m.Contains("gpt-5")
+                        || m.Contains("deepseek-reasoner");
+                // A local runtime ignores the field regardless; report false so it's never sent.
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
         /// Discovers the models available for <paramref name="settings"/>' current provider. Cloud providers
         /// return their curated list immediately; <see cref="LlmProviderKind.Local"/> queries the endpoint.
         /// </summary>
@@ -196,6 +267,20 @@ namespace Molca.Editor.Mcp.Assistant
             so.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(settings);
             InvalidateCache();
+        }
+
+        /// <summary>
+        /// Writes the reasoning effort onto <paramref name="settings"/> through the same
+        /// <see cref="SerializedObject"/> path as <see cref="ApplySelection"/> (Sprint 76), so the in-window
+        /// picker's choice persists and applies to the next turn.
+        /// </summary>
+        public static void ApplyReasoning(AssistantSettings settings, ReasoningEffort effort)
+        {
+            if (settings == null) return;
+            var so = new SerializedObject(settings);
+            so.FindProperty("reasoningEffort").enumValueIndex = (int)effort;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(settings);
         }
 
         private struct CacheEntry

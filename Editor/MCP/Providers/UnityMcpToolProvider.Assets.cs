@@ -75,6 +75,61 @@ namespace Molca.Editor.Mcp.Providers
             }.ToString(Formatting.None);
         }
 
+        private static McpToolDefinition CreateAssetDuplicateTool() => new McpToolDefinition(
+            name: "molca_unity_asset_duplicate",
+            description: "Duplicates a project asset or folder by AssetDatabase path — prefab, material, scene, "
+                       + "ScriptableObject, script, texture, folder, etc. Copies to 'destination' when given, "
+                       + "otherwise to a unique sibling path ('Enemy.prefab' -> 'Enemy 1.prefab'). Duplicate "
+                       + "several at once with 'paths'. Creating an asset file is not on Unity's Undo stack — "
+                       + "delete the copy to revert.",
+            inputSchemaJson:
+                "{\"type\":\"object\",\"properties\":{" +
+                "\"path\":{\"type\":\"string\",\"description\":\"Source asset path under Assets/ (e.g. 'Assets/Prefabs/Enemy.prefab').\"}," +
+                "\"paths\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Several source asset paths to duplicate at once (destination auto-generated for each).\"}," +
+                "\"destination\":{\"type\":\"string\",\"description\":\"Optional target path for a single duplicate; a unique sibling is generated when omitted. Ignored when 'paths' is used.\"}}," +
+                "\"additionalProperties\":false}",
+            execute: ExecuteAssetDuplicate,
+            mode: McpToolMode.Edit,
+            kind: McpToolKind.Action,
+            reversibility: McpToolReversibility.Irreversible);
+
+        private static string ExecuteAssetDuplicate(string argumentsJson)
+        {
+            var args = ParseArgs(argumentsJson);
+            var sources = EnumerateStrings(args, "path", "paths").ToList();
+            if (sources.Count == 0) return Error("'path' is required (an asset path under Assets/).");
+
+            var explicitDest = args.Value<string>("destination");
+            if (sources.Count > 1 && !string.IsNullOrWhiteSpace(explicitDest))
+                return Error("'destination' applies to a single 'path'; omit it when duplicating multiple 'paths'.");
+
+            var results = new JArray();
+            foreach (var source in sources)
+            {
+                if (string.IsNullOrEmpty(AssetDatabase.AssetPathToGUID(source)))
+                    return Error($"no asset at '{source}'.");
+
+                // Explicit destination only honored for a single source; otherwise a unique sibling avoids
+                // clobbering — GenerateUniqueAssetPath preserves the extension and appends " 1", " 2", …
+                var dest = sources.Count == 1 && !string.IsNullOrWhiteSpace(explicitDest)
+                    ? explicitDest
+                    : AssetDatabase.GenerateUniqueAssetPath(source);
+
+                if (!AssetDatabase.CopyAsset(source, dest))
+                    return Error($"failed to duplicate '{source}' to '{dest}'.");
+
+                results.Add(new JObject
+                {
+                    ["source"] = source,
+                    ["path"] = dest,
+                    ["guid"] = AssetDatabase.AssetPathToGUID(dest)
+                });
+            }
+
+            AssetDatabase.Refresh();
+            return BatchResult(results);
+        }
+
         private static McpToolDefinition CreateAssetDependenciesTool() => new McpToolDefinition(
             name: "molca_unity_asset_dependencies",
             description: "Lists AssetDatabase dependencies for an asset path, including dependency path, GUID, and main type.",

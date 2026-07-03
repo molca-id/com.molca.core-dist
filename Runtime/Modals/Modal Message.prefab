@@ -71,7 +71,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 21300000, guid: 0bf7d3e85ed347f42801f2097be172cf, type: 3}
+  m_Sprite: {fileID: 10907, guid: 0000000000000000f000000000000000, type: 0}
   m_Type: 1
   m_PreserveAspect: 0
   m_FillCenter: 1
@@ -251,8 +251,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: Message
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 2f08c1fae1e091341b755b0d73db377c, type: 2}
-  m_sharedMaterial: {fileID: 6369454606330391944, guid: 2f08c1fae1e091341b755b0d73db377c, type: 2}
+  m_fontAsset: {fileID: 0}
+  m_sharedMaterial: {fileID: 0}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -346,7 +346,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9602d7ec85270384991e813ac98e4789, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  styleInfo: {fileID: 11400000, guid: 7aa71124c34309445a43b68252b7b3cc, type: 2}
+  styleInfo: {fileID: 0}
   localizedString:
     m_TableReference:
       m_TableCollectionName: 

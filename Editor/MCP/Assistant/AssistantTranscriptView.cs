@@ -254,6 +254,19 @@ namespace Molca.Editor.Mcp.Assistant
                 RenderFormattedText(row, text, turn.Kind);
             }
 
+            // A reasoning turn (Sprint 76) tucks the model's thinking behind a collapsed "Thought" disclosure —
+            // never inline, so the visible answer stays the reply. Shown for readable reasoning; a redacted-only
+            // turn still notes that it reasoned (token count, no readable text).
+            if (!isLive && (!string.IsNullOrEmpty(turn.ThoughtText) || turn.ThoughtTokens > 0))
+            {
+                var label = turn.ThoughtTokens > 0 ? $"Thought for ~{turn.ThoughtTokens} tokens" : "Thought";
+                var content = AddDisclosure(row, label, startExpanded: false);
+                if (!string.IsNullOrEmpty(turn.ThoughtText))
+                    RenderFormattedText(content, turn.ThoughtText, ChatTurnKind.Assistant);
+                else
+                    content.Add(new Label("The model's reasoning for this turn was encrypted by the provider and isn't shown."));
+            }
+
             // An answered prompt shows the chosen answer beneath the question.
             if (turn.Kind == ChatTurnKind.Prompt && !string.IsNullOrEmpty(turn.PromptAnswer))
             {

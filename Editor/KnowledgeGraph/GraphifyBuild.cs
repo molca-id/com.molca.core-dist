@@ -37,15 +37,17 @@ namespace Molca.Editor.KnowledgeGraph
                 catch (Exception ex) { Debug.LogWarning($"[Molca KG] Facts export failed (continuing): {ex.Message}"); }
 
                 // When Molca packages are installed as external UPM dependencies (consumer case), their source
-                // lives in the gitignored package cache and the root sweep misses it — mirror each installed
-                // com.molca.* package's docs/source into the indexed corpus so the graph is never silently
-                // project-only (Sprint 63.8, generalized to Core + SDK + any Molca package).
-                try { Set(MolcaPackageCorpus.ExportInstalledPackages()); }
-                catch (Exception ex) { Debug.LogWarning($"[Molca KG] Package corpus step failed (continuing): {ex.Message}"); }
-
-                Set("Building graph with graphify… (this can take a while)");
-
+                // lives in the gitignored package cache and the root sweep misses it. BuildIndexArgs appends
+                // each such com.molca.* package as an extra graphify root so it is indexed in place — no copy
+                // into the corpus (Sprint 63.8, generalized to Core + SDK + any Molca package).
                 var cmd = GraphifyCli.BuildIndexArgs(full);
+
+                var externalCount = 0;
+                try { externalCount = MolcaPackageCorpus.ExternalPackagePaths().Count; }
+                catch (Exception ex) { Debug.LogWarning($"[Molca KG] Could not enumerate external Molca packages (continuing): {ex.Message}"); }
+                Set(externalCount > 0
+                    ? $"Building graph with graphify… (indexing {externalCount} external Molca package(s) in place; this can take a while)"
+                    : "Building graph with graphify… (this can take a while)");
 
                 var result = await GraphifyCli.RunAsync(
                     cmd,

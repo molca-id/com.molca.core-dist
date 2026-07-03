@@ -743,3 +743,41 @@
     color: var(--molca-status-warn);
     -unity-font-style: normal;
 }
+
+/* ---- Image attachments (Sprint 73) -------------------------------------------------------- */
+
+.chat-attach-button {
+    margin-left: 4px;
+    padding: 1px 8px;
+    font-size: 11px;
+}
+
+.chat-attach-thumbs {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.chat-attach-thumb {
+    flex-direction: row;
+    align-items: center;
+    margin: 2px 4px 2px 0;
+    padding: 2px 4px;
+    border-radius: 3px;
+    background-color: var(--row-bg-user);
+}
+
+.chat-attach-thumb__image {
+    width: 40px;
+    height: 40px;
+    margin-right: 4px;
+    border-radius: 2px;
+}
+
+.chat-attach-thumb__label {
+    font-size: 11px;
+    color: var(--chip-label);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+}

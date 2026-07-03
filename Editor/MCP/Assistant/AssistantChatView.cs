@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Molca.Editor.UI;
 using UnityEditor;
@@ -224,18 +225,35 @@ namespace Molca.Editor.Mcp.Assistant
         {
             if (_controller == null || _controller.IsBusy) return;
             var text = _composer.Text;
-            if (string.IsNullOrWhiteSpace(text)) return;
+            // A turn may carry only images (Sprint 73), so allow an empty message when at least one is staged.
+            var images = CollectAttachmentParts();
+            if (string.IsNullOrWhiteSpace(text) && images == null) return;
             _composer.Text = string.Empty;
-            SendText(text);
+            _composer.ClearAttachments();
+            SendText(text, images);
         }
 
-        private async void SendText(string text)
+        private void SendText(string text) => SendText(text, null);
+
+        private async void SendText(string text, IReadOnlyList<LlmContentPart> images)
         {
-            if (_controller == null || _controller.IsBusy || string.IsNullOrWhiteSpace(text)) return;
+            var hasImages = images != null && images.Count > 0;
+            if (_controller == null || _controller.IsBusy || (string.IsNullOrWhiteSpace(text) && !hasImages)) return;
             _cts ??= new CancellationTokenSource();
-            try { await _controller.SendAsync(text, _cts.Token); }
+            try { await _controller.SendAsync(text, images, _cts.Token); }
             catch (OperationCanceledException) { /* Stop cancelled the turn — not an error. */ }
             catch (Exception ex) { Debug.LogException(ex); }
+        }
+
+        /// <summary>Snapshots the composer's staged image attachments as content parts, or <c>null</c> when none (Sprint 73).</summary>
+        private IReadOnlyList<LlmContentPart> CollectAttachmentParts()
+        {
+            var staged = _composer.Attachments;
+            if (staged == null || staged.Count == 0) return null;
+            var parts = new List<LlmContentPart>(staged.Count);
+            foreach (var attachment in staged)
+                if (attachment != null) parts.Add(attachment.ToContentPart());
+            return parts.Count > 0 ? parts : null;
         }
 
         private void StopCurrent()

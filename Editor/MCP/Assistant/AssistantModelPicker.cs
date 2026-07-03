@@ -41,7 +41,16 @@ namespace Molca.Editor.Mcp.Assistant
         private readonly TextField _modelField;
         private readonly Button _modelMenuButton;
         private readonly Button _detectButton;
+        private readonly DropdownField _reasoningField;
         private readonly Label _hint;
+
+        private static readonly (ReasoningEffort Effort, string Label)[] ReasoningLevels =
+        {
+            (ReasoningEffort.Off, "Reasoning: Off"),
+            (ReasoningEffort.Low, "Reasoning: Low"),
+            (ReasoningEffort.Medium, "Reasoning: Medium"),
+            (ReasoningEffort.High, "Reasoning: High")
+        };
 
         private CancellationTokenSource _discoveryCts;
         private bool _suppressCallbacks;
@@ -102,6 +111,19 @@ namespace Molca.Editor.Mcp.Assistant
             _detectButton.tooltip = "Ping the local runtime and list its pulled models";
             controls.Add(_detectButton);
 
+            // Reasoning / extended-thinking budget (Sprint 76). Applies to the next turn; ignored by
+            // non-reasoning models and the Local backend.
+            var reasoningChoices = new List<string>();
+            foreach (var r in ReasoningLevels) reasoningChoices.Add(r.Label);
+            _reasoningField = new DropdownField(reasoningChoices, ReasoningLabelFor(_settings.ReasoningEffort))
+            {
+                tooltip = "Reasoning / extended-thinking budget for capable models (Anthropic thinking, OpenAI reasoning_effort). Higher = better hard-task answers, more output tokens and latency. Ignored by non-reasoning and Local models."
+            };
+            _reasoningField.AddToClassList("chat-model-picker__reasoning");
+            _reasoningField.style.flexShrink = 0;
+            _reasoningField.RegisterValueChangedCallback(OnReasoningChanged);
+            controls.Add(_reasoningField);
+
             // Status/hint on its own line (hidden when empty), so it wraps freely without stealing width.
             _hint = new Label();
             _hint.AddToClassList("chat-model-picker__hint");
@@ -142,6 +164,25 @@ namespace Molca.Editor.Mcp.Assistant
             AssistantModelCatalog.ApplySelection(_settings, _settings.Provider, evt.newValue);
             WarnIfMisconfigured();
             _onChanged?.Invoke();
+        }
+
+        private void OnReasoningChanged(ChangeEvent<string> evt)
+        {
+            if (_suppressCallbacks) return;
+            AssistantModelCatalog.ApplyReasoning(_settings, ReasoningEffortFor(evt.newValue));
+            _onChanged?.Invoke();
+        }
+
+        private static string ReasoningLabelFor(ReasoningEffort effort)
+        {
+            foreach (var r in ReasoningLevels) if (r.Effort == effort) return r.Label;
+            return ReasoningLevels[0].Label;
+        }
+
+        private static ReasoningEffort ReasoningEffortFor(string label)
+        {
+            foreach (var r in ReasoningLevels) if (r.Label == label) return r.Effort;
+            return ReasoningEffort.Off;
         }
 
         /// <summary>Opens a menu of discovered/known models (running discovery first), filling the field on pick.</summary>

@@ -196,6 +196,16 @@ namespace Molca.Editor.Mcp.Assistant
         /// </summary>
         public int PlanUndoGroup { get; set; } = -1;
 
+        /// <summary>
+        /// The model's reasoning text for an <see cref="ChatTurnKind.Assistant"/> turn (Sprint 76), shown only
+        /// behind a collapsed "Thought" disclosure — never as the visible answer. <c>null</c> when the turn
+        /// carried no reasoning. Persisted with the transcript so the affordance survives a reload.
+        /// </summary>
+        public string ThoughtText { get; set; }
+
+        /// <summary>Estimated reasoning-token count for the collapsed thought label (Sprint 76); <c>0</c> when none.</summary>
+        public int ThoughtTokens { get; set; }
+
         /// <summary>Creates a transcript turn.</summary>
         public ChatTurn(ChatTurnKind kind, string text, ChatToolSummary toolSummary = null)
             : this(kind, text, toolSummary == null ? null : new[] { toolSummary })
@@ -374,6 +384,17 @@ namespace Molca.Editor.Mcp.Assistant
         private long _sessionInputTokens;
         private long _sessionOutputTokens;
 
+        // Prompt-cache accounting (Sprint 74): the portions of _sessionInputTokens that the provider served
+        // from / wrote to its prompt cache this session. Billed distinctly (cache read is far cheaper than
+        // full-price input; a cache write is a small premium). In-memory only — not persisted across reloads
+        // (caching across process restarts is a non-goal), so a reloaded session bills its input at full price.
+        private long _sessionCacheReadTokens;
+        private long _sessionCacheWriteTokens;
+
+        // Reasoning (thinking) output tokens billed this session (Sprint 76): a subset of _sessionOutputTokens,
+        // tracked distinctly so telemetry can show the reasoning share. In-memory only (not persisted).
+        private long _sessionReasoningTokens;
+
         // Unproductive-loop breaker (Sprint 68): counts identical tool-call signatures (name + normalized
         // args) within the current turn. When one crosses AssistantSettings.LoopBreakThreshold the turn stops
         // with a resumable notice instead of burning every remaining round. Reset at the start of each turn.
@@ -453,6 +474,13 @@ namespace Molca.Editor.Mcp.Assistant
 
         /// <summary>The context items pinned for the next turn (Sprint 24.3).</summary>
         public IReadOnlyList<AssistantContextItem> PinnedContext => _pinnedContext;
+
+        /// <summary>
+        /// True when the configured provider/model can accept image input (Sprint 73). The composer offers
+        /// image attachment only when this holds; the controller also drops images with a notice at send time
+        /// if it does not, so a non-vision model never receives an image.
+        /// </summary>
+        public bool SupportsVision => AssistantModelCatalog.IsVisionModel(_settings.Provider, _settings.Model);
 
         /// <summary>The raw text of the most recent user turn, or empty (used by retry, Sprint 24.6).</summary>
         public string LastUserText
@@ -591,6 +619,11 @@ namespace Molca.Editor.Mcp.Assistant
         {
             _sessionInputTokens = meta?.InputTokens ?? 0;
             _sessionOutputTokens = meta?.OutputTokens ?? 0;
+            // Cache breakdown isn't persisted (Sprint 74); a reloaded session bills its restored input at full
+            // price until new cached turns run.
+            _sessionCacheReadTokens = 0;
+            _sessionCacheWriteTokens = 0;
+            _sessionReasoningTokens = 0;
         }
 
         /// <summary>Clears the conversation history and transcript, but keeps the pinned context.</summary>
@@ -602,6 +635,9 @@ namespace Molca.Editor.Mcp.Assistant
             _lastReportedPromptTokens = 0;
             _sessionInputTokens = 0;
             _sessionOutputTokens = 0;
+            _sessionCacheReadTokens = 0;
+            _sessionCacheWriteTokens = 0;
+            _sessionReasoningTokens = 0;
             ResetCompactionState();
             // Persist skips a fully-empty session, so drop its file outright to avoid restoring stale
             // content on reload; if pinned context remains, Persist still saves that.
@@ -627,6 +663,9 @@ namespace Molca.Editor.Mcp.Assistant
             _lastReportedPromptTokens = 0;
             _sessionInputTokens = 0;
             _sessionOutputTokens = 0;
+            _sessionCacheReadTokens = 0;
+            _sessionCacheWriteTokens = 0;
+            _sessionReasoningTokens = 0;
             ResetCompactionState();
             _sessionId = AssistantSessionLibrary.NewId();
             Changed?.Invoke();
@@ -697,6 +736,9 @@ namespace Molca.Editor.Mcp.Assistant
                     _sessionId = AssistantSessionLibrary.NewId();
                     _sessionInputTokens = 0;
                     _sessionOutputTokens = 0;
+                    _sessionCacheReadTokens = 0;
+                    _sessionCacheWriteTokens = 0;
+                    _sessionReasoningTokens = 0;
                 }
                 _lastReportedPromptTokens = 0;
                 ResetCompactionState();
@@ -730,6 +772,18 @@ namespace Molca.Editor.Mcp.Assistant
             }
         }
 
+        /// <summary>
+        /// Appends a compact, copy-safe image marker to a user turn's visible text (Sprint 73), e.g.
+        /// <c>"…\n\n[1 image attached]"</c>. The image bytes never enter the transcript, so this is the only
+        /// trace of an attachment in the visible/exported conversation.
+        /// </summary>
+        internal static string AppendImageMarker(string userText, int imageCount)
+        {
+            if (imageCount <= 0) return userText ?? string.Empty;
+            var marker = imageCount == 1 ? "[1 image attached]" : $"[{imageCount} images attached]";
+            return string.IsNullOrEmpty(userText) ? marker : userText + "\n\n" + marker;
+        }
+
         /// <summary>Drops the oldest conversation turn pair to relieve context pressure (Sprint 24.8).</summary>
         public void DropOldestTurn()
         {
@@ -746,7 +800,7 @@ namespace Molca.Editor.Mcp.Assistant
         /// A rough token estimate (~4 chars/token) for the system prompt, conversation history, and
         /// pinned context, plus an optional pending user message (Sprint 24.8). Heuristic, not exact.
         /// </summary>
-        public int EstimateContextTokens(string pendingUserText = null)
+        public int EstimateContextTokens(string pendingUserText = null, int pendingImageTokens = 0)
         {
             // Prefer the vendor-reported prompt size from the last turn (Sprint 25.8) — a real count for the
             // committed context — plus a cheap heuristic for the not-yet-sent input. Falls back to the pure
@@ -755,15 +809,25 @@ namespace Molca.Editor.Mcp.Assistant
             // so add it explicitly on both paths to keep the threshold check (and the composer readout) honest.
             var retrievedChars = _pendingRetrievedContext?.Length ?? 0;
 
+            // Images (Sprint 73) aren't characters — add their estimated token cost directly. The pending
+            // count covers attachments the user has staged but not yet sent (the vendor count on the committed
+            // path already includes any images already sent).
+            var pendingImg = Mathf.Max(0, pendingImageTokens);
+
             if (_lastReportedPromptTokens > 0)
-                return _lastReportedPromptTokens + (pendingUserText?.Length ?? 0) / 4 + retrievedChars / 4;
+                return _lastReportedPromptTokens + (pendingUserText?.Length ?? 0) / 4 + retrievedChars / 4 + pendingImg;
 
             var chars = SystemPrompt.Length + retrievedChars;
+            var historyImageTokens = 0;
             foreach (var m in _history)
             {
                 chars += m.Text?.Length ?? 0;
                 foreach (var r in m.ToolResults) chars += r.Content?.Length ?? 0;
                 foreach (var c in m.ToolCalls) chars += c.ArgumentsJson?.Length ?? 0;
+                if (m.Content != null)
+                    foreach (var part in m.Content)
+                        if (part != null && part.Kind == LlmContentPartKind.Image)
+                            historyImageTokens += AssistantCostTable.EstimateImageTokens(part.PixelWidth, part.PixelHeight);
             }
             chars += pendingUserText?.Length ?? 0;
 
@@ -774,7 +838,7 @@ namespace Molca.Editor.Mcp.Assistant
                     ? (item.Snapshot?.Length ?? 0)
                     : 250;
 
-            return chars / 4;
+            return chars / 4 + historyImageTokens + pendingImg;
         }
 
         /// <summary>Persists the current transcript, history, and pinned context (Sprint 24.5).</summary>
@@ -798,9 +862,22 @@ namespace Molca.Editor.Mcp.Assistant
         /// Sends a user message and runs the tool-call loop until the model produces a final answer or
         /// the tool-round cap is hit. Surfaces tool activity and errors in the transcript.
         /// </summary>
-        public async Awaitable SendAsync(string userText, CancellationToken cancellationToken)
+        public Awaitable SendAsync(string userText, CancellationToken cancellationToken)
+            => SendAsync(userText, null, cancellationToken);
+
+        /// <summary>
+        /// Sends a user message with optional image attachments (Sprint 73) and runs the tool-call loop until
+        /// the model produces a final answer or the tool-round cap is hit. Images are dropped with a visible
+        /// notice when the configured model is not vision-capable, so the turn still proceeds as text.
+        /// </summary>
+        /// <param name="userText">The user's message text; may be empty when at least one image is attached.</param>
+        /// <param name="images">Image content parts to send, or <c>null</c>/empty for a text-only turn.</param>
+        /// <param name="cancellationToken">Cancels the turn (Stop / window close).</param>
+        public async Awaitable SendAsync(string userText, IReadOnlyList<LlmContentPart> images, CancellationToken cancellationToken)
         {
-            if (IsBusy || string.IsNullOrWhiteSpace(userText)) return;
+            var hasImages = images != null && images.Count > 0;
+            if (IsBusy || (string.IsNullOrWhiteSpace(userText) && !hasImages)) return;
+            userText ??= string.Empty;
 
             if (!_usesInjectedProviderFactory)
             {
@@ -824,12 +901,31 @@ namespace Molca.Editor.Mcp.Assistant
             // Unproductive-loop tracking (Sprint 68) is per-turn.
             _toolSignatureCounts.Clear();
             _detectedLoopSignature = null;
+            // Vision gating (Sprint 73): if images are attached but the configured model isn't vision-capable,
+            // drop them (they'd 400 at the API) but keep the transcript marker and add a notice, so the turn
+            // proceeds as text and the user sees why. The marker is shown regardless so an attached image is
+            // never silently absent from the transcript.
+            var attachedImageCount = hasImages ? images.Count : 0;
+            List<LlmContentPart> imageParts = null;
+            if (hasImages)
+            {
+                if (AssistantModelCatalog.IsVisionModel(_settings.Provider, _settings.Model))
+                    imageParts = new List<LlmContentPart>(images);
+                else
+                    AddTurn(ChatTurnKind.Notice,
+                        $"Attached image(s) not sent — {_settings.Model} is not a vision-capable model. Switch to a vision model to include images.");
+            }
+
             // Anchor the visible user turn to the history message it produces, so retry/edit can trim both
             // precisely later (Sprint 25.8) without scanning for "the last user message".
             var userHistoryIndex = _history.Count;
-            _transcript.Add(new ChatTurn(ChatTurnKind.User, userText, (IReadOnlyList<ChatToolSummary>)null, userHistoryIndex));
+            var transcriptText = attachedImageCount > 0 ? AppendImageMarker(userText, attachedImageCount) : userText;
+            _transcript.Add(new ChatTurn(ChatTurnKind.User, transcriptText, (IReadOnlyList<ChatToolSummary>)null, userHistoryIndex));
             Changed?.Invoke();
-            _history.Add(LlmMessage.UserText(AssistantEditorContext.WithContext(userText, _pinnedContext)));
+            var withContext = AssistantEditorContext.WithContext(userText, _pinnedContext);
+            _history.Add(imageParts != null && imageParts.Count > 0
+                ? LlmMessage.UserMultimodal(withContext, imageParts)
+                : LlmMessage.UserText(withContext));
 
             try
             {
@@ -920,7 +1016,18 @@ namespace Molca.Editor.Mcp.Assistant
                         Messages = BuildRequestMessages(useTextToolProtocol, tools),
                         Tools = useTextToolProtocol ? new List<LlmToolSpec>() : tools,
                         Model = _settings.Model,
-                        MaxTokens = _settings.MaxTokens
+                        MaxTokens = _settings.MaxTokens,
+                        // Prompt caching (Sprint 74): mark the stable prefix (system + tool specs) cacheable so
+                        // this round re-sends it as a discounted cache read instead of full-price input.
+                        // Tiered exposure orders tools in stable registry order and only appends newly-activated
+                        // schemas, so a round with no new activation re-sends a byte-identical prefix (full cache
+                        // hit) and a growth round still hits the unchanged leading tools (incremental hit) —
+                        // tiered activation no longer busts the cache. OpenAI caches implicitly (ignores the
+                        // flag); Local no-ops via EnablePromptCaching.
+                        CacheStablePrefix = _settings.EnablePromptCaching,
+                        // Reasoning budget (Sprint 76): mapped per vendor by the provider and ignored for a
+                        // non-reasoning model or the Local backend, so a plain turn is unaffected.
+                        Reasoning = _settings.ReasoningEffort
                     };
 
                     // While streaming, surface text deltas as a live row; clear the buffer once the
@@ -974,20 +1081,37 @@ namespace Molca.Editor.Mcp.Assistant
                     _sessionOutputTokens += response.CompletionTokens > 0
                         ? response.CompletionTokens
                         : EstimateTokenCount(response.Text);
+                    // Track the cached portions of the prompt (Sprint 74) so cost bills them distinctly and the
+                    // Hub can show a cache-hit rate. Both are subsets of the prompt tokens already summed above.
+                    _sessionCacheReadTokens += response.CacheReadInputTokens;
+                    _sessionCacheWriteTokens += response.CacheCreationInputTokens;
+                    // Reasoning-token spend (Sprint 74/76): a subset of output already summed above, tracked
+                    // distinctly so telemetry can show the reasoning share of the turn.
+                    _sessionReasoningTokens += response.ReasoningTokens;
 
-                    // Record the assistant turn (text + any tool calls) in history.
+                    // Record the assistant turn (text + any tool calls + preserved reasoning blocks) in history.
+                    // Anthropic requires thinking blocks echoed back across a tool-use turn (Sprint 76), so they
+                    // ride on the stored assistant message; they are never rendered as the visible answer.
                     var assistantMsg = new LlmMessage
                     {
                         Role = LlmRole.Assistant,
                         Text = rawResponseText,
-                        ToolCalls = useTextToolProtocol ? new List<LlmToolCall>() : responseToolCalls
+                        ToolCalls = useTextToolProtocol ? new List<LlmToolCall>() : responseToolCalls,
+                        ThinkingBlocks = response.ThinkingBlocks ?? new List<LlmThinkingBlock>()
                     };
                     _history.Add(assistantMsg);
                     if (!string.IsNullOrWhiteSpace(visibleResponseText))
                     {
                         // Close any open tool group before the note/answer so ordering stays faithful.
                         FlushToolGroup();
-                        AddTurn(ChatTurnKind.Assistant, visibleResponseText);
+                        AddAssistantTurnWithThought(visibleResponseText, response);
+                    }
+                    else if (response.ThinkingBlocks != null && response.ThinkingBlocks.Count > 0)
+                    {
+                        // A tool-only round still reasoned; surface the collapsed thought so it isn't lost when
+                        // there's no visible answer text this round.
+                        FlushToolGroup();
+                        AddAssistantTurnWithThought(string.Empty, response);
                     }
 
                     if (responseToolCalls.Count == 0)
@@ -1400,9 +1524,48 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>Cumulative output (completion) tokens across this session, estimated where unreported (Sprint 49).</summary>
         public long SessionOutputTokens => _sessionOutputTokens;
 
-        /// <summary>Estimated USD spend for this session under the configured model's pricing (Sprint 49).</summary>
+        /// <summary>
+        /// Cumulative input tokens served from the provider's prompt cache this session (Sprint 74), a subset
+        /// of <see cref="SessionInputTokens"/> billed at the discounted cache-read rate. Not persisted.
+        /// </summary>
+        public long SessionCacheReadTokens => _sessionCacheReadTokens;
+
+        /// <summary>
+        /// Cumulative input tokens written into the provider's prompt cache this session (Sprint 74), a subset
+        /// of <see cref="SessionInputTokens"/> billed at the cache-write rate. Not persisted.
+        /// </summary>
+        public long SessionCacheWriteTokens => _sessionCacheWriteTokens;
+
+        /// <summary>
+        /// Fraction (0–1) of this session's input tokens served as a cache read (Sprint 74), for the Hub's
+        /// cache-hit-rate readout; <c>0</c> when no input has been billed yet.
+        /// </summary>
+        public double SessionCacheHitRate =>
+            _sessionInputTokens > 0 ? (double)_sessionCacheReadTokens / _sessionInputTokens : 0.0;
+
+        /// <summary>
+        /// Cumulative reasoning (thinking) output tokens billed this session (Sprint 76), a subset of
+        /// <see cref="SessionOutputTokens"/>. Surfaced distinctly so the Hub can show the reasoning share of the
+        /// spend. In-memory only — not persisted across reloads.
+        /// </summary>
+        public long SessionReasoningTokens => _sessionReasoningTokens;
+
+        /// <summary>The configured reasoning budget for this session (Sprint 76), for the picker/telemetry readouts.</summary>
+        public ReasoningEffort ReasoningEffort => _settings.ReasoningEffort;
+
+        /// <summary>
+        /// Estimated USD spend for this session under the configured model's pricing (Sprint 49), billing the
+        /// cache-read and cache-write portions of the input distinctly at their discounted / premium rates
+        /// (Sprint 74). The remaining, non-cached input is billed at the full input rate.
+        /// </summary>
         public double SessionEstimatedCostUsd =>
-            AssistantCostTable.EstimateCost(_settings.Model, _sessionInputTokens, _sessionOutputTokens, _settings.ModelPriceOverrides);
+            AssistantCostTable.EstimateCost(
+                _settings.Model,
+                Math.Max(0, _sessionInputTokens - _sessionCacheReadTokens - _sessionCacheWriteTokens),
+                _sessionOutputTokens,
+                _sessionCacheReadTokens,
+                _sessionCacheWriteTokens,
+                _settings.ModelPriceOverrides);
 
         /// <summary>Rough token count (~4 chars/token) for text the vendor didn't report usage for (Sprint 49).</summary>
         private static long EstimateTokenCount(string text) => string.IsNullOrEmpty(text) ? 0 : text.Length / 4;
@@ -1549,10 +1712,11 @@ namespace Molca.Editor.Mcp.Assistant
         internal const string RetrievalNoticeText = "Retrieved project context for this question.";
 
         /// <summary>
-        /// Runs the proactive retrieval pass for the current turn (Sprint 47): when enabled, queries the
-        /// knowledge graph and stores the result in <see cref="_pendingRetrievedContext"/> for injection,
-        /// recording a pinnable <see cref="ChatTurnKind.Notice"/> so the user can see (and keep) what was
-        /// injected. Best-effort: a no-result/failed/disabled pass leaves the turn ungrounded.
+        /// Runs the proactive retrieval pass for the current turn (Sprint 47/77): when enabled, queries the
+        /// knowledge graph AND recalls relevant cross-session memory (Sprint 77), combining both into
+        /// <see cref="_pendingRetrievedContext"/> for injection and recording a pinnable
+        /// <see cref="ChatTurnKind.Notice"/>. Best-effort: a no-result/failed/disabled pass leaves the turn
+        /// ungrounded. Memory recall is deduped against pinned context so a pinned fact isn't re-injected.
         /// </summary>
         private async Awaitable RetrieveTurnContextAsync(string userText, CancellationToken cancellationToken)
         {
@@ -1561,15 +1725,70 @@ namespace Molca.Editor.Mcp.Assistant
             var retrieved = RetrieveContextAsyncOverride != null
                 ? await RetrieveContextAsyncOverride(userText, _settings.RetrievalTokenBudget, cancellationToken)
                 : await AssistantContextRetriever.RetrieveAsync(userText, _settings.RetrievalTokenBudget, cancellationToken);
-            if (!retrieved.HasContent) return;
 
-            _pendingRetrievedContext = retrieved.Text;
+            // Cross-session project memory (Sprint 77): relevant durable facts within a token budget, deduped
+            // against pinned context. Local file read — fast and deterministic, no subprocess.
+            var memoryText = RecallMemoryForTurn(userText);
+
+            var combined = CombineGrounding(retrieved.HasContent ? retrieved.Text : null, memoryText);
+            if (string.IsNullOrEmpty(combined)) return;
+
+            _pendingRetrievedContext = combined;
             _transcript.Add(new ChatTurn(ChatTurnKind.Notice, RetrievalNoticeText)
             {
-                Detail = retrieved.Text,
+                Detail = combined,
                 CanPin = true
             });
             Changed?.Invoke();
+        }
+
+        /// <summary>Header prefixing the injected cross-session memory block (Sprint 77).</summary>
+        internal const string MemoryContextHeader = "Project memory (durable facts about this project/user):";
+
+        /// <summary>
+        /// Recalls the memory entries relevant to <paramref name="userText"/> within the retrieval budget
+        /// (Sprint 77), formatted as a grounding block, or <c>null</c> when nothing relevant survives the
+        /// dedup against pinned context. Best-effort: a store error yields no memory rather than failing the turn.
+        /// </summary>
+        private string RecallMemoryForTurn(string userText)
+        {
+            try
+            {
+                var entries = AssistantMemoryStore.Recall(userText, _settings.RetrievalTokenBudget);
+                if (entries == null || entries.Count == 0) return null;
+
+                // Dedup against pins: skip an entry whose fact is already present in a pinned snapshot.
+                var fresh = entries.Where(e => e != null && !IsAlreadyPinned(e)).ToList();
+                if (fresh.Count == 0) return null;
+
+                var block = AssistantMemoryStore.FormatForInjection(fresh);
+                return string.IsNullOrWhiteSpace(block) ? null : MemoryContextHeader + "\n" + block;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Molca] Assistant memory recall failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>Whether a memory entry's fact is already covered by a pinned context snapshot (Sprint 77).</summary>
+        private bool IsAlreadyPinned(AssistantMemoryEntry entry)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Body)) return false;
+            foreach (var pin in _pinnedContext)
+                if (!string.IsNullOrEmpty(pin?.Snapshot) && pin.Snapshot.Contains(entry.Body))
+                    return true;
+            return false;
+        }
+
+        /// <summary>Joins the KG-retrieval block and the memory block into one grounding payload (Sprint 77).</summary>
+        private static string CombineGrounding(string retrievedText, string memoryText)
+        {
+            var hasRetrieved = !string.IsNullOrWhiteSpace(retrievedText);
+            var hasMemory = !string.IsNullOrWhiteSpace(memoryText);
+            if (hasRetrieved && hasMemory) return retrievedText + "\n\n" + memoryText;
+            if (hasRetrieved) return retrievedText;
+            return hasMemory ? memoryText : null;
         }
 
         /// <summary>
@@ -1600,7 +1819,9 @@ namespace Molca.Editor.Mcp.Assistant
                     Role = LlmRole.User,
                     Text = AssistantContextRetriever.RetrievedContextHeader + "\n" + _pendingRetrievedContext +
                            "\n\n" + m.Text,
-                    ToolCalls = useTextToolProtocol ? new List<LlmToolCall>() : m.ToolCalls
+                    ToolCalls = useTextToolProtocol ? new List<LlmToolCall>() : m.ToolCalls,
+                    // Carry any image parts forward (Sprint 73) — the text prefix must not drop the attachments.
+                    Content = m.Content
                 };
                 break;
             }
@@ -1662,7 +1883,9 @@ namespace Molca.Editor.Mcp.Assistant
             {
                 Role = LlmRole.User,
                 Text = $"[Continuing the current task: {Truncate(goal.Trim(), 240)}]\n\n{current.Text}",
-                ToolCalls = current.ToolCalls
+                ToolCalls = current.ToolCalls,
+                // Preserve image parts (Sprint 73) when reinstating the standing goal onto the current turn.
+                Content = current.Content
             };
         }
 
@@ -1734,7 +1957,11 @@ namespace Molca.Editor.Mcp.Assistant
                     continue;
                 }
 
-                messages.Add(LlmMessage.UserText(message.Text ?? string.Empty));
+                // Preserve image parts (Sprint 73) on the text-protocol path too, so a local vision model still
+                // receives the attachment even though tool calls/results are rendered as text.
+                messages.Add(message.HasImages
+                    ? LlmMessage.UserMultimodal(message.Text ?? string.Empty, message.Content)
+                    : LlmMessage.UserText(message.Text ?? string.Empty));
             }
             return messages;
         }
@@ -2538,6 +2765,35 @@ namespace Molca.Editor.Mcp.Assistant
         {
             _transcript.Add(new ChatTurn(kind, text, toolSummaries));
             Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// Adds an assistant transcript turn, attaching any reasoning text from <paramref name="response"/> as a
+        /// collapsed "thought" affordance (Sprint 76). The visible answer is always <paramref name="visibleText"/>;
+        /// the reasoning is never rendered inline. Redacted-only reasoning contributes a token count but no text.
+        /// </summary>
+        private void AddAssistantTurnWithThought(string visibleText, LlmResponse response)
+        {
+            var turn = new ChatTurn(ChatTurnKind.Assistant, visibleText);
+            var thought = ExtractThoughtText(response?.ThinkingBlocks);
+            if (!string.IsNullOrEmpty(thought) || (response?.ReasoningTokens ?? 0) > 0)
+            {
+                turn.ThoughtText = thought;
+                turn.ThoughtTokens = response?.ReasoningTokens ?? 0;
+            }
+            _transcript.Add(turn);
+            Changed?.Invoke();
+        }
+
+        /// <summary>Joins the readable reasoning blocks into a single thought string (Sprint 76), or null when none are readable.</summary>
+        private static string ExtractThoughtText(List<LlmThinkingBlock> blocks)
+        {
+            if (blocks == null || blocks.Count == 0) return null;
+            var parts = blocks
+                .Where(b => b != null && b.Kind == LlmThinkingBlockKind.Thinking && !string.IsNullOrWhiteSpace(b.Text))
+                .Select(b => b.Text.Trim());
+            var joined = string.Join("\n\n", parts);
+            return string.IsNullOrWhiteSpace(joined) ? null : joined;
         }
 
         private static ChatToolSummary BuildToolSummary(McpToolRegistry registry, LlmToolCall call, LlmToolResult result, string undoEntryId = null, int undoGroup = -1)

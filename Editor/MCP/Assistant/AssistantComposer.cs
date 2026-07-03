@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -31,6 +32,12 @@ namespace Molca.Editor.Mcp.Assistant
         private readonly Button _compactionView;
         private readonly VisualElement _contextChips;
 
+        // Images staged for the next turn (Sprint 73) and their thumbnail row + attach button. Cleared once
+        // the turn is sent.
+        private readonly List<AssistantImageAttachment> _attachments = new List<AssistantImageAttachment>();
+        private readonly VisualElement _attachThumbs;
+        private readonly Button _attachButton;
+
         /// <summary>Wires the composer slots under <paramref name="root"/> and their callbacks.</summary>
         public AssistantComposer(VisualElement root, AssistantChatController controller,
             Action onSend, Action onStop, Action onAddContext)
@@ -51,9 +58,23 @@ namespace Molca.Editor.Mcp.Assistant
             _compactionView.style.display = DisplayStyle.None;
             _tokenEstimate.parent?.Add(_compactionView);
 
-            root.Q<Button>("add-context").clicked += onAddContext;
+            var addContext = root.Q<Button>("add-context");
+            addContext.clicked += onAddContext;
             _send.clicked += onSend;
             _stop.clicked += onStop;
+
+            // Attach-image affordance (Sprint 73), added in code beside Add-context so no UXML change is
+            // needed. A thumbnail strip for staged images sits above the context chip row.
+            _attachThumbs = new VisualElement();
+            _attachThumbs.AddToClassList("chat-attach-thumbs");
+            _attachThumbs.style.flexDirection = FlexDirection.Row;
+            _attachThumbs.style.flexWrap = Wrap.Wrap;
+            _contextChips.parent?.Insert(_contextChips.parent.IndexOf(_contextChips), _attachThumbs);
+
+            _attachButton = new Button(ShowAttachMenu) { text = "＋ Image" };
+            _attachButton.AddToClassList("chat-attach-button");
+            _attachButton.tooltip = "Attach an image (Scene/Game view, a file, or the selected texture) for a vision-capable model.";
+            addContext.parent?.Add(_attachButton);
 
             // The action-mode field needs the typed enum value, so it is built in code into its slot.
             _modeField = new EnumField(LoadActionMode())
@@ -103,12 +124,116 @@ namespace Molca.Editor.Mcp.Assistant
             _contextChips.Clear();
             foreach (var item in _controller.PinnedContext)
                 _contextChips.Add(BuildChip(item));
+            RefreshAttachAvailability();
+        }
+
+        /// <summary>Images staged for the next turn (Sprint 73); passed to the controller on send.</summary>
+        public IReadOnlyList<AssistantImageAttachment> Attachments => _attachments;
+
+        /// <summary>Discards all staged image attachments and refreshes the thumbnail strip (Sprint 73).</summary>
+        public void ClearAttachments()
+        {
+            _attachments.Clear();
+            RebuildThumbs();
+            UpdateTokenEstimate();
+        }
+
+        /// <summary>Enables the attach button only when the configured model can accept images (Sprint 73).</summary>
+        private void RefreshAttachAvailability()
+        {
+            if (_attachButton == null) return;
+            var vision = _controller != null && _controller.SupportsVision;
+            _attachButton.SetEnabled(vision);
+            _attachButton.tooltip = vision
+                ? "Attach an image (Scene/Game view, a file, or the selected texture)."
+                : "The current model is not vision-capable. Switch to a vision model to attach images.";
+        }
+
+        private void ShowAttachMenu()
+        {
+            if (_controller == null || !_controller.SupportsVision) return;
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("Scene View"), false, () => Stage(AssistantImageCapture.TryCaptureSceneView));
+            menu.AddItem(new GUIContent("Game View"), false, () => Stage(AssistantImageCapture.TryCaptureGameView));
+
+            var selectedTexture = Selection.activeObject as Texture;
+            if (selectedTexture != null)
+                menu.AddItem(new GUIContent($"Selected Texture ({Selection.activeObject.name})"), false,
+                    () => Stage((out AssistantImageAttachment a, out string e) =>
+                        AssistantImageCapture.TryFromTexture(selectedTexture, Selection.activeObject.name, out a, out e)));
+            else
+                menu.AddDisabledItem(new GUIContent("Selected Texture"));
+
+            menu.AddItem(new GUIContent("Image File…"), false, () =>
+            {
+                var path = EditorUtility.OpenFilePanel("Attach image", Application.dataPath, "png,jpg,jpeg");
+                if (!string.IsNullOrEmpty(path))
+                    Stage((out AssistantImageAttachment a, out string e) => AssistantImageCapture.TryFromFile(path, out a, out e));
+            });
+            menu.ShowAsContext();
+        }
+
+        private delegate bool CaptureFn(out AssistantImageAttachment attachment, out string error);
+
+        private void Stage(CaptureFn capture)
+        {
+            if (capture(out var attachment, out var error) && attachment != null)
+            {
+                _attachments.Add(attachment);
+                RebuildThumbs();
+                UpdateTokenEstimate();
+            }
+            else if (!string.IsNullOrEmpty(error))
+            {
+                EditorUtility.DisplayDialog("Attach image", error, "OK");
+            }
+        }
+
+        private void RebuildThumbs()
+        {
+            _attachThumbs.Clear();
+            foreach (var attachment in _attachments)
+                _attachThumbs.Add(BuildThumb(attachment));
+        }
+
+        private VisualElement BuildThumb(AssistantImageAttachment attachment)
+        {
+            var thumb = new VisualElement();
+            thumb.AddToClassList("chat-attach-thumb");
+            thumb.style.flexDirection = FlexDirection.Row;
+            thumb.tooltip = $"{attachment.Label} — {attachment.Width}×{attachment.Height}";
+
+            if (attachment.Preview != null)
+            {
+                var image = new Image { image = attachment.Preview, scaleMode = ScaleMode.ScaleToFit };
+                image.AddToClassList("chat-attach-thumb__image");
+                image.style.width = 40;
+                image.style.height = 40;
+                thumb.Add(image);
+            }
+
+            var label = new Label(attachment.Label);
+            label.AddToClassList("chat-attach-thumb__label");
+            thumb.Add(label);
+
+            var remove = new Button(() =>
+            {
+                _attachments.Remove(attachment);
+                RebuildThumbs();
+                UpdateTokenEstimate();
+            }) { text = "×" };
+            remove.AddToClassList("chat-chip__remove");
+            thumb.Add(remove);
+            return thumb;
         }
 
         /// <summary>Refreshes the token-estimate label, including the pending input text.</summary>
         public void UpdateTokenEstimate()
         {
-            var estimate = _controller.EstimateContextTokens(_input?.value);
+            var pendingImageTokens = 0;
+            foreach (var attachment in _attachments)
+                pendingImageTokens += AssistantCostTable.EstimateImageTokens(attachment.Width, attachment.Height);
+            var estimate = _controller.EstimateContextTokens(_input?.value, pendingImageTokens);
 
             // When auto-compaction is on, gauge against its configured threshold and tell the user the
             // Assistant will compact rather than asking them to prune manually (Sprint 46). Otherwise fall
@@ -137,7 +262,20 @@ namespace Molca.Editor.Mcp.Assistant
             if (cost > 0)
                 _tokenEstimate.text += $"  ·  ~{AssistantCostTable.FormatCost(cost)} this session";
 
+            // Prompt-cache hit rate (Sprint 74): once any prompt tokens are served from cache, show the share
+            // so the input-cost saving is visible, not just implied by a lower total cost.
+            var hitRate = _controller.SessionCacheHitRate;
+            if (hitRate > 0)
+                _tokenEstimate.text += $"  ·  {hitRate:P0} cached";
+
+            // Reasoning-token share (Sprint 76): once any thinking tokens are billed, show the count so the
+            // latency/cost of extended reasoning is visible (it bills as output).
+            var reasoning = _controller.SessionReasoningTokens;
+            if (reasoning > 0)
+                _tokenEstimate.text += $"  ·  {reasoning:N0} reasoning";
+
             RefreshCompactionNotice();
+            RefreshAttachAvailability();
         }
 
         /// <summary>Shows or hides the "context compacted" affordance based on the controller's last pass (Sprint 46).</summary>

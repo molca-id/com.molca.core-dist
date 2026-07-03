@@ -21,7 +21,9 @@ namespace Molca.Editor.Hub.Sections
     {
         private readonly SerializedObject _editorSettings;
         private string _keyDraft = string.Empty;
+        private string _searchKeyDraft = string.Empty;
         private LlmProviderKind _providerAtBuild;
+        private WebSearchProviderKind _searchProviderAtBuild;
 
         internal MolcaHubAssistantSection()
         {
@@ -70,6 +72,7 @@ namespace Molca.Editor.Hub.Sections
 
             var so = new SerializedObject(settings);
             _providerAtBuild = settings.Provider;
+            _searchProviderAtBuild = settings.WebSearchProvider;
 
             configCard.Body.Add(BoundRow(so, "enabled", "Enable Assistant"));
             configCard.Body.Add(BoundRow(so, "provider", "Provider", out var providerField));
@@ -105,6 +108,9 @@ namespace Molca.Editor.Hub.Sections
             advanced.Add(BoundRow(so, "maxToolRounds", "Max Tool Rounds"));
             advanced.Add(BoundRow(so, "toolExposure", "Tool Exposure"));
             advanced.Add(BoundRow(so, "toolCallTransport", "Tool Call Transport"));
+            // Prompt caching (Sprint 74): mark the stable system+tools prefix cacheable to cut input cost on
+            // multi-round turns. Auto = on for cloud, off for Local.
+            advanced.Add(BoundRow(so, "promptCaching", "Prompt Caching"));
 
             AddGroupHeading(advanced, "Context & Compaction");
             advanced.Add(BoundRow(so, "autoCompact", "Auto Compact"));
@@ -126,6 +132,42 @@ namespace Molca.Editor.Hub.Sections
             advanced.Add(BoundRow(so, "subAgentConcurrency", "Sub-Agent Concurrency"));
             advanced.Add(BoundRow(so, "subAgentMaxRounds", "Sub-Agent Max Rounds"));
             advanced.Add(BoundRow(so, "subAgentMaxTokens", "Sub-Agent Max Tokens"));
+
+            // Web tools (Sprint 75): outbound egress is OFF by default. When enabled, molca_web_fetch is
+            // restricted to the host allowlist; molca_web_search needs a provider + scoped key.
+            AddGroupHeading(advanced, "Web");
+            advanced.Add(BoundRow(so, "webToolsEnabled", "Enable Web Tools"));
+            advanced.Add(BoundListField(so, "webHostAllowlist", "Fetch Host Allowlist"));
+            advanced.Add(BoundRow(so, "webSearchProvider", "Search Provider", out var searchProviderField));
+            advanced.Add(BoundRow(so, "webSearchMaxResults", "Search Max Results"));
+            advanced.Add(BuildWebSearchKeyRow(settings));
+            var egressNote = new Label("Off by default: editor network egress is a policy choice. Fetch is limited to the host allowlist; the search key is stored in project-scoped EditorPrefs (never committed).");
+            egressNote.AddToClassList("molca-hub-muted");
+            egressNote.style.whiteSpace = WhiteSpace.Normal;
+            advanced.Add(egressNote);
+            // A search-provider change swaps which env var / stored key the key row reflects; rebuild on a real
+            // change only (PropertyField re-fires on bind, so guard against the per-frame rebuild loop).
+            searchProviderField.RegisterCallback<SerializedPropertyChangeEvent>(_ =>
+            {
+                so.ApplyModifiedProperties();
+                if (settings.WebSearchProvider == _searchProviderAtBuild) return;
+                EditorUtility.SetDirty(settings);
+                Rebuild();
+            });
+
+            // Reasoning / extended thinking (Sprint 76): off by default; mapped per vendor and ignored for
+            // non-reasoning models and the Local backend. Also selectable from the in-window model picker.
+            AddGroupHeading(advanced, "Reasoning");
+            advanced.Add(BoundRow(so, "reasoningEffort", "Reasoning Effort"));
+            var reasoningNote = new Label("Extended thinking for capable models (Anthropic thinking budget, OpenAI reasoning_effort). Higher = better hard-task answers, more output tokens and latency. Ignored by non-reasoning and Local models.");
+            reasoningNote.AddToClassList("molca-hub-muted");
+            reasoningNote.style.whiteSpace = WhiteSpace.Normal;
+            advanced.Add(reasoningNote);
+
+            // Cross-session project memory (Sprint 77): durable facts under the consumer project, maintained by
+            // the assistant via confirmed tools and viewable/deletable here.
+            AddGroupHeading(advanced, "Project Memory");
+            advanced.Add(BuildMemoryList());
 
             // Cost: per-model price overrides for the session cost estimate (a list — full-width field).
             AddGroupHeading(advanced, "Cost");
@@ -282,6 +324,131 @@ namespace Molca.Editor.Hub.Sections
             var state = new Label(AssistantApiAuth.HasKey(provider) ? "A key is stored for this provider." : "No key stored.");
             state.AddToClassList("molca-hub-muted");
             container.Add(state);
+
+            return container;
+        }
+
+        /// <summary>
+        /// A scoped-key entry row for the configured web-search provider (Sprint 75), mirroring
+        /// <see cref="BuildKeyRow"/>. The key lives in project-scoped EditorPrefs / an env var via
+        /// <see cref="AssistantWebAuth"/>, never on the settings asset. Renders nothing actionable when no
+        /// search provider is selected.
+        /// </summary>
+        private VisualElement BuildWebSearchKeyRow(AssistantSettings settings)
+        {
+            var container = new VisualElement();
+            var provider = settings.WebSearchProvider;
+
+            if (provider == WebSearchProviderKind.None)
+            {
+                var none = new Label("Select a search provider to enable molca_web_search (fetch works without one).");
+                none.AddToClassList("molca-hub-muted");
+                container.Add(none);
+                return container;
+            }
+
+            var heading = new Label($"{provider} Search Key");
+            heading.AddToClassList("molca-hub-bv-option-heading");
+            container.Add(heading);
+
+            if (AssistantWebAuth.IsFromEnv(provider))
+            {
+                var envNote = new Label($"Using the {AssistantWebAuth.EnvVarFor(provider)} environment variable.");
+                envNote.AddToClassList("molca-hub-muted");
+                container.Add(envNote);
+                return container;
+            }
+
+            var row = new VisualElement();
+            row.AddToClassList("molca-hub-mcp-token-row");
+            container.Add(row);
+
+            var keyField = new TextField { isPasswordField = true, value = _searchKeyDraft };
+            keyField.AddToClassList("molca-hub-field-control");
+            keyField.RegisterValueChangedCallback(evt => _searchKeyDraft = evt.newValue);
+            row.Add(keyField);
+
+            var save = new Button(() =>
+            {
+                AssistantWebAuth.SetKey(provider, _searchKeyDraft);
+                _searchKeyDraft = string.Empty;
+                Rebuild();
+            })
+            { text = "Save", tooltip = "Store the search key in project-scoped EditorPrefs (never committed)." };
+            save.AddToClassList("molca-hub-mini-button");
+            row.Add(save);
+
+            var clear = new Button(() =>
+            {
+                AssistantWebAuth.SetKey(provider, string.Empty);
+                _searchKeyDraft = string.Empty;
+                Rebuild();
+            })
+            { text = "Clear", tooltip = "Remove the stored search key." };
+            clear.AddToClassList("molca-hub-mini-button");
+            row.Add(clear);
+
+            var state = new Label(AssistantWebAuth.HasKey(provider) ? "A key is stored for this provider." : "No key stored.");
+            state.AddToClassList("molca-hub-muted");
+            container.Add(state);
+
+            return container;
+        }
+
+        /// <summary>
+        /// Builds the read/delete list of cross-session memory entries (Sprint 77): one row per stored fact
+        /// (name + description) with a Delete button, or a muted "no entries" line. The store is file-backed
+        /// under the consumer project and maintained by the assistant's confirmed memory tools; the Hub only
+        /// views and deletes. Rebuilds the card after a delete so the list refreshes.
+        /// </summary>
+        private VisualElement BuildMemoryList()
+        {
+            var container = new VisualElement();
+
+            var entries = AssistantMemoryStore.List();
+            if (entries.Count == 0)
+            {
+                var empty = new Label("No memory yet. The assistant saves durable project/user facts here as it learns them.");
+                empty.AddToClassList("molca-hub-muted");
+                empty.style.whiteSpace = WhiteSpace.Normal;
+                container.Add(empty);
+                return container;
+            }
+
+            foreach (var entry in entries)
+            {
+                var row = new VisualElement();
+                row.style.flexDirection = FlexDirection.Row;
+                row.style.alignItems = Align.Center;
+
+                var text = new Label(string.IsNullOrWhiteSpace(entry.Description)
+                    ? entry.Name
+                    : $"{entry.Name} — {entry.Description}")
+                {
+                    tooltip = entry.Body
+                };
+                text.style.flexGrow = 1;
+                text.style.whiteSpace = WhiteSpace.Normal;
+                row.Add(text);
+
+                var name = entry.Name;
+                var delete = new Button(() =>
+                {
+                    AssistantMemoryStore.Delete(name);
+                    UnityEditor.AssetDatabase.Refresh();
+                    Rebuild();
+                })
+                { text = "Delete", tooltip = "Remove this memory entry." };
+                delete.AddToClassList("molca-hub-mini-button");
+                row.Add(delete);
+
+                container.Add(row);
+            }
+
+            var note = new Label($"Stored under {AssistantMemoryStore.RelativeRoot} (consumer project, editable by hand). Survives new chats and session deletion.");
+            note.AddToClassList("molca-hub-muted");
+            note.style.whiteSpace = WhiteSpace.Normal;
+            container.Add(note);
 
             return container;
         }

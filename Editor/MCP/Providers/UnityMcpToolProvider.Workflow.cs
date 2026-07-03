@@ -31,8 +31,10 @@ namespace Molca.Editor.Mcp.Providers
             name: "molca_unity_select",
             description: "Selects one or more objects in the editor: project assets by 'path'/'paths', GameObjects "
                        + "by 'target'/'targets' (hierarchy path or instance id), or any objects by "
-                       + "'instanceId'/'instanceIds'. Singular and plural forms can be combined; the first resolved "
-                       + "object becomes the active selection. Changes editor selection only; not data-mutating.",
+                       + "'instanceId'/'instanceIds'. To select every GameObject with a given component or name, "
+                       + "pass 'componentType' and/or 'nameContains' — one call, no need to enumerate the scene "
+                       + "first. All forms can be combined; the first resolved object becomes the active "
+                       + "selection. Changes editor selection only; not data-mutating.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
                 "\"path\":{\"type\":\"string\",\"description\":\"Project asset path to select.\"}," +
@@ -40,7 +42,9 @@ namespace Molca.Editor.Mcp.Providers
                 "\"target\":{\"type\":\"string\",\"description\":\"GameObject hierarchy path or instance id to select.\"}," +
                 "\"targets\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"GameObject hierarchy paths or instance ids to select together.\"}," +
                 "\"instanceId\":{\"type\":\"integer\",\"description\":\"Instance id of any object to select.\"}," +
-                "\"instanceIds\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"},\"description\":\"Instance ids of objects to select together.\"}}," +
+                "\"instanceIds\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"},\"description\":\"Instance ids of objects to select together.\"}," +
+                "\"componentType\":{\"type\":\"string\",\"description\":\"Select all GameObjects with an attached component whose type name contains this substring (case-insensitive), e.g. 'MeshRenderer', 'Light', 'Rigidbody'.\"}," +
+                "\"nameContains\":{\"type\":\"string\",\"description\":\"Select all GameObjects whose name contains this substring (case-insensitive).\"}}," +
                 "\"additionalProperties\":false}",
             execute: ExecuteSelect,
             mode: McpToolMode.Any,
@@ -119,8 +123,21 @@ namespace Molca.Editor.Mcp.Providers
                 Add(obj);
             }
 
+            // Filter selection: "select all GameObjects with a MeshRenderer" resolves deterministically here
+            // instead of the model dumping the scene and eyeballing the list. Combinable with explicit
+            // selectors above; an empty match with no other selectors is a clear miss, not a silent no-op.
+            var nameContains = args.Value<string>("nameContains");
+            var componentType = args.Value<string>("componentType");
+            if (!string.IsNullOrWhiteSpace(nameContains) || !string.IsNullOrWhiteSpace(componentType))
+            {
+                var matches = GameObjectEditingService.FindByFilters(nameContains, componentType);
+                if (matches.Count == 0 && resolved.Count == 0)
+                    return Error($"no GameObjects match the filter (componentType='{componentType}', nameContains='{nameContains}').");
+                foreach (var go in matches) Add(go);
+            }
+
             if (resolved.Count == 0)
-                return Error("pass 'path'/'paths', 'target'/'targets', or 'instanceId'/'instanceIds'.");
+                return Error("pass 'path'/'paths', 'target'/'targets', 'instanceId'/'instanceIds', or a 'componentType'/'nameContains' filter.");
 
             // Selection.objects sets the multi-selection; the first entry becomes Selection.activeObject.
             Selection.objects = resolved.ToArray();
