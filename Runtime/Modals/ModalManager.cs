@@ -78,7 +78,7 @@ namespace Molca.Modals
         private Action<string> _onLogWarning;
         private Action<string> _onLogError;
 
-        private bool IsValidAction(string msg) => isActive && msg.Length > 0;
+        private bool IsValidAction(string msg) => isActive && !string.IsNullOrEmpty(msg);
 
         /// <summary>
         /// Replaces characters unsupported by the TMP font (surrogate pairs / emoji) with <c>[?]</c>
@@ -312,9 +312,19 @@ namespace Molca.Modals
         /// </summary>
         public void CloseModal(BaseModal modal)
         {
+            if (_activeModals == null) return; // teardown ordering: subsystem not initialized
+
             _activeModals.Remove(modal);
 
-            if (_activeModals.Count == 0)
+            // Prune modals destroyed without going through Close() (scene unload of
+            // an unparented modal, direct Destroy by a caller). Their fake-null
+            // entries would keep Count > 0 and wedge the persistent modalPanel
+            // open, blocking input forever.
+            _activeModals.RemoveWhere(m => m == null);
+
+            // Null-check: this now also runs from BaseModal.OnDestroy during scene
+            // teardown / app quit, when the panel itself may already be destroyed.
+            if (_activeModals.Count == 0 && modalPanel != null)
                 modalPanel.SetActive(false);
         }
 

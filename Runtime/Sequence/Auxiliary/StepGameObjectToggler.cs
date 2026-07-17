@@ -33,9 +33,11 @@ namespace Molca.Sequence.Auxiliary
         private bool[] _originalStates;
         private GameObject[] _allTrackedObjects;
         
-        private void Awake()
+        protected override void OnInitialize()
         {
-            // Collect all tracked objects and their original states
+            // StepAuxiliary is a plain serializable class, not a MonoBehaviour —
+            // Unity never calls Awake() on it, so collection must happen in the
+            // auxiliary init hook driven by Step.Initialize().
             CollectTrackedObjects();
         }
         

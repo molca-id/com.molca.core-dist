@@ -2,6 +2,44 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.12.2] - 2026-07-04
+
+> Core level-up pass (Sprints 78–87): silent-failure scrubs, bootstrap/DI/event/sequence hardening,
+> networking resilience & privacy, durability, async/threading contract enforcement, and expanded test
+> coverage. Behavior-compatible hardening except where noted.
+
+### Added
+- **Bootstrap 2.0 (Sprint 80).** Wave-based subsystem initialization with observable failure and DI
+  hardening — bootstrap surfaces per-wave/​per-subsystem failures instead of failing opaquely.
+- **Doctor convention-enforcement checks (Sprint 86).** New checks that flag framework-convention
+  violations (discovered via the Sprint-63 `DoctorCheckRegistry`).
+- **PlayMode test assembly + threading contract (Sprint 87).** A new `Molca.Core.PlayModeTests` assembly
+  plus the documented threading contract for the data-provider and log pipelines.
+
+### Changed
+- **EventDispatcher hardening & Sequence async contract (Sprint 81).** Listener/dispatch hardening and
+  Sequence brought onto the `Awaitable` async contract.
+- **Audio async sweep + read-only ScriptableObject enforcement (Sprint 85).** Audio APIs swept onto the
+  async contract; runtime writes to config ScriptableObjects are now guarded/enforced read-only.
+
+### Fixed
+- **Silent-failure bug scrubs.** Sequence & kernel (Sprint 78) and networking, audio & data (Sprint 79)
+  paths that previously swallowed failures now surface or log them.
+- **Streaming resilience (Sprint 82).** SSE/WebSocket reconnect with backoff and auth-token refresh on
+  reconnect; RFC-compliant SSE parsing.
+- **Auth & HTTP privacy/correctness hardening (Sprint 83).** Credential/redaction and correctness fixes in
+  the auth and HTTP client paths.
+- **ContentPackage & telemetry durability (Sprint 84).** Hardened the ContentPackage download/storage and
+  telemetry sink paths against interruption/corruption.
+
+## [1.12.1] - 2026-07-04
+
+### Added
+- **Extensible Molca Doctor.** Doctor checks are now discovered via `DoctorCheckRegistry` (TypeCache),
+  so an SDK layer or consumer project adds a check simply by implementing `IDoctorCheck` in an Editor
+  assembly — no Core edit. Core's built-in checks keep their curated order; discovered checks follow,
+  sorted by `Id`. Duplicate/empty ids are rejected loudly. See `Documentation~/reference/DOCTOR_CHECKS.md`.
+
 ## [1.12.0] - 2026-07-04
 
 ### Added
@@ -22,14 +60,6 @@ All notable changes to Molca Core will be documented here.
   `componentType`/`nameContains` filters on `molca_unity_select`; and `auxiliaryType` filter + auxiliary
   listing on `molca_unity_scene_objects`.
 - **Auto-index installed Core/SDK packages** for knowledge-graph retrieval.
-
-## [1.12.1] - 2026-07-04
-
-### Added
-- **Extensible Molca Doctor.** Doctor checks are now discovered via `DoctorCheckRegistry` (TypeCache),
-  so an SDK layer or consumer project adds a check simply by implementing `IDoctorCheck` in an Editor
-  assembly — no Core edit. Core's built-in checks keep their curated order; discovered checks follow,
-  sorted by `Id`. Duplicate/empty ids are rejected loudly. See `Documentation~/reference/DOCTOR_CHECKS.md`.
 
 ## [1.11.3] - 2026-07-01
 

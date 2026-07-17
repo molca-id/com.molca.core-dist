@@ -72,7 +72,9 @@ namespace Molca.Sequence
         
         protected override bool CanComplete()
         {
-            return false; // Input steps complete through input events, not internal conditions
+            // Complete() is only called from the input handlers, which set
+            // _inputPerformed first — so the gate opens exactly when input arrived.
+            return _inputPerformed;
         }
         
         protected override void OnDestroy()

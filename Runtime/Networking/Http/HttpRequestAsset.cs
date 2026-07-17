@@ -30,27 +30,32 @@ namespace Molca.Networking.Http
         }
 
         /// <summary>
-        /// Sends this HTTP request asynchronously
+        /// Sends this HTTP request asynchronously. A <see cref="CreateRequest"/> clone
+        /// is sent — never the asset-owned instance — so the pipeline (and anything
+        /// holding the request context) can never observe or retain the ScriptableObject's
+        /// request object.
         /// </summary>
         public async Awaitable<HttpResponse> SendAsync()
         {
-            return await Http.SendAsync(request);
+            return await Http.SendAsync(CreateRequest());
         }
 
         /// <summary>
         /// Sends this HTTP request asynchronously; cancelling the token aborts it.
+        /// Sends a <see cref="CreateRequest"/> clone, never the asset-owned instance.
         /// </summary>
         public async Awaitable<HttpResponse> SendAsync(System.Threading.CancellationToken cancellationToken)
         {
-            return await Http.SendAsync(request, cancellationToken);
+            return await Http.SendAsync(CreateRequest(), cancellationToken);
         }
-        
+
         /// <summary>
-        /// Sends this HTTP request with callbacks
+        /// Sends this HTTP request with callbacks. Sends a <see cref="CreateRequest"/>
+        /// clone, never the asset-owned instance.
         /// </summary>
         public void Send(Action<HttpResponse> onSuccess = null, Action<string> onError = null, Action<float> onProgress = null)
         {
-            Http.Send(request, onSuccess: onSuccess, onError: onError, onProgress: onProgress);
+            Http.Send(CreateRequest(), onSuccess: onSuccess, onError: onError, onProgress: onProgress);
         }
         
         /// <summary>

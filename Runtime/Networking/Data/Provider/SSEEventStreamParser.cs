@@ -40,12 +40,39 @@ namespace Molca.Networking.Data
         private readonly StringBuilder _data = new StringBuilder();
         private string _eventType;
         private bool _hasData;
+        // The previous chunk ended exactly on '\r': if the next chunk starts with '\n',
+        // that pair was one CRLF terminator, not a CR terminator plus a phantom blank line.
+        private bool _pendingCR;
 
         /// <summary>The most recent event id seen; persists across reconnects for resume.</summary>
         public string LastEventId { get; private set; }
 
-        /// <summary>The server-requested reconnect delay (ms) from a <c>retry:</c> field, if any.</summary>
+        /// <summary>
+        /// The server-requested reconnect delay (ms) from a <c>retry:</c> field, if any.
+        /// Cleared once <see cref="TryConsumeRetry"/> hands it to the reconnect loop.
+        /// </summary>
         public int? RetryMilliseconds { get; private set; }
+
+        /// <summary>
+        /// One-shot consumption of a server <c>retry:</c> directive: returns the pending
+        /// delay and clears it, so a single directive shapes exactly one reconnect wait
+        /// instead of permanently replacing the backoff schedule (a hostile or buggy
+        /// <c>retry: 0</c> must not disable backoff forever).
+        /// </summary>
+        /// <param name="retryMilliseconds">The server-requested delay, when pending.</param>
+        /// <returns><c>true</c> when a directive was pending and has now been consumed.</returns>
+        public bool TryConsumeRetry(out int retryMilliseconds)
+        {
+            if (RetryMilliseconds.HasValue)
+            {
+                retryMilliseconds = RetryMilliseconds.Value;
+                RetryMilliseconds = null;
+                return true;
+            }
+
+            retryMilliseconds = 0;
+            return false;
+        }
 
         /// <summary>
         /// Clears in-progress framing (partial line + current event fields) for a fresh
@@ -58,6 +85,7 @@ namespace Molca.Networking.Data
             _data.Clear();
             _eventType = null;
             _hasData = false;
+            _pendingCR = false;
         }
 
         /// <summary>
@@ -70,6 +98,20 @@ namespace Molca.Networking.Data
             var events = new List<SSEEvent>();
             if (string.IsNullOrEmpty(chunk))
                 return events;
+
+            // A CRLF split across chunks: the '\r' already terminated its line last
+            // feed, so a leading '\n' here is the second half of that terminator —
+            // not a blank line (which would dispatch a phantom event boundary).
+            if (_pendingCR)
+            {
+                _pendingCR = false;
+                if (chunk[0] == '\n')
+                {
+                    if (chunk.Length == 1)
+                        return events;
+                    chunk = chunk.Substring(1);
+                }
+            }
 
             _pending.Append(chunk);
             string buffered = _pending.ToString();
@@ -100,6 +142,10 @@ namespace Molca.Networking.Data
             _pending.Clear();
             if (start < buffered.Length)
                 _pending.Append(buffered, start, buffered.Length - start);
+            else
+                // Everything was consumed; if the chunk ended exactly on '\r', a '\n'
+                // opening the next chunk completes that CRLF and must be swallowed.
+                _pendingCR = buffered[buffered.Length - 1] == '\r';
 
             return events;
         }

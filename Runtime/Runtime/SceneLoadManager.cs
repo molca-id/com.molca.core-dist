@@ -91,16 +91,24 @@ namespace Molca
         {
             _loadedScenes.Add(scene);
 
-            // Use current request's event data if available
-            if (_activeRequest != null && _activeRequest.SceneName == scene.name)
+            // Use current request's event data if available. Addressable requests
+            // don't know the scene name until it resolves (SceneName stays null),
+            // so match those on the request being addressable instead.
+            if (_activeRequest != null &&
+                (_activeRequest.SceneName == scene.name ||
+                 (_activeRequest.IsAddressable && _activeRequest.SceneName == null)))
             {
-                TypedEvents.SceneLoadCompleted.Dispatch(_activeRequest.EventData);
+                // Dispatch with the resolved scene name so addressable loads report
+                // the real name (the request EventData carries the AssetReference string).
+                TypedEvents.SceneLoadCompleted.Dispatch(new SceneLoadEventData(
+                    scene.name, _activeRequest.LoadMode == LoadSceneMode.Additive, 1f));
                 _activeRequest = null;
             }
             else
             {
-                // Fallback for scenes loaded outside our system
-                TypedEvents.SceneLoadCompleted.Dispatch(new SceneLoadEventData(scene.name, false, (int)mode));
+                // Fallback for scenes loaded outside our system.
+                TypedEvents.SceneLoadCompleted.Dispatch(new SceneLoadEventData(
+                    scene.name, mode == LoadSceneMode.Additive, 1f));
             }
         }
 

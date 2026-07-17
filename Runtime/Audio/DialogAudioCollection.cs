@@ -111,7 +111,14 @@ namespace Molca.Audio
         public void AddEntry(string id, Dictionary<string, AssetReferenceT<AudioClip>> languageClips = null)
         {
             if (string.IsNullOrEmpty(id)) return;
-            
+            // Config SOs are read-only at runtime: the serialized entry list is
+            // authored data (editor mutation would persist; player mutation diverges).
+            if (AudioAuthoringGuard.IsRuntime)
+            {
+                Debug.LogError($"[DialogAudioCollection] '{name}': AddEntry is an edit-time authoring operation; runtime mutation of the serialized entry list is not allowed. Ignored.");
+                return;
+            }
+
             var entry = new LocalizedAudioEntry
             {
                 id = id
@@ -137,6 +144,11 @@ namespace Molca.Audio
         public void RemoveEntry(LocalizedAudioEntry entry)
         {
             if (entry == null) return;
+            if (AudioAuthoringGuard.IsRuntime)
+            {
+                Debug.LogError($"[DialogAudioCollection] '{name}': RemoveEntry is an edit-time authoring operation; runtime mutation of the serialized entry list is not allowed. Ignored.");
+                return;
+            }
             _entries.Remove(entry);
             if (_entryCache != null)
             {

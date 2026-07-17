@@ -1,7 +1,8 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using Molca.ContentPackage.Core;
 using Molca.Telemetry;
 using UnityEngine;
@@ -78,10 +79,29 @@ namespace Molca.ContentPackage.Services
         private readonly Dictionary<string, PackageState> _states;
 
         /// <summary>
-        /// Dictionary of active operation cancellation tokens, keyed by package ID.
-        /// Used to cancel ongoing downloads and installations.
+        /// Tracks one in-flight install per package: its cancellation handle and a
+        /// completion every concurrent caller of the same package awaits. Two installs
+        /// racing on a shared dependency now join the same operation instead of the
+        /// second one failing spuriously.
         /// </summary>
-        private readonly Dictionary<string, CancellationTokenSource> _activeOperations;
+        private sealed class ActiveInstall
+        {
+            /// <summary>Cancellation handle for <see cref="CancelPackageInstall"/>.</summary>
+            public CancellationTokenSource Cts;
+
+            /// <summary>
+            /// Completed with the install's result. A <see cref="Task{T}"/> (not an
+            /// <c>Awaitable</c>) because any number of joiners may await it.
+            /// </summary>
+            public TaskCompletionSource<OperationResult> Completion;
+        }
+
+        /// <summary>
+        /// Dictionary of active install operations, keyed by package ID.
+        /// Used to cancel ongoing downloads/installs and to join concurrent callers
+        /// onto the in-flight operation.
+        /// </summary>
+        private readonly Dictionary<string, ActiveInstall> _activeOperations;
 
         /// <summary>
         /// Remote package manifest fetched from CDN on catalog refresh.
@@ -193,7 +213,7 @@ namespace Molca.ContentPackage.Services
             _manifest = new PackageManifest();
             _definitions = new Dictionary<string, ContentPackageSettings.PackageConfig>();
             _states = new Dictionary<string, PackageState>();
-            _activeOperations = new Dictionary<string, CancellationTokenSource>();
+            _activeOperations = new Dictionary<string, ActiveInstall>();
 
             LoadDefinitions();
             LoadStates();
@@ -642,13 +662,14 @@ namespace Molca.ContentPackage.Services
                 return OperationResult.CreateFailure($"Package '{packageId}' not found in definitions");
             }
 
-            // Guard against concurrent installs of the same package. Without this, two callers
-            // racing on a shared dependency would overwrite each other's CancellationTokenSource,
-            // orphaning the first download handle.
-            if (_activeOperations.ContainsKey(packageId))
+            // Concurrent installs of the same package (e.g. two installs racing on a
+            // shared dependency) join the in-flight operation and await its result
+            // instead of failing spuriously. The joiner's own progress reporter and
+            // token are not threaded into the operation it joins.
+            if (_activeOperations.TryGetValue(packageId, out var inFlight))
             {
-                LogWarning($"[PackageService] Package '{packageId}' is already being installed");
-                return OperationResult.CreateFailure($"Package '{packageId}' is already being installed");
+                Log($"[PackageService] Package '{packageId}' is already being installed — joining the in-flight operation");
+                return await inFlight.Completion.Task;
             }
 
             Log($"[PackageService] Starting installation of package: {packageId}");
@@ -661,70 +682,103 @@ namespace Molca.ContentPackage.Services
                 return OperationResult.CreateSuccess();
             }
 
-            // Register the operation up-front (before dependency resolution) so the re-entrancy
-            // guard above catches a second concurrent install of the same package during the
-            // dependency phase too — not only once the content download starts. The linked CTS
-            // is the cancellation handle returned by CancelPackageInstall(packageId).
+            // Register the operation up-front (before dependency resolution) so a second
+            // concurrent install of the same package joins during the dependency phase
+            // too — not only once the content download starts. The linked CTS is the
+            // cancellation handle used by CancelPackageInstall(packageId).
             var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            _activeOperations[packageId] = cts;
+            var install = new ActiveInstall
+            {
+                Cts = cts,
+                Completion = new TaskCompletionSource<OperationResult>()
+            };
+            _activeOperations[packageId] = install;
 
+            OperationResult result;
             try
             {
-                // 3. Resolve dependencies using ResolveDependencies()
-                var dependencyResult = ResolveDependencies(packageId);
-                if (!dependencyResult.Success)
-                {
-                    return OperationResult.CreateFailure($"Failed to resolve dependencies for '{packageId}': {dependencyResult.ErrorMessage}");
-                }
-
-                var dependenciesToInstall = dependencyResult.Data;
-                Log($"[PackageService] Resolved {dependenciesToInstall.Count} dependencies for '{packageId}': [{string.Join(", ", dependenciesToInstall)}]");
-
-                // 4. Install dependencies recursively before main package.
-                // Dependencies are returned in topological order, so we install them sequentially.
-                // Pass cts.Token so cancelling this package also cancels its in-progress dependencies.
-                for (int i = 0; i < dependenciesToInstall.Count - 1; i++) // Exclude the main package (last item)
-                {
-                    var dependencyId = dependenciesToInstall[i];
-                    var dependencyState = GetOrCreateState(dependencyId);
-
-                    if (!dependencyState.IsInstalled)
-                    {
-                        Log($"[PackageService] Installing dependency: {dependencyId}");
-                        var dependencyInstallResult = await InstallPackageAsync(dependencyId, null, cts.Token);
-
-                        if (!dependencyInstallResult.Success)
-                        {
-                            return OperationResult.CreateFailure($"Failed to install dependency '{dependencyId}': {dependencyInstallResult.ErrorMessage}");
-                        }
-                    }
-                    else
-                    {
-                        Log($"[PackageService] Dependency '{dependencyId}' is already installed, skipping");
-                    }
-                }
-
-                // 5. Install the main package
-                return await InstallPackageContentAsync(packageId, definition, progress, cts.Token);
+                result = await InstallResolvedAsync(packageId, definition, progress, cts.Token);
             }
             catch (OperationCanceledException)
             {
                 Log($"[PackageService] Installation of package '{packageId}' was cancelled");
                 UpdateState(packageId, PackageStatus.Available);
-                return OperationResult.CreateCancelled();
+                result = OperationResult.CreateCancelled();
             }
             catch (Exception ex)
             {
                 LogError($"[PackageService] Unexpected error during installation of package '{packageId}': {ex.Message}");
                 UpdateState(packageId, PackageStatus.Failed, ex.Message);
-                return OperationResult.CreateFailure($"Unexpected error: {ex.Message}");
+                result = OperationResult.CreateFailure($"Unexpected error: {ex.Message}");
             }
             finally
             {
                 _activeOperations.Remove(packageId);
                 cts.Dispose();
             }
+
+            // Wake every joiner with the same result (after the operation is
+            // deregistered, so a joiner retrying immediately starts fresh).
+            install.Completion.TrySetResult(result);
+            return result;
         }
+
+        /// <summary>
+        /// The dependency-resolution + install body of <see cref="InstallPackageAsync"/>,
+        /// run under the registered operation's linked token.
+        /// </summary>
+        private async Awaitable<OperationResult> InstallResolvedAsync(
+            string packageId,
+            ContentPackageSettings.PackageConfig definition,
+            IProgress<float> progress,
+            CancellationToken cancellationToken)
+        {
+            // 3. Resolve dependencies using ResolveDependencies()
+            var dependencyResult = ResolveDependencies(packageId);
+            if (!dependencyResult.Success)
+            {
+                return OperationResult.CreateFailure($"Failed to resolve dependencies for '{packageId}': {dependencyResult.ErrorMessage}");
+            }
+
+            var dependenciesToInstall = dependencyResult.Data;
+            Log($"[PackageService] Resolved {dependenciesToInstall.Count} dependencies for '{packageId}': [{string.Join(", ", dependenciesToInstall)}]");
+
+            // 4. Install dependencies recursively before main package.
+            // Dependencies are returned in topological order, so we install them sequentially.
+            // Pass the linked token so cancelling this package also cancels its in-progress dependencies.
+            for (int i = 0; i < dependenciesToInstall.Count - 1; i++) // Exclude the main package (last item)
+            {
+                var dependencyId = dependenciesToInstall[i];
+                var dependencyState = GetOrCreateState(dependencyId);
+
+                if (!dependencyState.IsInstalled)
+                {
+                    Log($"[PackageService] Installing dependency: {dependencyId}");
+                    var dependencyInstallResult = await InstallPackageAsync(dependencyId, null, cancellationToken);
+
+                    if (!dependencyInstallResult.Success)
+                    {
+                        return OperationResult.CreateFailure($"Failed to install dependency '{dependencyId}': {dependencyInstallResult.ErrorMessage}");
+                    }
+                }
+                else
+                {
+                    Log($"[PackageService] Dependency '{dependencyId}' is already installed, skipping");
+                }
+            }
+
+            // 5. Install the main package
+            if (InstallContentOverrideForTests != null)
+                return await InstallContentOverrideForTests(packageId, cancellationToken);
+            return await InstallPackageContentAsync(packageId, definition, progress, cancellationToken);
+        }
+
+        /// <summary>
+        /// Test seam: replaces the Addressables content-install step so EditMode tests
+        /// can exercise install orchestration (join/cancel semantics) deterministically
+        /// without Addressables content. Never set in production.
+        /// </summary>
+        internal Func<string, CancellationToken, Task<OperationResult>> InstallContentOverrideForTests;
 
         /// <summary>
         /// Cancels an in-progress install/update for the given package, if one is active.
@@ -736,10 +790,10 @@ namespace Molca.ContentPackage.Services
         public bool CancelPackageInstall(string packageId)
         {
             if (string.IsNullOrEmpty(packageId)) return false;
-            if (_activeOperations.TryGetValue(packageId, out var cts))
+            if (_activeOperations.TryGetValue(packageId, out var install))
             {
                 Log($"[PackageService] Cancelling active operation for package: {packageId}");
-                cts.Cancel();
+                install.Cts.Cancel();
                 return true;
             }
             return false;
@@ -857,6 +911,13 @@ namespace Molca.ContentPackage.Services
 
             try
             {
+                // Throttle progress events: without it every frame dispatches to every
+                // subscriber (UI rebinds, queue bookkeeping) even when nothing moved.
+                float lastReportedPct = -1f;
+                float lastReportTime = float.NegativeInfinity;
+                const float minProgressDelta = 0.005f;   // 0.5 %
+                const float maxReportIntervalSeconds = 0.25f; // heartbeat even when stalled
+
                 while (!downloadHandle.IsDone)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -873,8 +934,14 @@ namespace Molca.ContentPackage.Services
                     currentState.downloadedBytes   = dlStatus.DownloadedBytes;
                     currentState.totalBytes        = dlStatus.TotalBytes;
 
-                    progress?.Report(pct);
-                    OnDownloadProgress?.Invoke(packageId, pct);
+                    if (pct - lastReportedPct >= minProgressDelta
+                        || Time.realtimeSinceStartup - lastReportTime >= maxReportIntervalSeconds)
+                    {
+                        lastReportedPct = pct;
+                        lastReportTime = Time.realtimeSinceStartup;
+                        progress?.Report(pct);
+                        OnDownloadProgress?.Invoke(packageId, pct);
+                    }
 
                     await Awaitable.NextFrameAsync(cancellationToken);
                 }
@@ -1112,7 +1179,18 @@ namespace Molca.ContentPackage.Services
                     if (string.IsNullOrEmpty(label)) continue;
                     cancellationToken.ThrowIfCancellationRequested();
                     Log($"[PackageService] Clearing cache for label: {label}");
-                    await Addressables.ClearDependencyCacheAsync(label, false).Task;
+                    // autoReleaseHandle:false + await + release in finally: the result
+                    // is never inspected, but leaving the handle unreleased leaked one
+                    // per label on every uninstall/update/version switch.
+                    var clearHandle = Addressables.ClearDependencyCacheAsync(label, false);
+                    try
+                    {
+                        await clearHandle.Task;
+                    }
+                    finally
+                    {
+                        if (clearHandle.IsValid()) Addressables.Release(clearHandle);
+                    }
                 }
                 return OperationResult.CreateSuccess();
             }
@@ -1285,23 +1363,30 @@ namespace Molca.ContentPackage.Services
 
                 Log($"[PackageService] Querying download size with {mergedLabels.Count} merged label(s) for '{packageId}'");
                 var handle = Addressables.GetDownloadSizeAsync(mergedLabels);
-                await handle.Task;
-
-                long size = 0;
-                if (handle.Status == AsyncOperationStatus.Succeeded)
+                try
                 {
-                    size = handle.Result;
-                    Log($"[PackageService] Download size for '{packageId}' (incl. deps): {size} bytes");
-                }
-                else
-                {
-                    LogWarning($"[PackageService] Failed to get download size for '{packageId}': {handle.OperationException?.Message}");
-                    var remoteEntry = _remoteManifest?.FindPackage(packageId);
-                    size = remoteEntry?.bundleSizeBytes ?? 0;
-                }
+                    await handle.Task;
 
-                if (handle.IsValid()) Addressables.Release(handle);
-                return size;
+                    long size = 0;
+                    if (handle.Status == AsyncOperationStatus.Succeeded)
+                    {
+                        size = handle.Result;
+                        Log($"[PackageService] Download size for '{packageId}' (incl. deps): {size} bytes");
+                    }
+                    else
+                    {
+                        LogWarning($"[PackageService] Failed to get download size for '{packageId}': {handle.OperationException?.Message}");
+                        var remoteEntry = _remoteManifest?.FindPackage(packageId);
+                        size = remoteEntry?.bundleSizeBytes ?? 0;
+                    }
+
+                    return size;
+                }
+                finally
+                {
+                    // Release in finally so a faulted Task doesn't leak the handle.
+                    if (handle.IsValid()) Addressables.Release(handle);
+                }
             }
             catch (Exception ex)
             {
@@ -1914,18 +1999,24 @@ namespace Molca.ContentPackage.Services
                     if (validLabels == null || validLabels.Count == 0) continue;
 
                     var handle = Addressables.GetDownloadSizeAsync(validLabels);
-                    await handle.Task;
-
-                    if (handle.Status == AsyncOperationStatus.Succeeded && handle.Result > 0)
+                    try
                     {
-                        Log($"[PackageService] Update available for '{state.packageId}' " +
-                                  $"(offline fallback — pending download: {handle.Result} bytes)");
-                        UpdateState(state.packageId, PackageStatus.UpdateAvailable);
-                        updatesFound++;
-                    }
+                        await handle.Task;
 
-                    if (handle.IsValid())
-                        Addressables.Release(handle);
+                        if (handle.Status == AsyncOperationStatus.Succeeded && handle.Result > 0)
+                        {
+                            Log($"[PackageService] Update available for '{state.packageId}' " +
+                                      $"(offline fallback — pending download: {handle.Result} bytes)");
+                            UpdateState(state.packageId, PackageStatus.UpdateAvailable);
+                            updatesFound++;
+                        }
+                    }
+                    finally
+                    {
+                        // Release in finally so a faulted Task doesn't leak the handle.
+                        if (handle.IsValid())
+                            Addressables.Release(handle);
+                    }
                 }
 
                 Log($"[PackageService] Found {updatesFound} package update(s)");

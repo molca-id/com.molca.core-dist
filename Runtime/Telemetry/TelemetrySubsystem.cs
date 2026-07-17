@@ -24,7 +24,10 @@ namespace Molca.Telemetry
         private readonly List<ITelemetrySink> _sinks = new List<ITelemetrySink>();
         private string _sessionId;
         private int _pendingSinceFlush;
-        private bool _flushing;
+        // The in-flight flush, if any. Overlapping FlushAsync callers await this
+        // (Task, not Awaitable — many callers may await it) so "flushed" means
+        // flushed, not "someone else was flushing".
+        private System.Threading.Tasks.Task _flushTask;
         private bool _enabled;
 
         /// <summary>Unique id for the current app run, attached to every event. Always set.</summary>
@@ -102,13 +105,27 @@ namespace Molca.Telemetry
         }
 
         /// <summary>
-        /// Flushes all sinks. Overlapping calls are coalesced (a flush in progress is not re-entered).
+        /// Flushes all sinks. Overlapping calls chain onto the in-flight flush: a
+        /// second caller awaits the flush already running instead of returning
+        /// immediately while its events are still buffered.
         /// </summary>
         /// <param name="cancellationToken">Cancelled on teardown.</param>
         public async Awaitable FlushAsync(CancellationToken cancellationToken)
         {
-            if (_flushing) return;
-            _flushing = true;
+            // Main-thread only (like Track), so the check-then-set is race-free.
+            if (_flushTask != null && !_flushTask.IsCompleted)
+            {
+                await _flushTask;
+                return;
+            }
+
+            var task = FlushCoreAsync(cancellationToken);
+            _flushTask = task;
+            await task;
+        }
+
+        private async System.Threading.Tasks.Task FlushCoreAsync(CancellationToken cancellationToken)
+        {
             _pendingSinceFlush = 0;
 
             try
@@ -124,10 +141,6 @@ namespace Molca.Telemetry
             catch (OperationCanceledException)
             {
                 // Teardown — stop quietly.
-            }
-            finally
-            {
-                _flushing = false;
             }
         }
 

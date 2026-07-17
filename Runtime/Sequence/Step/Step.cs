@@ -173,17 +173,33 @@ public int StepId => stepId;
 
         private async void Start()
         {
-            await RuntimeManager.WaitForInitialization();
-            
-            // Manual injection if needed (auto-injection happens after RuntimeManager.IsReady)
-            if (_eventDispatcher == null || _referenceManager == null)
+            // async-void entry point: try/catch shim per the async contract.
+            try
             {
-                RuntimeManager.InjectDependencies(this);
+                await RuntimeManager.WaitForInitialization(destroyCancellationToken);
+
+                // Post-await destroy check (contract rule 7): a step destroyed during
+                // bootstrap must not register a fake-null entry with ReferenceManager.
+                if (this == null) return;
+
+                // Manual injection if needed (auto-injection happens after RuntimeManager.IsReady)
+                if (_eventDispatcher == null || _referenceManager == null)
+                {
+                    RuntimeManager.InjectDependencies(this);
+                }
+
+                if (_referenceManager != null)
+                {
+                    _referenceManager.Register(this);
+                }
             }
-            
-            if (_referenceManager != null)
+            catch (OperationCanceledException)
             {
-                _referenceManager.Register(this);
+                // Destroyed while waiting — exit quietly.
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[Step] Start failed on '{name}': {e}", this);
             }
         }
 
@@ -340,12 +356,12 @@ public int StepId => stepId;
             // Dispatch step completion event
             if (_eventDispatcher != null)
             {
-                _eventDispatcher.DispatchEvent("Step.Completed", this);
+                _eventDispatcher.DispatchEvent(EventConstants.Sequence.StepCompleted, this);
 
                 // Check if this step is now fully completed
                 if (IsCompleted)
                 {
-                    _eventDispatcher.DispatchEvent("Step.FullyCompleted", this);
+                    _eventDispatcher.DispatchEvent(EventConstants.Sequence.StepFullyCompleted, this);
                 }
             }
         }
@@ -500,7 +516,14 @@ public int StepId => stepId;
                 {
                     if (auxiliary != null && auxiliary.IsActive)
                     {
-                        auxiliary.OnStepBegin();
+                        try
+                        {
+                            auxiliary.OnStepBegin();
+                        }
+                        catch (System.Exception e)
+                        {
+                            Debug.LogError($"Error executing OnStepBegin on auxiliary {auxiliary.GetType().Name}: {e.Message}", this);
+                        }
                     }
                 }
                 OnStepBegin?.Invoke();

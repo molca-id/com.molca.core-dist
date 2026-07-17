@@ -133,7 +133,14 @@ namespace Molca.Audio
         public void AddEntry(string id, AssetReferenceT<AudioClip> clipReference)
         {
             if (string.IsNullOrEmpty(id) || clipReference == null) return;
-            
+            // Config SOs are read-only at runtime: the serialized entry list is
+            // authored data (editor mutation would persist; player mutation diverges).
+            if (AudioAuthoringGuard.IsRuntime)
+            {
+                Debug.LogError($"[AudioCollection] '{name}': AddEntry is an edit-time authoring operation; runtime mutation of the serialized entry list is not allowed. Ignored.");
+                return;
+            }
+
             var entry = new AudioEntry
             {
                 id = id,
@@ -149,6 +156,11 @@ namespace Molca.Audio
         public void RemoveEntry(AudioEntry entry)
         {
             if (entry == null) return;
+            if (AudioAuthoringGuard.IsRuntime)
+            {
+                Debug.LogError($"[AudioCollection] '{name}': RemoveEntry is an edit-time authoring operation; runtime mutation of the serialized entry list is not allowed. Ignored.");
+                return;
+            }
             _entries.Remove(entry);
             if (_entryCache != null)
             {

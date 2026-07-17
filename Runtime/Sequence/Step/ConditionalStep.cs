@@ -15,8 +15,8 @@ namespace Molca.Sequence
         public override void Initialize(string sequenceId)
         {
             base.Initialize(sequenceId);
-            trueStep.gameObject.SetActive(false);
-            falseStep.gameObject.SetActive(false);
+            if (trueStep != null) trueStep.gameObject.SetActive(false);
+            if (falseStep != null) falseStep.gameObject.SetActive(false);
         }
 
         /// <summary>
@@ -48,8 +48,10 @@ namespace Molca.Sequence
 
         protected override void OnStepActivated()
         {
-            // If the step is already active, don't do anything
-            if (CurrentStatus == StepStatus.Active) return;
+            // NOTE: no CurrentStatus guard here — SetStatus() assigns the new status
+            // BEFORE calling OnStepActivated, so checking for Active would always
+            // early-return and re-activation would never reset the branch state
+            // (same fix as BranchingStep).
 
             // Reset the condition evaluation when the step becomes active
             conditionEvaluated = false;

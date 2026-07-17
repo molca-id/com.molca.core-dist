@@ -38,6 +38,7 @@ namespace Molca.Localization
                 // previous activation's subscription behind.
                 localizedString.StringChanged -= OnRefresh;
                 localizedString.StringChanged += OnRefresh;
+                _stringChangedSubscribed = true;
                 UpdateLocalizedText();
             }
         }
@@ -49,6 +50,7 @@ namespace Molca.Localization
                 _locMgr?.UnregisterText(this);
                 if (localizedString != null)
                     localizedString.StringChanged -= OnRefresh;
+                _stringChangedSubscribed = false;
             }
         }
 
@@ -75,10 +77,20 @@ namespace Molca.Localization
             ApplyStyle();
         }
 
+        // True while this component's LocalizedString subscription is the refresh
+        // channel; the LocalizationManager broadcast then skips this component so a
+        // locale switch triggers ONE fetch + layout rebuild instead of two.
+        private bool _stringChangedSubscribed;
+
         /// <summary>Called by <see cref="LocalizationManager"/> when the active language changes.</summary>
         /// <param name="lang">The new BCP-47 language code.</param>
         public virtual void OnRefresh(string lang)
         {
+            // Single refresh channel: when the StringChanged subscription is live it
+            // already delivers this locale change; refreshing here as well doubled
+            // the async fetch and the full-canvas layout rebuild on every switch.
+            if (_stringChangedSubscribed)
+                return;
             UpdateLocalizedText();
         }
 
@@ -114,13 +126,17 @@ namespace Molca.Localization
 
             if (localizedString != null)
                 localizedString.StringChanged -= OnRefresh;
+            _stringChangedSubscribed = false;
 
             localizedString = newLocalizedString;
 
             // Guard: only subscribe if already initialized to avoid a double-subscription
             // when OnEnable also subscribes after InitializeAsync completes.
             if (localizedString != null && _isInitialized)
+            {
                 localizedString.StringChanged += OnRefresh;
+                _stringChangedSubscribed = true;
+            }
         }
 
         /// <summary>Returns the current <see cref="LocalizedString"/> assigned to this component.</summary>

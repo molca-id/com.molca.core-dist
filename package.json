@@ -1,6 +1,6 @@
 {
   "name": "com.molca.core",
-  "version": "1.12.1",
+  "version": "1.12.2",
   "displayName": "Molca",
   "description": "General-purpose Unity application framework. Provides RuntimeManager, DI, EventDispatcher, Networking, Sequence, Settings, Modals, Audio, and related systems.",
   "unity": "6000.0",

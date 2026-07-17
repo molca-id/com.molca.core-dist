@@ -106,6 +106,20 @@ namespace Molca.ColorID
         }
 
         /// <summary>
+        /// Resolves the color provider through <see cref="IColorSchemeService.ActiveScheme"/>
+        /// when the service is available (the scheme the user actually switched to),
+        /// falling back to the legacy static resolution for objects that run before
+        /// bootstrap or in edit mode.
+        /// </summary>
+        private IColorProvider ResolveColorProvider()
+        {
+            var scheme = _schemeService?.ActiveScheme;
+            if (scheme != null)
+                return scheme;
+            return ColorModule.ResolveActive();
+        }
+
+        /// <summary>
         /// Called when the color scheme changes. Reapplies colors with the new scheme.
         /// </summary>
         /// <param name="newScheme">The new active ColorModule (can be null).</param>
@@ -190,7 +204,7 @@ namespace Molca.ColorID
         {
             if (component == null) return;
 
-            Color color = ((IColorProvider)ColorModule.ResolveActive()).GetColor(_swatchName, _colorId);
+            Color color = ResolveColorProvider().GetColor(_swatchName, _colorId);
             
             if (!target.UseAlpha)
             {
@@ -388,7 +402,7 @@ namespace Molca.ColorID
         /// <returns>Array of available color IDs</returns>
         public string[] GetAvailableColorIds()
         {
-            return ((IColorProvider)ColorModule.ResolveActive()).GetAllColorIds();
+            return ResolveColorProvider().GetAllColorIds();
         }
 
         private void AddTargetsFromGameObjectPreservingConfig(GameObject targetObject, Dictionary<Component, ColorTarget> existingTargets)

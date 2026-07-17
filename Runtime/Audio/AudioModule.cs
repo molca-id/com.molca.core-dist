@@ -85,17 +85,39 @@ namespace Molca.Audio
                 SaveFloat(VO_VOLUME, voVolume);
         }
 
-        public override async void LoadSettings()
+        public override void LoadSettings()
         {
+            // Synchronous, honoring the base contract — an async-void override here
+            // let bootstrap continue believing settings were loaded while the body
+            // had not run yet, and any exception escaped unobserved.
             if (audioMixer == null) return;
 
-            // Wait for the audio mixer to be ready
-            await Awaitable.NextFrameAsync();
+            // The mixer drops SetFloat calls issued before its first audio frame, so
+            // the volume application itself stays deferred by one frame. Explicit
+            // fire-and-forget: the method owns its exceptions.
+            _ = ApplyMixerVolumesAsync();
+        }
 
-            audioMixer.SetFloat(MASTER_VOLUME, LoadFloat(MASTER_VOLUME, 0f));
-            audioMixer.SetFloat(BGM_VOLUME, LoadFloat(BGM_VOLUME, 0f));
-            audioMixer.SetFloat(SFX_VOLUME, LoadFloat(SFX_VOLUME, 0f));
-            audioMixer.SetFloat(VO_VOLUME, LoadFloat(VO_VOLUME, 0f));
+        /// <summary>
+        /// Applies the persisted volume values to the mixer on the next frame
+        /// (mixer parameters set before its first update are ignored).
+        /// </summary>
+        private async Awaitable ApplyMixerVolumesAsync()
+        {
+            try
+            {
+                await Awaitable.NextFrameAsync();
+
+                if (audioMixer == null) return;
+                audioMixer.SetFloat(MASTER_VOLUME, LoadFloat(MASTER_VOLUME, 0f));
+                audioMixer.SetFloat(BGM_VOLUME, LoadFloat(BGM_VOLUME, 0f));
+                audioMixer.SetFloat(SFX_VOLUME, LoadFloat(SFX_VOLUME, 0f));
+                audioMixer.SetFloat(VO_VOLUME, LoadFloat(VO_VOLUME, 0f));
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[AudioModule] Applying saved mixer volumes failed: {e}");
+            }
         }
 
         /// <summary>

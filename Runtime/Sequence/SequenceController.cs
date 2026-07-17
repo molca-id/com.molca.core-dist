@@ -93,8 +93,8 @@ namespace Molca.Sequence
             // Unregister event listeners
             if (_eventDispatcher != null)
             {
-                _eventDispatcher.UnregisterEvent<Step>("Step.Completed", OnStepCompleted);
-                _eventDispatcher.UnregisterEvent<Step>("Step.FullyCompleted", OnStepFullyCompleted);
+                _eventDispatcher.UnregisterEvent<Step>(EventConstants.Sequence.StepCompleted, OnStepCompleted);
+                _eventDispatcher.UnregisterEvent<Step>(EventConstants.Sequence.StepFullyCompleted, OnStepFullyCompleted);
             }
 
             if (_referenceManager != null)
@@ -105,24 +105,40 @@ namespace Molca.Sequence
 
         private async void Start()
         {
-            await RuntimeManager.WaitForInitialization();
-            
-            // Manual injection if needed (auto-injection happens after RuntimeManager.IsReady)
-            if (_eventDispatcher == null || _referenceManager == null)
+            // async-void entry point: try/catch shim per the async contract.
+            try
             {
-                RuntimeManager.InjectDependencies(this);
+                await RuntimeManager.WaitForInitialization(destroyCancellationToken);
+
+                // Post-await destroy check (contract rule 7).
+                if (this == null) return;
+
+                // Manual injection if needed (auto-injection happens after RuntimeManager.IsReady)
+                if (_eventDispatcher == null || _referenceManager == null)
+                {
+                    RuntimeManager.InjectDependencies(this);
+                }
+
+                if (_referenceManager != null)
+                {
+                    _referenceManager.Register(this);
+                }
+                InitializeSequence();
+
+                if (autoStart)
+                {
+                    await Awaitable.WaitForSecondsAsync(autoStartDelay, destroyCancellationToken);
+                    if (this == null) return;
+                    StartSequence();
+                }
             }
-            
-            if (_referenceManager != null)
+            catch (OperationCanceledException)
             {
-                _referenceManager.Register(this);
+                // Destroyed while waiting — exit quietly.
             }
-            InitializeSequence();
-            
-            if (autoStart)
+            catch (Exception e)
             {
-                await Awaitable.WaitForSecondsAsync(autoStartDelay);
-                StartSequence();
+                Debug.LogError($"[SequenceController] Start failed on '{name}': {e}", this);
             }
         }
 
@@ -134,63 +150,116 @@ namespace Molca.Sequence
                 .Where(s => s.gameObject.activeInHierarchy && s.enabled)
                 .ToList();
             
-            // Initialize each step
+            // Initialize each step. Per-step isolation: one throwing Initialize
+            // (e.g. a misconfigured inspector field) must not abort initialization
+            // of the remaining steps or skip the event registration below.
             foreach (var step in _steps)
             {
-                step.Initialize(sequenceId);
+                try
+                {
+                    step.Initialize(sequenceId);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[SequenceController] Step '{step.name}' failed to initialize: {e}", step);
+                }
             }
-            
+
             // Register for step completion events
             if (_eventDispatcher != null)
             {
-                _eventDispatcher.RegisterEvent<Step>("Step.Completed", OnStepCompleted);
-                _eventDispatcher.RegisterEvent<Step>("Step.FullyCompleted", OnStepFullyCompleted);
+                _eventDispatcher.RegisterEvent<Step>(EventConstants.Sequence.StepCompleted, OnStepCompleted);
+                _eventDispatcher.RegisterEvent<Step>(EventConstants.Sequence.StepFullyCompleted, OnStepFullyCompleted);
             }
         }
 
+        // True while a StartSequenceAsync call is between its guard and its state
+        // transition — closes the double-start window across the awaits.
+        private bool _isStartingSequence;
+
+        /// <summary>
+        /// UnityEvent/inspector-friendly shim over <see cref="StartSequenceAsync"/>.
+        /// Fire-and-forget with owned exceptions (async contract rule 2).
+        /// </summary>
         public async void StartSequence()
         {
-            await RuntimeManager.WaitForInitialization();
-
-            // Steps are populated by InitializeSequence during Start; bound the wait so a
-            // controller with no steps logs the warning instead of polling forever, and
-            // stop polling if this object is destroyed in the meantime.
-            const float stepsWaitTimeoutSeconds = 5f;
-            float waited = 0f;
             try
             {
-                while ((_steps == null || !_steps.Any()) && waited < stepsWaitTimeoutSeconds)
-                {
-                    await Awaitable.WaitForSecondsAsync(.2f, destroyCancellationToken);
-                    waited += .2f;
-                }
+                await StartSequenceAsync(destroyCancellationToken);
             }
             catch (OperationCanceledException)
             {
-                return; // destroyed while waiting
+                // Destroyed while starting — exit quietly.
             }
-
-            if (_steps == null || !_steps.Any())
+            catch (Exception e)
             {
-                Debug.LogWarning("No active Step components found in children. Sequence will not run.", this);
+                Debug.LogError($"[SequenceController] StartSequence failed on '{name}': {e}", this);
+            }
+        }
+
+        /// <summary>
+        /// Starts the sequence once the runtime is ready and steps are initialized.
+        /// </summary>
+        /// <param name="cancellationToken">
+        /// Cancels the pre-start waits (pass <c>destroyCancellationToken</c> for
+        /// MonoBehaviour-scoped calls). Cancellation throws <see cref="OperationCanceledException"/>.
+        /// </param>
+        /// <remarks>
+        /// Re-entrant calls (double-click, autoStart racing a manual call, RestartSequence
+        /// spam) are ignored while a start is already in flight or the sequence is running —
+        /// previously both calls passed the waits and double-advanced the first step.
+        /// </remarks>
+        public async Awaitable StartSequenceAsync(System.Threading.CancellationToken cancellationToken = default)
+        {
+            if (_isStartingSequence || _currentState == SequenceState.Running)
+            {
+                Debug.LogWarning($"[SequenceController] StartSequence ignored: sequence '{RefId}' is already {(_isStartingSequence ? "starting" : "running")}.", this);
                 return;
             }
 
-            SequenceStartTime = DateTime.Now;
-            _currentState = SequenceState.Running;
-
-            Debug.Log($"Starting sequence: {RefId}", this);
-            OnSequenceStart?.Invoke();
-            TrackSequence("sequence.started");
-
-            // Reset all steps before starting
-            foreach (var step in _steps)
+            _isStartingSequence = true;
+            try
             {
-                step.ResetStep();
-            }
+                await RuntimeManager.WaitForInitialization(cancellationToken);
+                if (this == null) return; // destroyed during bootstrap wait
 
-            CurrentStep = null;
-            AdvanceToNextStep();
+                // Steps are populated by InitializeSequence during Start; bound the wait so a
+                // controller with no steps logs the warning instead of polling forever.
+                const float stepsWaitTimeoutSeconds = 5f;
+                float waited = 0f;
+                while ((_steps == null || !_steps.Any()) && waited < stepsWaitTimeoutSeconds)
+                {
+                    await Awaitable.WaitForSecondsAsync(.2f, cancellationToken);
+                    if (this == null) return;
+                    waited += .2f;
+                }
+
+                if (_steps == null || !_steps.Any())
+                {
+                    Debug.LogWarning("No active Step components found in children. Sequence will not run.", this);
+                    return;
+                }
+
+                SequenceStartTime = DateTime.Now;
+                _currentState = SequenceState.Running;
+
+                Debug.Log($"Starting sequence: {RefId}", this);
+                OnSequenceStart?.Invoke();
+                TrackSequence("sequence.started");
+
+                // Reset all steps before starting
+                foreach (var step in _steps)
+                {
+                    step.ResetStep();
+                }
+
+                CurrentStep = null;
+                AdvanceToNextStep();
+            }
+            finally
+            {
+                _isStartingSequence = false;
+            }
         }
 
         /// <summary>

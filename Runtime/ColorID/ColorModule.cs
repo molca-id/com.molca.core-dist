@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using UnityEngine;
 using UnityEngine.Serialization;
 using System.Collections.Generic;
@@ -84,6 +84,26 @@ namespace Molca.ColorID
 
         private static ColorModule _instance;
         private static bool _isInitialized = false;
+
+        // With domain reload disabled, statics survive play sessions: a stale
+        // _instance from the previous session (possibly a destroyed fallback SO)
+        // would be handed out again. Reset before every play session.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStaticState()
+        {
+            _instance = null;
+            _isInitialized = false;
+        }
+
+        /// <summary>
+        /// Test seam for the read-only-at-runtime gates: EditMode tests run with
+        /// <c>Application.isPlaying == false</c>, so gating behavior is only testable
+        /// by forcing this. Never set in production.
+        /// </summary>
+        internal static bool? IsPlayingOverrideForTests;
+
+        // Single decision point for the serialized-swatch read-only-at-runtime rule.
+        private static bool IsRuntime => IsPlayingOverrideForTests ?? Application.isPlaying;
         
         /// <summary>Gets the active ColorModule, lazily resolving it if needed.</summary>
         [Obsolete("Use IColorSchemeService.ActiveScheme + _instance members (IColorProvider).")]
@@ -428,6 +448,12 @@ namespace Molca.ColorID
                 Debug.LogWarning($"Color with ID '{colorId}' already exists in swatch '{swatchName}'. Updating existing color.");
                 _colorCache[compositeKey] = color;
             }
+            else if (IsRuntime)
+            {
+                // Config SOs are read-only at runtime: the color resolves for this
+                // session via the cache, but the serialized swatch is never written.
+                _colorCache[compositeKey] = color;
+            }
             else
             {
                 swatch.AddColor(colorId, color, description);
@@ -456,7 +482,10 @@ namespace Molca.ColorID
             var swatch = _colorSwatches.Find(s => s.SwatchName == swatchName);
             if (swatch != null)
             {
-                swatch.RemoveColor(colorId);
+                // Config SOs are read-only at runtime: drop only the cache entry in
+                // play mode; the serialized swatch definition stays authored.
+                if (!IsRuntime)
+                    swatch.RemoveColor(colorId);
                 string compositeKey = $"{swatchName}.{colorId}";
                 _colorCache.Remove(compositeKey);
             }
@@ -549,6 +578,13 @@ namespace Molca.ColorID
                 return false;
             }
 
+            // Config SOs are read-only at runtime: swatches are authored asset data.
+            if (IsRuntime)
+            {
+                Debug.LogError($"[ColorModule] '{name}': AddSwatch is an edit-time authoring operation; runtime mutation of the serialized swatch list is not allowed. Ignored.");
+                return false;
+            }
+
             _colorSwatches.Add(new ColorSwatch(swatchName, false));
             return true;
         }
@@ -571,6 +607,13 @@ namespace Molca.ColorID
             if (swatch.IsDefault)
             {
                 Debug.LogError("Cannot remove the default swatch.");
+                return false;
+            }
+
+            // Config SOs are read-only at runtime: swatches are authored asset data.
+            if (IsRuntime)
+            {
+                Debug.LogError($"[ColorModule] '{name}': RemoveSwatch is an edit-time authoring operation; runtime mutation of the serialized swatch list is not allowed. Ignored.");
                 return false;
             }
 
@@ -767,7 +810,11 @@ namespace Molca.ColorID
 
         public override void ResetToDefaults()
         {
-            // Clear all saved colors from PlayerPrefs
+            // Reset = discard user OVERRIDES only (PlayerPrefs) and rebuild the
+            // lookup cache from the authored serialized definitions. This must
+            // never touch _colorSwatches: those are asset data, and rewriting them
+            // (the old behavior: RemoveAll + Clear + hardcoded repopulate) destroyed
+            // the authored palette — a direct violation of the read-only-SO rule.
             foreach (var swatch in _colorSwatches)
             {
                 foreach (var definition in swatch.ColorDefinitions)
@@ -775,24 +822,8 @@ namespace Molca.ColorID
                     ClearColorFromPlayerPrefs(swatch.SwatchName, definition.ColorId);
                 }
             }
-            
-            // Remove all custom swatches (keep only default)
-            _colorSwatches.RemoveAll(s => !s.IsDefault);
-            
-            // Reset default swatch to original colors
-            var defaultSwatch = _colorSwatches.Find(s => s.IsDefault);
-            if (defaultSwatch != null)
-            {
-                defaultSwatch.ColorDefinitions.Clear();
-                PopulateDefaultSwatchColors(defaultSwatch);
-            }
-            else
-            {
-                // If somehow default swatch doesn't exist, reinitialize everything
-                InitializeDefaultColors();
-            }
-            
-            // Rebuild cache with default colors
+
+            // Rebuild cache from the authored colors (overrides are gone now).
             BuildFromDefinitions();
             PlayerPrefs.Save();
         }

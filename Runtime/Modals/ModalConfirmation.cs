@@ -60,10 +60,11 @@ namespace Molca.Modals
             if (noButton != null)  noButton.onClick.AddListener(OnNoClicked);
         }
 
-        private void OnDestroy()
+        protected override void OnDestroy()
         {
             if (yesButton != null) yesButton.onClick.RemoveListener(OnYesClicked);
             if (noButton != null)  noButton.onClick.RemoveListener(OnNoClicked);
+            base.OnDestroy();
         }
 
         private void OnYesClicked()

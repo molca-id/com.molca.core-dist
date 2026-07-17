@@ -154,27 +154,45 @@ namespace Molca.Events
     /// </summary>
     public static class EventListenerExtensions
     {
+        // One tracked registration: the event/callback pair for identity matching in
+        // RemoveRegistration, plus a typed unsubscribe closure captured at Register
+        // time so UnregisterAll needs no reflection (the old path reflection-invoked
+        // "Unregister" per generic registration on every OnDestroy).
+        private readonly struct TrackedRegistration
+        {
+            public readonly object EventDef;
+            public readonly Delegate Callback;
+            public readonly Action Unsubscribe;
+
+            public TrackedRegistration(object eventDef, Delegate callback, Action unsubscribe)
+            {
+                EventDef = eventDef;
+                Callback = callback;
+                Unsubscribe = unsubscribe;
+            }
+        }
+
         // ConditionalWeakTable: entries do not pin destroyed/abandoned listeners.
         // EventListenerBehaviour.OnDestroy calls UnregisterAll for deterministic
         // dispatcher cleanup; the weak table is the backstop if that is bypassed.
-        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<EventListenerBehaviour, List<(object, Delegate)>> _registrations =
-            new System.Runtime.CompilerServices.ConditionalWeakTable<EventListenerBehaviour, List<(object, Delegate)>>();
-        
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<EventListenerBehaviour, List<TrackedRegistration>> _registrations =
+            new System.Runtime.CompilerServices.ConditionalWeakTable<EventListenerBehaviour, List<TrackedRegistration>>();
+
         /// <summary>
         /// Registers a callback for a typed event and automatically tracks it for cleanup.
         /// </summary>
         public static void Register(this EventListenerBehaviour listener, TypedEvents.Event eventDef, Action callback)
         {
-            TrackRegistration(listener, eventDef, callback);
+            TrackRegistration(listener, eventDef, callback, () => eventDef.Unregister(callback));
             eventDef.Register(callback);
         }
-        
+
         /// <summary>
         /// Registers a callback for a typed event with parameter and automatically tracks it for cleanup.
         /// </summary>
         public static void Register<T>(this EventListenerBehaviour listener, TypedEvents.Event<T> eventDef, Action<T> callback)
         {
-            TrackRegistration(listener, eventDef, callback);
+            TrackRegistration(listener, eventDef, callback, () => eventDef.Unregister(callback));
             eventDef.Register(callback);
         }
         
@@ -201,44 +219,33 @@ namespace Molca.Events
         /// </summary>
         public static void UnregisterAll(this EventListenerBehaviour listener)
         {
-            if (_registrations.TryGetValue(listener, out List<(object, Delegate)> registrations))
+            if (_registrations.TryGetValue(listener, out List<TrackedRegistration> registrations))
             {
-                foreach (var (eventDef, callback) in registrations)
+                foreach (var registration in registrations)
                 {
-                    if (eventDef is TypedEvents.Event typedEvent && callback is Action action)
-                    {
-                        typedEvent.Unregister(action);
-                    }
-                    else
-                    {
-                        // Use reflection to call the right Unregister method with the right type
-                        Type eventType = eventDef.GetType();
-                        Type paramType = eventType.GenericTypeArguments[0];
-                        
-                        // Call the Unregister method using reflection
-                        // This is more complex than direct calls but handles any generic type
-                        eventType.GetMethod("Unregister").Invoke(eventDef, new object[] { callback });
-                    }
+                    // Typed unsubscribe closure captured at Register time — no
+                    // reflection, works for any generic Event<T>.
+                    registration.Unsubscribe?.Invoke();
                 }
-                
+
                 _registrations.Remove(listener);
             }
         }
-        
+
         // Helper methods to track registrations
-        private static void TrackRegistration(EventListenerBehaviour listener, object eventDef, Delegate callback)
+        private static void TrackRegistration(EventListenerBehaviour listener, object eventDef, Delegate callback, Action unsubscribe)
         {
-            var registrations = _registrations.GetValue(listener, _ => new List<(object, Delegate)>());
-            registrations.Add((eventDef, callback));
+            var registrations = _registrations.GetValue(listener, _ => new List<TrackedRegistration>());
+            registrations.Add(new TrackedRegistration(eventDef, callback, unsubscribe));
         }
-        
+
         private static void RemoveRegistration(EventListenerBehaviour listener, object eventDef, Delegate callback)
         {
-            if (_registrations.TryGetValue(listener, out List<(object, Delegate)> registrations))
+            if (_registrations.TryGetValue(listener, out List<TrackedRegistration> registrations))
             {
-                registrations.RemoveAll(item => 
-                    item.Item1 == eventDef && item.Item2 == callback);
-                
+                registrations.RemoveAll(item =>
+                    item.EventDef == eventDef && Equals(item.Callback, callback));
+
                 if (registrations.Count == 0)
                 {
                     _registrations.Remove(listener);

@@ -135,6 +135,45 @@ namespace Molca.Events
             public const string SchemeChanged = "Input.SchemeChanged";
         }
         
+        // Sequence/step events. These are load-bearing wire strings shared between
+        // SequenceController, Step, and the built-in step types — always reference
+        // the constants; a typo in a raw string desynchronizes controller and steps
+        // silently (string-keyed dispatch has no unknown-event diagnostics).
+        public static class Sequence
+        {
+            /// <summary>
+            /// Dispatched when a step's internal condition completes. Data: Step
+            /// </summary>
+            public const string StepCompleted = "Step.Completed";
+
+            /// <summary>
+            /// Dispatched when a step and all of its children are complete. Data: Step
+            /// </summary>
+            public const string StepFullyCompleted = "Step.FullyCompleted";
+
+            /// <summary>
+            /// Dispatched when an IntCounterStep's value changes. Data: anonymous
+            /// { step, previousValue, currentValue, targetValue }
+            /// </summary>
+            public const string IntCounterValueChanged = "IntCounterStep.ValueChanged";
+
+            /// <summary>
+            /// Dispatched when an IntCounterStep reaches its target. Data: IntCounterStep
+            /// </summary>
+            public const string IntCounterTargetReached = "IntCounterStep.TargetReached";
+
+            /// <summary>
+            /// Dispatched when a FloatListenerStep's value changes. Data: anonymous
+            /// { step, previousValue, currentValue, targetValue }
+            /// </summary>
+            public const string FloatListenerValueChanged = "FloatListenerStep.ValueChanged";
+
+            /// <summary>
+            /// Dispatched when a FloatListenerStep reaches its target. Data: FloatListenerStep
+            /// </summary>
+            public const string FloatListenerTargetReached = "FloatListenerStep.TargetReached";
+        }
+
         // Audio events
         public static class Audio
         {

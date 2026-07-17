@@ -15,22 +15,39 @@ namespace Molca
         
         private async void Awake()
         {
-            if (waitForRuntimeManager && !RuntimeManager.IsReady)
+            // async-void entry point: nothing may escape into Unity's sync context.
+            try
             {
-                await RuntimeManager.WaitForInitialization();
-
-                // Destroyed while waiting — GetComponents on a dead object throws.
-                if (this == null) return;
-            }
-
-            // Inject dependencies into all components on this GameObject
-            var components = GetComponents<MonoBehaviour>();
-            foreach (var component in components)
-            {
-                if (component != null && component != this)
+                if (waitForRuntimeManager && !RuntimeManager.IsReady)
                 {
-                    RuntimeManager.InjectDependencies(component);
+                    await RuntimeManager.WaitForInitialization();
+
+                    // Destroyed while waiting — GetComponents on a dead object throws.
+                    if (this == null) return;
                 }
+
+                // Inject dependencies into all components on this GameObject.
+                // Per-component isolation: one component with an unresolvable
+                // required [Inject] must not abort injection for its siblings.
+                var components = GetComponents<MonoBehaviour>();
+                foreach (var component in components)
+                {
+                    if (component != null && component != this)
+                    {
+                        try
+                        {
+                            RuntimeManager.InjectDependencies(component);
+                        }
+                        catch (System.Exception e)
+                        {
+                            Debug.LogError($"InjectOnAwake: failed to inject {component.GetType().Name} on '{name}': {e.Message}", component);
+                        }
+                    }
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"InjectOnAwake failed on '{name}': {e.Message}", this);
             }
         }
     }

@@ -115,15 +115,19 @@ namespace Molca.Networking.Http.Models
             if (exception is OperationCanceledException)
                 return HttpErrorKind.Canceled;
 
+            // The transport tags a timeout with a typed TimeoutException (measured
+            // against the request's configured timeout), so classification does not
+            // depend on error-string sniffing.
+            if (exception is TimeoutException)
+                return HttpErrorKind.Timeout;
+
             if (statusCode is >= 400 and < 500)
                 return HttpErrorKind.Http4xx;
             if (statusCode is >= 500 and < 600)
                 return HttpErrorKind.Http5xx;
 
-            // No HTTP status (connection/timeout/cancel). UnityWebRequest surfaces
-            // timeouts as a connection error string, not a typed exception, so the
-            // text is the only signal available to distinguish a timeout from a
-            // generic network failure.
+            // No HTTP status and no typed exception (a transport other than the
+            // default may not tag timeouts) — fall back to the error text.
             string signal = (errorMessage ?? statusMessage)?.ToLowerInvariant();
             if (!string.IsNullOrEmpty(signal) && (signal.Contains("timeout") || signal.Contains("timed out")))
                 return HttpErrorKind.Timeout;
@@ -281,6 +285,16 @@ namespace Molca.Networking.Http.Models
         /// </summary>
         public bool AuthRetryConsumed { get; set; }
 
+        /// <summary>
+        /// The auth token value actually injected into this request's prepared clone,
+        /// recorded at prepare time. Lets the 401 handler distinguish "this request
+        /// carried a token that has since been refreshed — just retry" from "the
+        /// current token itself was rejected — refresh". Internal plumbing for
+        /// <see cref="Molca.Networking.Auth.AuthTokenInterceptor"/>; <c>null</c> when
+        /// no token was injected.
+        /// </summary>
+        public string AuthTokenSent { get; set; }
+
         public HttpRequestContext(HttpRequest request)
         {
             this.request = request;
@@ -367,6 +381,75 @@ namespace Molca.Networking.Http.Models
         public void UpdateProgress(float progress)
         {
             OnProgress?.Invoke(progress);
+        }
+
+        /// <summary>
+        /// Builds a diagnostics-safe copy of this context for request history:
+        /// sensitive header/query/form values are masked, credential-shaped JSON body
+        /// fields are masked, binary payloads are dropped, and the response keeps its
+        /// metadata but has its body redacted and heavy Unity object references
+        /// (texture/audio/bundle) released. The live context (with the raw login body,
+        /// bearer tokens, etc.) is never retained by history.
+        /// </summary>
+        /// <returns>An event-free snapshot safe to store and display indefinitely.</returns>
+        public HttpRequestContext CreateRedactedSnapshot()
+        {
+            HttpRequest redactedRequest = null;
+            if (request != null)
+            {
+                redactedRequest = request.Clone();
+
+                foreach (var header in redactedRequest.headers)
+                    header.value = LogRedaction.RedactHeaderValue(header.key, header.value);
+
+                foreach (var param in redactedRequest.queryParams)
+                {
+                    if (LogRedaction.IsSensitiveField(param.key))
+                        param.value = "***";
+                }
+
+                foreach (var field in redactedRequest.formFields)
+                {
+                    if (LogRedaction.IsSensitiveField(field.key))
+                        field.value = "***";
+                }
+
+                // Binary payloads are dropped outright: they can be large and cannot
+                // be meaningfully redacted.
+                foreach (var field in redactedRequest.binaryFields)
+                    field.data = Array.Empty<byte>();
+
+                redactedRequest.jsonBody = LogRedaction.RedactJsonBody(redactedRequest.jsonBody);
+            }
+
+            var snapshot = new HttpRequestContext(redactedRequest)
+            {
+                startTime = startTime,
+                endTime = endTime,
+                wasCancelled = wasCancelled,
+                cancellationReason = cancellationReason,
+                response = CreateRedactedResponse()
+            };
+            return snapshot;
+        }
+
+        private HttpResponse CreateRedactedResponse()
+        {
+            if (response == null)
+                return null;
+
+            var redacted = response.Clone();
+            // The body may carry credentials (a login response holds the tokens);
+            // keep only the redacted text form and drop the raw bytes + Unity object
+            // references so history can't pin bundles/textures or retain secrets.
+            redacted.text = LogRedaction.RedactJsonBody(redacted.text);
+            redacted.rawData = null;
+            redacted.texture = null;
+            redacted.audioClip = null;
+            redacted.assetBundle = null;
+            foreach (var key in new List<string>(redacted.headers.Keys))
+                redacted.headers[key] = LogRedaction.RedactHeaderValue(key, redacted.headers[key]);
+            return redacted;
         }
     }
 } 

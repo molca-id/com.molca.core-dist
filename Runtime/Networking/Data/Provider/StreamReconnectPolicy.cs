@@ -27,14 +27,22 @@ namespace Molca.Networking.Data
         /// <summary>Maximum reconnect attempts; <c>0</c> means unbounded (still backed-off).</summary>
         public int MaxAttempts { get; }
 
+        /// <summary>
+        /// Minimum connection lifetime (seconds) before a drop counts as "the connection
+        /// was healthy" and resets the attempt budget via <see cref="OnConnectionEnded"/>.
+        /// <c>0</c> preserves the legacy behavior: any established connection resets.
+        /// </summary>
+        public float StableResetSeconds { get; }
+
         private readonly System.Random _rng;
         private int _attempt;
 
-        public StreamReconnectPolicy(float baseDelaySeconds, float maxDelaySeconds, int maxAttempts, System.Random rng = null)
+        public StreamReconnectPolicy(float baseDelaySeconds, float maxDelaySeconds, int maxAttempts, System.Random rng = null, float stableResetSeconds = 0f)
         {
             BaseDelaySeconds = Mathf.Max(0f, baseDelaySeconds);
             MaxDelaySeconds = Mathf.Max(0f, maxDelaySeconds);
             MaxAttempts = Mathf.Max(0, maxAttempts);
+            StableResetSeconds = Mathf.Max(0f, stableResetSeconds);
             _rng = rng ?? new System.Random();
         }
 
@@ -46,6 +54,24 @@ namespace Molca.Networking.Data
 
         /// <summary>Clears the attempt counter; call after a successful (re)connect.</summary>
         public void Reset() => _attempt = 0;
+
+        /// <summary>
+        /// Reports that an established connection ended after
+        /// <paramref name="connectedDurationSeconds"/>. Resets the attempt budget only
+        /// when the connection outlived <see cref="StableResetSeconds"/> — an
+        /// accept-then-drop server (connects fine, dies instantly) must keep consuming
+        /// the backoff budget instead of retrying at full speed forever.
+        /// </summary>
+        /// <param name="connectedDurationSeconds">How long the connection was up, in seconds.</param>
+        /// <returns><c>true</c> when the budget was reset (the connection counted as stable).</returns>
+        public bool OnConnectionEnded(float connectedDurationSeconds)
+        {
+            if (connectedDurationSeconds < StableResetSeconds)
+                return false;
+
+            Reset();
+            return true;
+        }
 
         /// <summary>
         /// Full-jitter exponential backoff for a 0-based attempt: a random point in
@@ -82,6 +108,30 @@ namespace Molca.Networking.Data
 
             if (delay > 0f)
                 await Awaitable.WaitForSecondsAsync(delay, cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            return true;
+        }
+
+        /// <summary>
+        /// Waits a caller-supplied delay (e.g. a server <c>retry:</c> directive) instead
+        /// of the computed backoff, while still consuming one attempt from the budget —
+        /// a server directive shapes the delay but must not grant unlimited retries.
+        /// Returns <c>false</c> immediately (no wait) when the budget is exhausted.
+        /// Honors <paramref name="cancellationToken"/>; cancellation rethrows.
+        /// </summary>
+        /// <param name="overrideDelaySeconds">The delay to wait; clamped at 0.</param>
+        /// <param name="cancellationToken">Aborts the wait.</param>
+        public async Awaitable<bool> WaitForNextAttemptAsync(float overrideDelaySeconds, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!CanRetry)
+                return false;
+
+            _attempt++;
+
+            if (overrideDelaySeconds > 0f)
+                await Awaitable.WaitForSecondsAsync(overrideDelaySeconds, cancellationToken);
 
             cancellationToken.ThrowIfCancellationRequested();
             return true;

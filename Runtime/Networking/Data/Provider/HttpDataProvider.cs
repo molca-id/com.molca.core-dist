@@ -17,7 +17,15 @@ namespace Molca.Networking.Data
         [SerializeField, FormerlySerializedAs("requestValidationErrors"), ReadOnly] private string[] _requestValidationErrors;
 
         private bool _isAuthenticated;
-        private bool isRequestValid => _request.Validate(out _requestValidationErrors) || _isAuthenticated || !_requireAuthentication;
+        private bool _autoFetchLoopRunning;
+
+        // The request must validate AND, when authentication is required, the user
+        // must be authenticated. (The old || chain made this always-true with the
+        // default config, bypassing both validation and the auth gate.)
+        private bool isRequestValid =>
+            _request != null
+            && _request.Validate(out _requestValidationErrors)
+            && (!_requireAuthentication || _isAuthenticated);
 
         public override void Activate()
         {
@@ -32,15 +40,30 @@ namespace Molca.Networking.Data
             if (_requireAuthentication)
             {
                 AuthEvents.StateChanged.Register(OnAuthStateChanged);
-            }
-            else if (_autoFetchInterval > 0)
-            {
-                AutoFetch();
+
+                // The user may already be logged in — StateChanged only fires on the
+                // NEXT transition, so without this check the provider would never
+                // fetch for an already-authenticated session.
+                _isAuthenticated = AuthManager.Instance != null && AuthManager.Instance.IsAuthenticated;
+                if (_isAuthenticated)
+                {
+                    StartFetching();
+                }
             }
             else
             {
-                FetchData();
+                StartFetching();
             }
+        }
+
+        public override void Deactivate()
+        {
+            if (_requireAuthentication)
+            {
+                AuthEvents.StateChanged.Unregister(OnAuthStateChanged);
+            }
+            _autoFetchLoopRunning = false;
+            base.Deactivate();
         }
 
         private void OnAuthStateChanged(AuthChangedEventData data)
@@ -48,9 +71,22 @@ namespace Molca.Networking.Data
             // Token injection happens per-send via AuthTokenInterceptor (requests
             // declaring the token header get it filled); no SO mutation here.
             _isAuthenticated = data.IsAuthenticated;
-            if(_isAuthenticated && _autoFetchInterval > 0)
+            if(_isAuthenticated)
+            {
+                StartFetching();
+            }
+        }
+
+        /// <summary>Kicks off the auto-fetch loop or a single fetch, per configuration.</summary>
+        private void StartFetching()
+        {
+            if (_autoFetchInterval > 0)
             {
                 AutoFetch();
+            }
+            else
+            {
+                FetchData();
             }
         }
 
@@ -82,14 +118,20 @@ namespace Molca.Networking.Data
         private void AutoFetch()
         {
             if (_autoFetchInterval <= 0) return;
+            // Auth flaps (logout/login) raise StateChanged repeatedly; without this
+            // guard each transition would stack another concurrent fetch loop.
+            if (_autoFetchLoopRunning) return;
             _ = AutoFetchLoopAsync();
         }
 
         private async Awaitable AutoFetchLoopAsync()
         {
+            _autoFetchLoopRunning = true;
             try
             {
                 var token = LifetimeToken;
+                // Fetch immediately, then poll on the configured interval.
+                await FetchDataAsync();
                 while (IsActive && !token.IsCancellationRequested)
                 {
                     await Awaitable.WaitForSecondsAsync(_autoFetchInterval, token);
@@ -99,6 +141,10 @@ namespace Molca.Networking.Data
             catch (System.OperationCanceledException)
             {
                 // Provider deactivated — loop unwinds.
+            }
+            finally
+            {
+                _autoFetchLoopRunning = false;
             }
         }
 

@@ -134,13 +134,13 @@ namespace Molca.Sequence
                 
                 // Fire events
                 OnCounterChanged?.Invoke(currentValue);
-                _eventDispatcher?.DispatchEvent("IntCounterStep.ValueChanged", new { step = this, previousValue, currentValue, targetValue });
+                _eventDispatcher?.DispatchEvent(EventConstants.Sequence.IntCounterValueChanged, new { step = this, previousValue, currentValue, targetValue });
                 
                 // Check if target was reached
                 if (previousValue < targetValue && currentValue >= targetValue)
                 {
                     OnTargetReached?.Invoke();
-                    _eventDispatcher?.DispatchEvent("IntCounterStep.TargetReached", this);
+                    _eventDispatcher?.DispatchEvent(EventConstants.Sequence.IntCounterTargetReached, this);
                 }
                 
                 // Check for completion

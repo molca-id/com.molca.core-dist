@@ -1,6 +1,7 @@
 using System.Linq;
 using UnityEngine;
 using Molca.Attributes;
+using Molca.Events;
 
 namespace Molca.Sequence
 {
@@ -23,7 +24,7 @@ namespace Molca.Sequence
 
             if (_eventDispatcher != null)
             {
-                _eventDispatcher.RegisterEvent<Step>("Step.Completed", OnChildStepCompleted);
+                _eventDispatcher.RegisterEvent<Step>(EventConstants.Sequence.StepCompleted, OnChildStepCompleted);
             }
         }
 
@@ -31,7 +32,7 @@ namespace Molca.Sequence
         {
             if (_eventDispatcher != null)
             {
-                _eventDispatcher.UnregisterEvent<Step>("Step.Completed", OnChildStepCompleted);
+                _eventDispatcher.UnregisterEvent<Step>(EventConstants.Sequence.StepCompleted, OnChildStepCompleted);
             }
             base.OnDestroy();
         }

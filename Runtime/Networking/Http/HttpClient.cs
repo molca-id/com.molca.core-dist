@@ -526,7 +526,7 @@ namespace Molca.Networking.Http
         /// resolved. Cloning keeps the transport from observing later caller mutations
         /// and keeps requests sourced from ScriptableObject assets untouched.
         /// </summary>
-        private HttpRequest PrepareRequest(HttpRequest request)
+        private HttpRequest PrepareRequest(HttpRequest request, HttpRequestContext context)
         {
             var prepared = request.Clone();
 
@@ -549,11 +549,16 @@ namespace Molca.Networking.Http
                 prepared.timeout = _httpModule?.DefaultTimeout ?? 30;
 
             // Interceptors see the clone, never the caller's request instance.
+            // Context-aware interceptors also get the request context so they can
+            // stash per-request state (e.g. which auth token was actually sent).
             foreach (var interceptor in _interceptors)
             {
                 try
                 {
-                    interceptor.OnRequestPrepared(prepared);
+                    if (interceptor is IHttpContextAwareRequestInterceptor contextAware)
+                        contextAware.OnRequestPrepared(context, prepared);
+                    else
+                        interceptor.OnRequestPrepared(prepared);
                 }
                 catch (Exception e)
                 {
@@ -569,11 +574,14 @@ namespace Molca.Networking.Http
             // Linked lifetime: caller token + CancelAllRequests + subsystem shutdown.
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(
                 context.CallerToken, _cancelAllCts.Token, ShutdownToken);
+            // Monotonic duration source: DateTime.Now can jump (NTP sync, DST) and is
+            // slow; Stopwatch measures the exchange without either problem.
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 Debug.Log($"[HttpClient] Sending {context.request.method} request to {Molca.Networking.Utils.LogRedaction.RedactUrl(context.request.FullUrl)}");
 
-                var prepared = PrepareRequest(context.request);
+                var prepared = PrepareRequest(context.request, context);
                 var response = await SendWithRetry(prepared, context, cts.Token);
 
                 // Response interceptors (e.g. auth 401 recovery) may ask for one
@@ -582,12 +590,12 @@ namespace Molca.Networking.Http
                 // refreshed token.
                 if (await ShouldRetryAfterResponseAsync(context, response, cts.Token))
                 {
-                    var retryPrepared = PrepareRequest(context.request);
+                    var retryPrepared = PrepareRequest(context.request, context);
                     response = await SendWithRetry(retryPrepared, context, cts.Token);
                 }
 
                 // Wall-clock duration of the whole exchange (incl. retries), in seconds.
-                response.responseTime = (float)(DateTime.Now - context.startTime).TotalSeconds;
+                response.responseTime = (float)stopwatch.Elapsed.TotalSeconds;
                 context.Complete(response);
                 
                 if (response.isSuccess)
@@ -670,11 +678,50 @@ namespace Molca.Networking.Http
                 if (response != null && (response.isSuccess || !policy.IsRetryable(response.Error) || attempt >= maxAttempts))
                     return response;
 
-                float delay = policy.ComputeBackoffDelay(attempt, _retryRng);
+                // A server-directed Retry-After (429/503) overrides the computed
+                // backoff — the server told us exactly when it's willing to talk again.
+                float delay = TryGetRetryAfterSeconds(response, out float retryAfter)
+                    ? Mathf.Min(retryAfter, MaxRetryAfterSeconds)
+                    : policy.ComputeBackoffDelay(attempt, _retryRng);
                 if (delay > 0f)
                     await Awaitable.WaitForSecondsAsync(delay, token);
                 token.ThrowIfCancellationRequested();
             }
+        }
+
+        // Upper bound on an honored Retry-After so a hostile/buggy server can't park
+        // a retry loop for hours.
+        private const float MaxRetryAfterSeconds = 60f;
+
+        /// <summary>
+        /// Reads a <c>Retry-After</c> header from a 429/503 response, supporting both
+        /// the delta-seconds and HTTP-date forms (RFC 9110 §10.2.3). Internal for tests.
+        /// </summary>
+        internal static bool TryGetRetryAfterSeconds(HttpResponse response, out float seconds)
+        {
+            seconds = 0f;
+            if (response == null || (response.statusCode != 429 && response.statusCode != 503))
+                return false;
+
+            string value = response.GetHeaderValue("Retry-After");
+            if (string.IsNullOrEmpty(value))
+                return false;
+
+            if (int.TryParse(value, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out int delta))
+            {
+                seconds = Mathf.Max(0, delta);
+                return true;
+            }
+
+            if (DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal, out var when))
+            {
+                seconds = Mathf.Max(0f, (float)(when - DateTimeOffset.UtcNow).TotalSeconds);
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -733,6 +780,10 @@ namespace Molca.Networking.Http
         private void AppendHistory(HttpRequestContext context)
         {
             int maxHistory = _httpModule?.MaxHistorySize ?? 100;
+            // History stores a redaction-applied snapshot, never the live context:
+            // the raw context keeps login bodies (passwords) and bearer headers
+            // reachable in plaintext for the whole session.
+            var snapshot = context.CreateRedactedSnapshot();
             lock (_queueLock)
             {
                 if (maxHistory <= 0)
@@ -741,7 +792,7 @@ namespace Molca.Networking.Http
                     return;
                 }
 
-                _requestHistory.Add(context);
+                _requestHistory.Add(snapshot);
                 // Evict from the front until within the cap (handles a shrunk MaxHistorySize too).
                 while (_requestHistory.Count > maxHistory)
                 {

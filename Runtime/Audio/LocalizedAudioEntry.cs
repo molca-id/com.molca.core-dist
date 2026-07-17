@@ -28,8 +28,22 @@ namespace Molca.Audio
             public AssetReferenceT<AudioClip> clipReference;
         }
 
+        /// <summary>
+        /// Edit-time authoring step that rebuilds the per-language clip slots from the
+        /// configured languages. <b>Destructive</b>: wipes every authored clip
+        /// reference. At runtime it therefore only resets the load cache — the
+        /// serialized clip list is asset data and calling this on a loaded asset in
+        /// play mode would silently destroy its clip wiring.
+        /// </summary>
         public void Initialize()
         {
+            if (AudioAuthoringGuard.IsRuntime)
+            {
+                // Runtime "init" = clear the loaded-clip cache; never the serialized list.
+                _loadedClips.Clear();
+                return;
+            }
+
             var localizationModule = GlobalSettings.GetModule<LocalizationModule>();
             if (localizationModule == null)
             {

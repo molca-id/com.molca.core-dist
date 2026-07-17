@@ -171,6 +171,13 @@ namespace Molca.Audio
         public void AddCollection(IAudioCollection collection)
         {
             if (collection == null || !(collection is ScriptableObject scriptableObject)) return;
+            // Config SOs are read-only at runtime: mutating the serialized list in
+            // play mode persists in the editor and silently diverges in a player.
+            if (AudioAuthoringGuard.IsRuntime)
+            {
+                Debug.LogError($"[AudioLibrary] '{name}': AddCollection is an edit-time authoring operation; runtime mutation of the serialized collection list is not allowed. Ignored.");
+                return;
+            }
             _collections.Add(scriptableObject);
             if (_collectionCache != null)
             {
@@ -181,6 +188,11 @@ namespace Molca.Audio
         public void RemoveCollection(IAudioCollection collection)
         {
             if (collection == null || !(collection is ScriptableObject scriptableObject)) return;
+            if (AudioAuthoringGuard.IsRuntime)
+            {
+                Debug.LogError($"[AudioLibrary] '{name}': RemoveCollection is an edit-time authoring operation; runtime mutation of the serialized collection list is not allowed. Ignored.");
+                return;
+            }
             _collections.Remove(scriptableObject);
             if (_collectionCache != null)
             {
@@ -211,6 +223,11 @@ namespace Molca.Audio
         /// </summary>
         public void RemoveNonDialogCollections()
         {
+            if (AudioAuthoringGuard.IsRuntime)
+            {
+                Debug.LogError($"[AudioLibrary] '{name}': RemoveNonDialogCollections is an edit-time authoring operation; runtime mutation of the serialized collection list is not allowed. Ignored.");
+                return;
+            }
             if (_audioType == AudioType.Voice)
             {
                 for (int i = _collections.Count - 1; i >= 0; i--)

@@ -28,6 +28,12 @@ namespace Molca.Networking.Utils
         [SerializeField, FormerlySerializedAs("cacheFlags")] private CachingSelection _cacheFlags;
         [SerializeField, FormerlySerializedAs("clearCacheOnExit")] private bool _clearCacheOnExit;
 
+        // Set on every index mutation; a main-thread loop persists the index shortly
+        // after. Volatile because cache writes can arrive from network threads.
+        private volatile bool _indexDirty;
+        // Seconds between dirty-checks of the index persist loop.
+        private const float IndexSaveIntervalSeconds = 2f;
+
         [Obsolete("Use ICacheService.CachePath (RuntimeManager.GetService<ICacheService>()).")]
         public static string CachePath => CachePathInternal;
         [Obsolete("Use ICacheService.CacheSize (RuntimeManager.GetService<ICacheService>()).")]
@@ -58,6 +64,36 @@ namespace Molca.Networking.Utils
             await InitializeCache();
 
             _instance = this;
+
+            // Persist the index shortly after each mutation instead of only in
+            // OnApplicationQuit — a mobile process kill must not lose the session's
+            // index (which orphans every file written since launch). Explicit
+            // fire-and-forget: the loop owns its exceptions and unwinds on ShutdownToken.
+            _ = SaveIndexLoopAsync(ShutdownToken);
+        }
+
+        /// <summary>
+        /// Main-thread loop that saves the cache index (PlayerPrefs is main-thread-only)
+        /// within <see cref="IndexSaveIntervalSeconds"/> of any mutation.
+        /// </summary>
+        private async Awaitable SaveIndexLoopAsync(System.Threading.CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    await Awaitable.WaitForSecondsAsync(IndexSaveIntervalSeconds, token);
+                    if (_indexDirty)
+                    {
+                        _indexDirty = false;
+                        SaveCacheData();
+                    }
+                }
+            }
+            catch (System.OperationCanceledException)
+            {
+                // Teardown — OnApplicationQuit performs the final save.
+            }
         }
 
         public override void Teardown()
@@ -89,6 +125,59 @@ namespace Molca.Networking.Utils
 
             LoadCacheData();
             await ValidateCacheFiles();
+            await SweepOrphanFilesAsync();
+        }
+
+        /// <summary>
+        /// Deletes files in the cache directory that no index entry references
+        /// (session's files whose index save never happened, stale temp files).
+        /// Without this sweep such files accumulate forever — unbounded disk growth.
+        /// </summary>
+        private async Awaitable SweepOrphanFilesAsync()
+        {
+            string[] files;
+            try
+            {
+                files = Directory.GetFiles(CachePathInternal);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[CacheManager] Orphan sweep skipped: {e.Message}");
+                return;
+            }
+
+            var referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            lock (_cacheLock)
+            {
+                foreach (var entry in _caches.Values)
+                {
+                    try { referenced.Add(Path.GetFullPath(entry.path)); }
+                    catch (Exception) { /* malformed path — its file will be swept */ }
+                }
+            }
+
+            int swept = 0;
+            for (int i = 0; i < files.Length; i++)
+            {
+                if (!referenced.Contains(Path.GetFullPath(files[i])))
+                {
+                    try
+                    {
+                        File.Delete(files[i]);
+                        swept++;
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogWarning($"[CacheManager] Failed to sweep orphan {files[i]}: {e.Message}");
+                    }
+                }
+
+                if (i % 20 == 19) // chunked to avoid a startup hitch on large caches
+                    await Awaitable.NextFrameAsync();
+            }
+
+            if (swept > 0)
+                Debug.Log($"[CacheManager] Swept {swept} orphaned cache file(s).");
         }
 
         private void LoadCacheData()
@@ -230,6 +319,7 @@ namespace Molca.Networking.Utils
                 _caches.Add(id, new CacheData(cachePath, version, encryption));
                 _cacheSize += size;
             }
+            _indexDirty = true;
             Debug.Log($"Cache saved at path: {cachePath}");
         }
 
@@ -264,6 +354,7 @@ namespace Molca.Networking.Utils
                 // Deleted/locked/undecryptable file — treat as a cache miss and drop the entry.
                 Debug.LogWarning($"[CacheManager] Failed to read cache \"{id}\": {e.Message}");
                 lock (_cacheLock) _caches.Remove(id);
+                _indexDirty = true;
                 return false;
             }
 
@@ -301,6 +392,7 @@ namespace Molca.Networking.Utils
                 _caches.Clear();
                 _cacheSize = 0;
             }
+            _indexDirty = true;
 
             foreach (var cache in entries)
             {

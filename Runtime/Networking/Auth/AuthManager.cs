@@ -154,12 +154,24 @@ namespace Molca.Networking.Auth
         {
             HttpClient.RemoveInterceptorCore(_tokenInterceptor);
             _tokenInterceptor = null;
-            _loginGate.Dispose();
-            _refreshGate.Dispose();
+            // The gates are deliberately NOT disposed: an in-flight login/refresh may
+            // still hold one, and its finally-block Release() would then throw
+            // ObjectDisposedException. Those flows drain naturally — their HTTP calls
+            // are linked to ShutdownToken (cancelled by base.Teardown) — and an
+            // undisposed SemaphoreSlim without a wait handle has no unmanaged state.
             base.Teardown();
         }
 
-        public async Awaitable<bool> TryValidateCachedToken()
+        public Awaitable<bool> TryValidateCachedToken() => TryValidateCachedToken(default);
+
+        /// <summary>
+        /// Attempts to validate a cached authentication token, honoring a cancellation
+        /// token. Cancellation is non-error: it rethrows
+        /// <see cref="OperationCanceledException"/> and leaves the cached user intact
+        /// (a cancelled probe proves nothing about token validity).
+        /// </summary>
+        /// <param name="cancellationToken">Aborts the validation request.</param>
+        public async Awaitable<bool> TryValidateCachedToken(CancellationToken cancellationToken)
         {
             if (IsAuthenticated)
             {
@@ -186,11 +198,15 @@ namespace Molca.Networking.Auth
 
             try
             {
-                var response = await Http.SendAsync(request);
+                var response = await Http.SendAsync(request, cancellationToken);
                 bool valid = response.isSuccess && response.statusCode == 200;
-                if (!valid) 
+                if (!valid)
                     ClearUser();
                 return valid;
+            }
+            catch (OperationCanceledException)
+            {
+                throw; // cancellation is not a verdict on the token — keep the cached user
             }
             catch (Exception e)
             {

@@ -11,8 +11,13 @@ namespace Molca
         // Configurable log level filter
         private LogType _minimumLogLevel = LogType.Log;
         private bool _stackTraceEnabled = true;
-        // Re-entrancy guard: prevents infinite loops when TMP or other systems log during log handling
-        private bool _isLogging;
+        // Re-entrancy guard: prevents infinite loops when TMP or other systems log during
+        // log handling. Unity invokes ILogHandler on whatever thread called Debug.Log —
+        // network/worker threads included — so a single shared bool lets one thread's
+        // guard incorrectly gate another thread's unrelated log call (dropped logs, or a
+        // stuck-true guard that silences the instance). [ThreadStatic] gives each calling
+        // thread its own flag, matching the actual (per-thread) re-entrancy this guards.
+        [ThreadStatic] private static bool _isLogging;
 
         public LogHandler(LogManager manager)
         {
@@ -101,7 +106,24 @@ namespace Molca
 
         private bool ShouldLogMessageType(LogType logType)
         {
-            return logType >= _minimumLogLevel;
+            // LogType's numeric order is NOT severity order (Error=0, Assert=1,
+            // Warning=2, Log=3, Exception=4), so compare explicit severity ranks —
+            // a raw enum comparison would drop Error/Assert while keeping Log.
+            return GetSeverityRank(logType) >= GetSeverityRank(_minimumLogLevel);
+        }
+
+        /// <summary>Maps a <see cref="LogType"/> to an ascending severity rank (Log=0 … Exception=4).</summary>
+        private static int GetSeverityRank(LogType logType)
+        {
+            switch (logType)
+            {
+                case LogType.Log: return 0;
+                case LogType.Warning: return 1;
+                case LogType.Assert: return 2;
+                case LogType.Error: return 3;
+                case LogType.Exception: return 4;
+                default: return 0;
+            }
         }
 
         private bool ShouldIncludeStackTrace(LogType logType)

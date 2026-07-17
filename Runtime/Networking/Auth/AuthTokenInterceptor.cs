@@ -23,7 +23,7 @@ namespace Molca.Networking.Auth
     /// <c>AuthExpired</c> event is raised and the 401 surfaces. Auth-retry is capped at
     /// once per request. Registered by <see cref="AuthManager"/> during initialization.
     /// </remarks>
-    public class AuthTokenInterceptor : IHttpRequestInterceptor, IHttpResponseInterceptor
+    public class AuthTokenInterceptor : IHttpContextAwareRequestInterceptor, IHttpResponseInterceptor
     {
         private readonly string _headerKey;
         private readonly Func<string> _tokenProvider;
@@ -49,20 +49,32 @@ namespace Molca.Networking.Auth
             _onAuthExpired = onAuthExpired;
         }
 
-        public void OnRequestPrepared(HttpRequest request)
+        public void OnRequestPrepared(HttpRequest request) => InjectToken(request);
+
+        public void OnRequestPrepared(HttpRequestContext context, HttpRequest request)
+        {
+            // Record which token this request actually carries so the 401 handler can
+            // tell a stale token (already refreshed elsewhere — just retry) from a
+            // rejected current token (needs a refresh).
+            context.AuthTokenSent = InjectToken(request);
+        }
+
+        /// <returns>The injected token, or <c>null</c> when nothing was injected.</returns>
+        private string InjectToken(HttpRequest request)
         {
             if (string.IsNullOrEmpty(_headerKey))
-                return;
+                return null;
 
             // Opt-in: only requests that declare the header receive the token.
             if (request.GetHeaderValue(_headerKey) == null)
-                return;
+                return null;
 
             string token = _tokenProvider?.Invoke();
             if (string.IsNullOrEmpty(token))
-                return;
+                return null;
 
             request.AddHeader(_headerKey, token);
+            return token;
         }
 
         public async Awaitable<ResponseAction> OnResponseReceivedAsync(HttpRequestContext context, HttpResponse response, CancellationToken cancellationToken)
@@ -77,6 +89,19 @@ namespace Molca.Networking.Auth
                 return ResponseAction.Continue;
 
             context.AuthRetryConsumed = true;
+
+            // Token-version check: if the token has already changed since this request
+            // was sent (another 401 triggered the refresh, or a login happened), the
+            // 401 only proves the OLD token is dead. Retry with the current token
+            // instead of chaining another refresh — N staggered 401s must produce at
+            // most one refresh, not N (which can kill rotating-refresh-token sessions).
+            string currentToken = _tokenProvider?.Invoke();
+            if (!string.IsNullOrEmpty(context.AuthTokenSent)
+                && !string.IsNullOrEmpty(currentToken)
+                && !string.Equals(currentToken, context.AuthTokenSent, StringComparison.Ordinal))
+            {
+                return ResponseAction.RetryOnce;
+            }
 
             bool refreshed;
             try

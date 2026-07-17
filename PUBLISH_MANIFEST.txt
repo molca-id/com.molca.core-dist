@@ -1,7 +1,7 @@
-﻿com.molca.core@1.12.1
-Published: 2026-07-04 00:48:15Z
-Source commit: 00d48475
-Files: 1426
+﻿com.molca.core@1.12.2
+Published: 2026-07-17 15:20:01Z
+Source commit: f87f404b
+Files: 1450
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -119,6 +119,10 @@ Editor/ContentPackage/PackageReferenceDrawer.cs
 Editor/ContentPackage/PackageReferenceDrawer.cs.meta
 Editor/Doctor.meta
 Editor/Doctor/Checks.meta
+Editor/Doctor/Checks/AsyncVoidNonEntryPointCheck.cs
+Editor/Doctor/Checks/AsyncVoidNonEntryPointCheck.cs.meta
+Editor/Doctor/Checks/AwaitableMissingCancellationTokenCheck.cs
+Editor/Doctor/Checks/AwaitableMissingCancellationTokenCheck.cs.meta
 Editor/Doctor/Checks/BuildProfileCheck.cs
 Editor/Doctor/Checks/BuildProfileCheck.cs.meta
 Editor/Doctor/Checks/BuildScenesCheck.cs
@@ -149,6 +153,8 @@ Editor/Doctor/Checks/MissingFinishCallbackCheck.cs
 Editor/Doctor/Checks/MissingFinishCallbackCheck.cs.meta
 Editor/Doctor/Checks/NetworkingCheckScope.cs
 Editor/Doctor/Checks/NetworkingCheckScope.cs.meta
+Editor/Doctor/Checks/RuntimeSoCollectionWriteCheck.cs
+Editor/Doctor/Checks/RuntimeSoCollectionWriteCheck.cs.meta
 Editor/Doctor/Checks/RuntimeSoWriteCheck.cs
 Editor/Doctor/Checks/RuntimeSoWriteCheck.cs.meta
 Editor/Doctor/Checks/Scene.meta
@@ -189,6 +195,10 @@ Editor/Doctor/Checks/SequenceValidationCheck.cs
 Editor/Doctor/Checks/SequenceValidationCheck.cs.meta
 Editor/Doctor/Checks/StaticSingletonUsageCheck.cs
 Editor/Doctor/Checks/StaticSingletonUsageCheck.cs.meta
+Editor/Doctor/Checks/TaskReturningPublicApiCheck.cs
+Editor/Doctor/Checks/TaskReturningPublicApiCheck.cs.meta
+Editor/Doctor/Checks/UnityLifecycleWrongTypeCheck.cs
+Editor/Doctor/Checks/UnityLifecycleWrongTypeCheck.cs.meta
 Editor/Doctor/Checks/VersionSettingsCheck.cs
 Editor/Doctor/Checks/VersionSettingsCheck.cs.meta
 Editor/Doctor/DoctorCheckRegistry.cs
@@ -894,6 +904,8 @@ package.json.meta
 README.md
 README.md.meta
 Runtime.meta
+Runtime/AssemblyInfo.cs
+Runtime/AssemblyInfo.cs.meta
 Runtime/Attributes.meta
 Runtime/Attributes/DependsOnAttribute.cs
 Runtime/Attributes/DependsOnAttribute.cs.meta
@@ -912,6 +924,10 @@ Runtime/Attributes/RefIdAttribute.cs.meta
 Runtime/Attributes/ShowIfAttribute.cs
 Runtime/Attributes/ShowIfAttribute.cs.meta
 Runtime/Audio.meta
+Runtime/Audio/AssemblyInfo.cs
+Runtime/Audio/AssemblyInfo.cs.meta
+Runtime/Audio/AudioAuthoringGuard.cs
+Runtime/Audio/AudioAuthoringGuard.cs.meta
 Runtime/Audio/AudioCollection.cs
 Runtime/Audio/AudioCollection.cs.meta
 Runtime/Audio/AudioLibrary.cs
@@ -956,6 +972,8 @@ Runtime/ColorID/IColorSchemeService.cs
 Runtime/ColorID/IColorSchemeService.cs.meta
 Runtime/ContentPackage.meta
 Runtime/ContentPackage/.$ContentPackageSystem.drawio.bkp
+Runtime/ContentPackage/AssemblyInfo.cs
+Runtime/ContentPackage/AssemblyInfo.cs.meta
 Runtime/ContentPackage/CONTENT_PACKAGE.md
 Runtime/ContentPackage/CONTENT_PACKAGE.md.meta
 Runtime/ContentPackage/ContentPackageBuildConfig.cs
@@ -1092,6 +1110,8 @@ Runtime/Modals/Molca.Modals.asmdef.meta
 Runtime/Molca.asmdef
 Runtime/Molca.asmdef.meta
 Runtime/Networking.meta
+Runtime/Networking/AssemblyInfo.cs
+Runtime/Networking/AssemblyInfo.cs.meta
 Runtime/Networking/Auth.meta
 Runtime/Networking/Auth/AuthEvents.cs
 Runtime/Networking/Auth/AuthEvents.cs.meta
@@ -1166,6 +1186,8 @@ Runtime/Networking/Data/Provider/SSEEventStreamParser.cs
 Runtime/Networking/Data/Provider/SSEEventStreamParser.cs.meta
 Runtime/Networking/Data/Provider/SSEProvider.cs
 Runtime/Networking/Data/Provider/SSEProvider.cs.meta
+Runtime/Networking/Data/Provider/SSEStreamDownloadHandler.cs
+Runtime/Networking/Data/Provider/SSEStreamDownloadHandler.cs.meta
 Runtime/Networking/Data/Provider/StreamReconnectPolicy.cs
 Runtime/Networking/Data/Provider/StreamReconnectPolicy.cs.meta
 Runtime/Networking/Data/Provider/WebSocket.meta
@@ -1273,6 +1295,8 @@ Runtime/Runtime/ServiceDescriptor.cs.meta
 Runtime/Runtime/ServiceLifetime.cs
 Runtime/Runtime/ServiceLifetime.cs.meta
 Runtime/Sequence.meta
+Runtime/Sequence/AssemblyInfo.cs
+Runtime/Sequence/AssemblyInfo.cs.meta
 Runtime/Sequence/Auxiliary.meta
 Runtime/Sequence/Auxiliary/AuxiliaryMenuAttribute.cs
 Runtime/Sequence/Auxiliary/AuxiliaryMenuAttribute.cs.meta

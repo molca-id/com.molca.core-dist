@@ -65,6 +65,13 @@ namespace Molca.Editor.Doctor
             "scene-instancing-budget",
             "scene-lighting-budget",
             "scene-subsystem-placement",
+            // Convention-enforcement tooling (Sprint 86) — turns the naming/async/SO
+            // rules from the docs into checks so this bug class can't ship again.
+            "unity-lifecycle-wrong-type",
+            "async-void-non-entrypoint",
+            "awaitable-missing-cancellation-token",
+            "runtime-so-collection-write",
+            "task-returning-public-api",
         };
 
         private static List<IDoctorCheck> _checks;

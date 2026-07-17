@@ -49,6 +49,8 @@ namespace Molca.Networking.Data
         [SerializeField] private float _reconnectMaxDelaySeconds = 30f;
         [Tooltip("0 = unbounded (still backed-off).")]
         [SerializeField, FormerlySerializedAs("maxReconnectAttempts")] private int _maxReconnectAttempts = 5;
+        [Tooltip("A connection must live this long before a drop resets the backoff budget; guards against accept-then-drop servers causing a fast retry loop. 0 = any established connection resets.")]
+        [SerializeField] private float _stableConnectionSeconds = 10f;
         [SerializeField, FormerlySerializedAs("connectionTimeoutSeconds")] private float _connectionTimeoutSeconds = 30f;
         
         [Header("Ping/Pong Settings")]
@@ -77,8 +79,19 @@ namespace Molca.Networking.Data
         private float _lastPingTime;
         private float _connectionStartTime;
         private Dictionary<string, string> _headers = new Dictionary<string, string>();
-        // Shared backoff schedule; built on Activate, reset on a successful open.
+        // Shared backoff schedule; built on Activate, reset when a connection
+        // outlives the stable window (see OnWebSocketClose).
         private StreamReconnectPolicy _reconnectPolicy;
+
+        // True while the per-frame pump loop is alive (one per activation).
+        private bool _pumpRunning;
+
+        // When the current connection opened (realtime); <0 while not open.
+        private float _connectedAtRealtime = -1f;
+        // The most recent error/close looked like an auth rejection (401/unauthorized/1008).
+        private bool _authShapedFailure;
+        // One RefreshAsync per expiry episode; cleared when a connection opens.
+        private bool _authRefreshAttempted;
 
         public enum AuthTokenType
         {
@@ -96,11 +109,21 @@ namespace Molca.Networking.Data
             }
 
             base.Activate();
-            
+
             _connectionStatus = "Initializing";
             _isManualDisconnect = false;
             _reconnectAttemptCount = 0;
-            _reconnectPolicy = new StreamReconnectPolicy(_reconnectDelaySeconds, _reconnectMaxDelaySeconds, _maxReconnectAttempts);
+            _reconnectPolicy = new StreamReconnectPolicy(
+                _reconnectDelaySeconds, _reconnectMaxDelaySeconds, _maxReconnectAttempts,
+                stableResetSeconds: _stableConnectionSeconds);
+            _connectedAtRealtime = -1f;
+            _authShapedFailure = false;
+            _authRefreshAttempted = false;
+
+            // Explicit fire-and-forget: the pump owns its exceptions and unwinds
+            // on LifetimeToken. Without it no message dispatch, ping, or timeout
+            // handling ever runs (ScriptableObjects get no Update()).
+            _ = PumpLoopAsync();
 
             if (_requireAuthentication)
             {
@@ -205,12 +228,17 @@ namespace Molca.Networking.Data
                 return;
             }
 
+            // Full cleanup of any previous (closed/failed) socket before creating a new
+            // one — otherwise the old socket keeps its handlers attached and its zombie
+            // OnClose/OnError events schedule reconnects alongside the live socket.
+            DisconnectWebSocket();
+
             try
             {
                 _isConnecting = true;
                 _connectionStartTime = Time.time;
                 _connectionStatus = $"Connecting (Attempt {_reconnectAttemptCount + 1})";
-                
+
                 string finalUrl = BuildConnectionUrl();
                 
                 if (_logMessages)
@@ -293,11 +321,16 @@ namespace Molca.Networking.Data
         private void OnWebSocketOpen()
         {
             _isConnecting = false;
-            _reconnectAttemptCount = 0;
-            _reconnectPolicy?.Reset(); // healthy connection clears the backoff budget
             _connectionStatus = "Connected";
             _lastPingTime = Time.time;
-            
+            // The backoff budget is NOT reset here — only a connection that outlives
+            // the stable window resets it (see OnWebSocketClose), so an
+            // accept-then-drop server can't retry at full speed forever.
+            _connectedAtRealtime = Time.realtimeSinceStartup;
+            // The handshake was accepted, so the current token works again.
+            _authShapedFailure = false;
+            _authRefreshAttempted = false;
+
             if (_logMessages)
             {
                 Debug.Log($"[WebSocketDataProvider] {name}: Connection established");
@@ -353,19 +386,43 @@ namespace Molca.Networking.Data
         private void OnWebSocketError(string errorMessage)
         {
             _connectionStatus = $"Error: {errorMessage}";
+            if (IsAuthShapedError(errorMessage))
+                _authShapedFailure = true;
             Debug.LogError($"[WebSocketDataProvider] {name}: WebSocket error: {errorMessage}");
+        }
+
+        // A WS handshake rejected for auth surfaces as an HTTP 401 in the error text
+        // or as a 1008 (policy violation) close code — there is no typed status.
+        private static bool IsAuthShapedError(string errorMessage)
+        {
+            if (string.IsNullOrEmpty(errorMessage))
+                return false;
+            return errorMessage.Contains("401")
+                || errorMessage.IndexOf("unauthorized", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void OnWebSocketClose(WebSocketCloseCode closeCode)
         {
             _isConnecting = false;
             _connectionStatus = $"Closed ({closeCode})";
-            
+
+            if (closeCode == WebSocketCloseCode.PolicyViolation)
+                _authShapedFailure = true;
+
+            // Only a connection that outlived the stable window clears the backoff
+            // budget; instant drops keep consuming it.
+            if (_connectedAtRealtime >= 0f && _reconnectPolicy != null)
+            {
+                if (_reconnectPolicy.OnConnectionEnded(Time.realtimeSinceStartup - _connectedAtRealtime))
+                    _reconnectAttemptCount = 0;
+            }
+            _connectedAtRealtime = -1f;
+
             if (_logMessages)
             {
                 Debug.Log($"[WebSocketDataProvider] {name}: Connection closed with code: {closeCode}");
             }
-            
+
             if (!_isManualDisconnect && IsActive)
             {
                 HandleReconnect();
@@ -383,6 +440,37 @@ namespace Molca.Networking.Data
             if (!_autoReconnect || _isManualDisconnect || !IsActive)
             {
                 return;
+            }
+
+            // An auth-shaped failure (401/unauthorized/1008): reconnecting with the same
+            // dead token cannot succeed. Refresh once per expiry episode; if refresh is
+            // unavailable or fails (or the refreshed token was also rejected), raise
+            // AuthEvents.Expired and stop instead of burning the reconnect budget.
+            if (_requireAuthentication && _authShapedFailure)
+            {
+                _authShapedFailure = false;
+                bool refreshed = false;
+                if (!_authRefreshAttempted && AuthManager.Instance != null)
+                {
+                    _authRefreshAttempted = true;
+                    _connectionStatus = "Refreshing Authentication";
+                    try
+                    {
+                        refreshed = await AuthManager.Instance.RefreshAsync(LifetimeToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return; // provider deactivated mid-refresh
+                    }
+                }
+
+                if (!refreshed)
+                {
+                    _connectionStatus = "Authentication Expired";
+                    Debug.LogError($"[WebSocketDataProvider] {name}: auth-rejected and token refresh did not recover; stopping reconnects.");
+                    AuthEvents.Expired.Dispatch(new AuthExpiredEventData(AuthManager.Instance?.User?.GetUserId()));
+                    return;
+                }
             }
 
             // Re-read the current auth token before reconnecting so a refresh (Sprint 39)
@@ -594,6 +682,10 @@ namespace Molca.Networking.Data
             
             DisconnectWebSocket();
             _reconnectAttemptCount = 0;
+            // A manual reconnect is a fresh start: restore the full backoff budget.
+            _reconnectPolicy?.Reset();
+            _authShapedFailure = false;
+            _authRefreshAttempted = false;
             ConnectWebSocket();
         }
 
@@ -646,7 +738,40 @@ namespace Molca.Networking.Data
             return true;
         }
 
-        private void Update()
+        /// <summary>
+        /// Per-frame pump driving message dispatch, keepalive pings, and the
+        /// connection-timeout watchdog for the lifetime of an activation.
+        /// </summary>
+        /// <remarks>
+        /// This provider is a ScriptableObject, so Unity never calls a magic
+        /// <c>Update()</c> method on it — the pump must be an explicit loop keyed
+        /// on <see cref="DataProvider.LifetimeToken"/> (started in <see cref="Activate"/>,
+        /// unwound by <see cref="Deactivate"/>).
+        /// </remarks>
+        private async Awaitable PumpLoopAsync()
+        {
+            if (_pumpRunning) return;
+            _pumpRunning = true;
+            var token = LifetimeToken;
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    PumpOnce();
+                    await Awaitable.NextFrameAsync(token);
+                }
+            }
+            catch (System.OperationCanceledException)
+            {
+                // Provider deactivated — pump unwinds quietly.
+            }
+            finally
+            {
+                _pumpRunning = false;
+            }
+        }
+
+        private void PumpOnce()
         {
             // Dispatch queued messages on the main thread
             if (_webSocket != null && _webSocket.State == WebSocketState.Open)
@@ -654,21 +779,23 @@ namespace Molca.Networking.Data
 #if !UNITY_WEBGL || UNITY_EDITOR
                 _webSocket.DispatchMessageQueue();
 #endif
-                
+
                 // Handle ping/pong
                 if (_enablePingPong && Time.time - _lastPingTime >= _pingIntervalSeconds)
                 {
                     _lastPingTime = Time.time;
                     SendPing();
                 }
-                
-                // Check for connection timeout
-                if (_isConnecting && Time.time - _connectionStartTime >= _connectionTimeoutSeconds)
-                {
-                    Debug.LogError($"[WebSocketDataProvider] {name}: Connection timeout");
-                    DisconnectWebSocket();
-                    HandleReconnect();
-                }
+            }
+
+            // Check for connection timeout. Deliberately outside the Open block:
+            // while connecting the state is not Open yet, so gating this on Open
+            // means the watchdog could never fire.
+            if (_isConnecting && Time.time - _connectionStartTime >= _connectionTimeoutSeconds)
+            {
+                Debug.LogError($"[WebSocketDataProvider] {name}: Connection timeout");
+                DisconnectWebSocket();
+                HandleReconnect();
             }
         }
 

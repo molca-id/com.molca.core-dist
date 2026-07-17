@@ -110,7 +110,31 @@ namespace Molca.ContentPackage.Core
             {
                 string path = ManifestPath;
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
-                File.WriteAllText(path, JsonUtility.ToJson(_data, prettyPrint: false));
+
+                // Atomic write: an in-place WriteAllText truncated by a crash or
+                // power loss leaves invalid JSON, which Load() silently replaces
+                // with an EMPTY manifest — every installed package forgets it is
+                // installed. Write to a temp file first, then swap it in.
+                string tempPath = path + ".tmp";
+                File.WriteAllText(tempPath, JsonUtility.ToJson(_data, prettyPrint: false));
+
+                if (File.Exists(path))
+                {
+                    // Atomic on the same volume; falls back below if unsupported.
+                    try
+                    {
+                        File.Replace(tempPath, path, destinationBackupFileName: null);
+                    }
+                    catch (PlatformNotSupportedException)
+                    {
+                        File.Delete(path);
+                        File.Move(tempPath, path);
+                    }
+                }
+                else
+                {
+                    File.Move(tempPath, path);
+                }
             }
             catch (Exception ex)
             {

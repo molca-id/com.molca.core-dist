@@ -42,7 +42,14 @@ namespace Molca
         private const int FlushThreshold = 64;
         private const float FlushIntervalSeconds = 5f;
         private const int MaxBufferedMessages = 1000;
-        private float _lastFlushTime;
+        // Unity routes ILogHandler callbacks through to AddLogMessage/FlushPendingLogs
+        // on whatever thread called Debug.Log — including background/network threads —
+        // so the flush-interval clock cannot use a main-thread-only Unity API
+        // (Time.realtimeSinceStartup throws off the main thread). A Stopwatch is a
+        // plain BCL type, safe from any thread, and Update() reads the same clock so
+        // the two call paths compare consistent values.
+        private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+        private double _lastFlushTime;
         private int _currentLogSize;
 
         public override void Initialize(Action<IRuntimeSubsystem> finishCallback)
@@ -53,7 +60,7 @@ namespace Molca
             _logHandler = new LogHandler(this);
             _logHandler.SetMinimumLogLevel(minimumLogLevel);
             _logMessages = new List<string>();
-            _lastFlushTime = Time.realtimeSinceStartup;
+            _lastFlushTime = _clock.Elapsed.TotalSeconds;
 
             finishCallback?.Invoke(this);
         }
@@ -62,7 +69,7 @@ namespace Molca
         {
             if (!saveToStreamingAssets || _logMessages == null) return;
 
-            if (Time.realtimeSinceStartup - _lastFlushTime >= FlushIntervalSeconds)
+            if (_clock.Elapsed.TotalSeconds - _lastFlushTime >= FlushIntervalSeconds)
             {
                 FlushPendingLogs();
             }
@@ -140,7 +147,7 @@ namespace Molca
         {
             lock (_logLock)
             {
-                _lastFlushTime = Time.realtimeSinceStartup;
+                _lastFlushTime = _clock.Elapsed.TotalSeconds;
                 if (_logMessages.Count == 0) return;
 
                 try

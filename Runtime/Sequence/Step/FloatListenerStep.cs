@@ -165,14 +165,16 @@ namespace Molca.Sequence
             if (filterBySender && targetSender != null)
             {
                 // Try to extract sender from event data
+                // Soft casts: payloads are often boxed value types (float/int),
+                // and a direct (Object) cast would throw InvalidCastException.
                 if (eventData is System.Collections.Generic.Dictionary<string, object> dict)
                 {
-                    if (dict.TryGetValue("sender", out var sender) && (Object)sender != targetSender)
+                    if (dict.TryGetValue("sender", out var sender) && sender as Object != targetSender)
                     {
                         return; // Filter out this event
                     }
                 }
-                else if ((Object)eventData != targetSender)
+                else if (eventData as Object != targetSender)
                 {
                     return; // Filter out this event
                 }
@@ -252,18 +254,22 @@ namespace Molca.Sequence
             if (!Mathf.Approximately(currentValue, value))
             {
                 float previousValue = currentValue;
+                // Capture the pre-change state BEFORE mutating currentValue —
+                // IsTargetReached reads currentValue, so sampling it after the
+                // assignment would compare the new state to itself and the
+                // reached-transition below could never fire.
+                bool wasAtTarget = IsTargetReached;
                 currentValue = value;
-                
+
                 // Fire events
                 OnValueChanged?.Invoke(currentValue);
-                _eventDispatcher?.DispatchEvent("FloatListenerStep.ValueChanged", new { step = this, previousValue, currentValue, targetValue });
-                
+                _eventDispatcher?.DispatchEvent(EventConstants.Sequence.FloatListenerValueChanged, new { step = this, previousValue, currentValue, targetValue });
+
                 // Check if target was reached
-                bool wasAtTarget = IsTargetReached;
                 if (!wasAtTarget && IsTargetReached)
                 {
                     OnTargetReached?.Invoke();
-                    _eventDispatcher?.DispatchEvent("FloatListenerStep.TargetReached", this);
+                    _eventDispatcher?.DispatchEvent(EventConstants.Sequence.FloatListenerTargetReached, this);
                 }
                 
                 // Check for completion

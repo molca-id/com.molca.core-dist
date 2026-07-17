@@ -14,11 +14,23 @@ public class OrientationState : MonoBehaviour
     private static Action<DeviceOrientation> onOrientationChanged;
     private static DeviceOrientation lastOrientation;
 
+    // Stored so OnDestroy can unsubscribe the exact delegate added in Awake —
+    // an inline lambda can never be removed from the static event, so destroyed
+    // instances kept receiving (and multiplying) notifications across scene loads.
+    private Action<DeviceOrientation> _forwarder;
+
     private void Awake()
     {
-        onOrientationChanged += (orientation) => _onOrientationChanged?.Invoke(orientation);
+        _forwarder = orientation => _onOrientationChanged?.Invoke(orientation);
+        onOrientationChanged += _forwarder;
         lastOrientation = DeviceOrientation.Unknown;
         InvokeRepeating(nameof(CheckOrientation), 0f, 1f);
+    }
+
+    private void OnDestroy()
+    {
+        onOrientationChanged -= _forwarder;
+        CancelInvoke();
     }
 
     void CheckOrientation()
@@ -30,7 +42,7 @@ public class OrientationState : MonoBehaviour
 
     void NotifyChange(DeviceOrientation newOrientation)
     {
-        onOrientationChanged.Invoke(newOrientation);
+        onOrientationChanged?.Invoke(newOrientation);
         if (newOrientation == DeviceOrientation.Portrait || newOrientation == DeviceOrientation.PortraitUpsideDown)
             _onOrientationPortrait?.Invoke();
         else
