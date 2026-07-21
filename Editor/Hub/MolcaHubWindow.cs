@@ -109,7 +109,7 @@ namespace Molca.Editor.Hub
         /// docs view is (re)built — whether that happens now (UI already up) or later from
         /// <see cref="CreateGUI"/> restoring the persisted workspace.
         /// </remarks>
-        internal static void OpenDoc(string docId)
+        public static void OpenDoc(string docId)
         {
             Docs.DocsWorkspaceView.PendingDocId = docId;
 

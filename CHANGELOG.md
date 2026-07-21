@@ -2,6 +2,12 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.12.4] - 2026-07-21
+
+### Changed
+- **`MolcaHubWindow.OpenDoc(string)` is now public** (was `internal`), so an SDK layer or consumer project
+  can programmatically open a specific Hub doc by id.
+
 ## [1.12.3] - 2026-07-07
 
 ### Added
