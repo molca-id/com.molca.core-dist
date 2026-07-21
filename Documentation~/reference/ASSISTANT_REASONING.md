@@ -1,10 +1,14 @@
-# Assistant Reasoning / Extended Thinking (Sprint 76)
+---
+title: Assistant Reasoning / Extended Thinking
+category: Assistant
+order: 1020
+---
 
-Before this sprint the assistant's reasoning was **explicitly disabled**: `AnthropicLlmProvider` never sent a
-`thinking` block, and there was no OpenAI `reasoning_effort`. For hard multi-step authoring and plan-mode
-tasks — exactly where answer quality is won or lost — that headroom went unused. This sprint enables a
-per-turn reasoning budget, gated per model, without leaking hidden reasoning into the visible transcript and
-without breaking the tool-use round loop or streaming.
+# Assistant Reasoning / Extended Thinking
+
+The assistant supports a per-turn reasoning budget, gated per model, without leaking hidden reasoning into
+the visible transcript and without breaking the tool-use round loop or streaming. This is aimed at hard
+multi-step authoring and plan-mode tasks — exactly where answer quality is won or lost.
 
 ## The setting
 
@@ -18,7 +22,7 @@ One provider-neutral knob, `ReasoningEffort` on `AssistantSettings`, threaded on
 | `Medium` | A moderate reasoning budget. |
 | `High` | A large reasoning budget for the hardest multi-step / plan-mode turns. |
 
-It is selectable from the in-window model picker (Sprint 71) — a "Reasoning: …" dropdown — and applied through
+It is selectable from the in-window model picker — a "Reasoning: …" dropdown — and applied through
 the same `SerializedObject` path as the provider/model selection, so it persists and re-resolves. Off by
 default because reasoning bills as output tokens and adds latency.
 
@@ -69,3 +73,8 @@ the returned thinking text; OpenAI reports it as `completion_tokens_details.reas
 
 - **Exposing raw chain-of-thought as the answer** — reasoning is only ever a collapsed affordance.
 - **Reasoning on models that don't offer it** — the setting is silently ignored there.
+
+## See also
+
+- [Model & Provider Switcher](ASSISTANT_MODEL_SWITCHER.md)
+- [Prompt Caching](ASSISTANT_PROMPT_CACHING.md)

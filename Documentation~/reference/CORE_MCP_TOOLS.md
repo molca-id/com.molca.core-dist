@@ -1,3 +1,9 @@
+---
+title: Core MCP Tools
+category: Tooling
+order: 950
+---
+
 # Core MCP Tools
 
 `CoreMcpToolProvider` owns the `molca` namespace: the introspection, sequence/content/settings authoring, networking, localization, knowledge-graph, ClickUp, and Figma tools that are specific to Molca Core. General-purpose Unity-editor actions live in [`UnityMcpToolProvider`](UNITY_MCP_TOOLS.md).
@@ -19,8 +25,9 @@ Tools are discovered by convention from the `Create*Tool()` factories across the
 - `CoreMcpToolProvider.Networking.cs`: `HttpModule` config and `HttpRequestAsset` read/create/edit.
 - `CoreMcpToolProvider.Localization.cs` / `.LocalizationEdit.cs`: DynamicLocalization coverage/readback, language authoring, and runtime language switching.
 - `CoreMcpToolProvider.KnowledgeGraph.cs`: graphify knowledge-graph status/query/path/explain/build.
+- `CoreMcpToolProvider.Docs.cs`: read-only reference-guide list/read/search over the Hub docs registry.
 - `CoreMcpToolProvider.ReadSource.cs`: in-project source-file reads (single `path`, or a `paths` array to batch-read several files in one call).
-- `CoreMcpToolProvider.ToolSchema.cs` / `.ListTools.cs`: the Sprint-67 tiered-exposure meta-tools — `molca_tool_schema` (fetch a tool's input schema on demand) and `molca_list_tools` (expand a family to names + summaries). See [MCP_FORK_PROVIDERS.md](MCP_FORK_PROVIDERS.md) → "How the in-editor assistant exposes tools".
+- `CoreMcpToolProvider.ToolSchema.cs` / `.ListTools.cs`: the tiered-exposure meta-tools — `molca_tool_schema` (fetch a tool's input schema on demand) and `molca_list_tools` (expand a family to names + summaries). See [MCP_FORK_PROVIDERS.md](MCP_FORK_PROVIDERS.md) → "How the in-editor assistant exposes tools".
 - `CoreMcpToolProvider.Doctor.cs` / `.Actions.cs`: Molca Doctor checks and Doctor-fix.
 - `CoreMcpToolProvider.AskUser.cs`: interactive ask-user prompt.
 - `CoreMcpToolProvider.Figma.cs`: Figma file/frame listing and UI Toolkit scaffolding.
@@ -81,6 +88,12 @@ Knowledge graph:
 - `molca_kg_query`: natural-language project query over the graph.
 - `molca_kg_path`: shortest relationship path between two concepts/entities.
 - `molca_kg_explain`: plain-language explanation of one concept/entity.
+
+Documentation:
+
+- `molca_docs_list`: list the reference guides available in the project (id, title, category), optionally filtered by category.
+- `molca_docs_read`: return a guide's full Markdown body by id (front-matter stripped).
+- `molca_docs_search`: case-insensitive substring search over guide titles and bodies, returning matches with a snippet.
 
 Source / Doctor / Figma / ClickUp:
 

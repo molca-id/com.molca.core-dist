@@ -1,3 +1,9 @@
+---
+title: Sequence Authoring (Spec→Sequence)
+category: Sequences
+order: 310
+---
+
 # Sequence Authoring (Spec→Sequence)
 
 `molca_sequence_author` applies a **declarative whole-graph plan** to a `SequenceController`
@@ -63,3 +69,8 @@ those edit tools remain available unchanged.
 3. Tool authors transactionally and returns residual findings with Ref-Id suggestions.
 4. Agent acts on residual (rebind references via `molca_sequence_set_step_fields`, etc.) and re-runs
    `molca_sequence_author` (merge) or `molca_sequence_remediate` until `after.valid` is true.
+
+## See also
+
+- [Sequence Validation](SEQUENCE_VALIDATION.md)
+- [Core MCP Tools](CORE_MCP_TOOLS.md)

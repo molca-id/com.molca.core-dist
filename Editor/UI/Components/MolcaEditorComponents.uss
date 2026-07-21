@@ -269,3 +269,181 @@
     margin-top: 7px;
     margin-bottom: 7px;
 }
+
+/* ---- Markdown renderer (MolcaMarkdown) ----
+ * Class vocabulary for the shared editor Markdown renderer (Editor/UI/MolcaMarkdown.cs). Any surface
+ * that calls MolcaEditorUi.Apply() can render Markdown via MolcaMarkdown.Render(); the Assistant
+ * transcript is one consumer. Colors resolve from the `--molca-*` tokens only. */
+
+.molca-md-inline-container {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    margin-bottom: 2px;
+    min-width: 0;
+}
+
+.molca-md-span {
+    white-space: normal;
+    flex-shrink: 1;
+}
+
+.molca-md-inline-code {
+    background-color: var(--molca-input);
+    padding-left: 4px;
+    padding-right: 4px;
+    font-size: 11px;
+    border-width: 1px;
+    border-color: var(--molca-border);
+    border-radius: 3px;
+}
+
+.molca-md-link {
+    color: var(--molca-link);
+    margin-right: 3px;
+}
+
+.molca-md-link:hover {
+    color: var(--molca-heading);
+}
+
+.molca-md-code-block {
+    background-color: var(--molca-input);
+    padding: 6px 8px;
+    font-size: 11px;
+    margin-top: 2px;
+    margin-bottom: 4px;
+    border-width: 1px;
+    border-color: var(--molca-border);
+    border-radius: 4px;
+}
+
+.molca-md-list-row {
+    flex-direction: row;
+    margin-bottom: 3px;
+    min-width: 0;
+}
+
+.molca-md-list-marker {
+    width: 22px;
+    flex-shrink: 0;
+    -unity-text-align: upper-left;
+}
+
+.molca-md-quote {
+    border-left-width: 3px;
+    border-left-color: var(--molca-status-grey);
+    padding-left: 8px;
+    margin-bottom: 3px;
+    color: var(--molca-muted);
+}
+
+.molca-md-rule {
+    height: 1px;
+    background-color: var(--molca-border);
+    margin-top: 6px;
+    margin-bottom: 6px;
+}
+
+.molca-md-task__box {
+    width: 18px;
+}
+
+.molca-md-task__text--checked {
+    color: var(--molca-muted);
+}
+
+.molca-md-table {
+    margin-top: 3px;
+    margin-bottom: 4px;
+    border-width: 1px;
+    border-color: var(--molca-border);
+}
+
+.molca-md-table__row {
+    flex-direction: row;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--molca-border);
+}
+
+.molca-md-table__row--header {
+    background-color: var(--molca-input);
+}
+
+.molca-md-table__cell {
+    padding: 3px 6px;
+    border-right-width: 1px;
+    border-right-color: var(--molca-border);
+    white-space: normal;
+    min-width: 0;
+}
+
+/* Whole-block text-tint variants (MolcaMarkdownVariant). */
+.molca-md--muted {
+    color: var(--molca-muted);
+    font-size: 11px;
+}
+
+.molca-md--error {
+    color: var(--molca-status-error);
+}
+
+/* Mermaid diagrams (MolcaMermaid / MolcaMermaidView). The node/edge geometry is drawn with Painter2D
+ * using MolcaEditorColors; these rules frame the block and style the label text that rides on top. */
+.molca-md-diagram {
+    margin-top: 4px;
+    margin-bottom: 6px;
+    padding: 6px;
+    background-color: var(--molca-input);
+    border-width: 1px;
+    border-color: var(--molca-border);
+    border-radius: 4px;
+    overflow: hidden;
+    align-items: center;
+}
+
+.molca-md-diagram__canvas {
+    /* width/height are set inline from the computed layout; children are absolutely positioned. */
+    flex-shrink: 0;
+}
+
+.molca-md-diagram__node-label {
+    -unity-text-align: middle-center;
+    white-space: normal;
+    font-size: 11px;
+    color: var(--molca-heading);
+}
+
+.molca-md-diagram__edge-label {
+    -unity-text-align: middle-center;
+    white-space: nowrap;
+    font-size: 10px;
+    color: var(--molca-muted);
+    background-color: var(--molca-input);
+    padding-left: 3px;
+    padding-right: 3px;
+}
+
+/* Fallback shown when a mermaid source is not a renderable flowchart (other diagram kinds, or too large). */
+.molca-md-diagram-fallback {
+    margin-top: 4px;
+    margin-bottom: 6px;
+}
+
+.molca-md-diagram-fallback__header {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.molca-md-diagram-fallback__caption {
+    font-size: 11px;
+    color: var(--molca-muted);
+}
+
+.molca-md-diagram-fallback__copy {
+    font-size: 10px;
+    padding: 1px 8px;
+    margin: 0;
+}

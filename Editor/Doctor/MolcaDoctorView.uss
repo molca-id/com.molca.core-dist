@@ -69,16 +69,71 @@
     color: var(--molca-heading);
 }
 
-.molca-doctor__chip-row {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-}
-
 .molca-doctor__chip-head {
     flex-direction: row;
     align-items: center;
     margin-bottom: 4px;
+}
+
+/* ---- Category groups ---- */
+
+/*
+ * One flat wrapping flow holds every group header and chip. A wrap-container per group hits Unity's
+ * flex-wrap height-measurement bug (wrapped chips overlap the next element); a single top-level flow
+ * measures correctly. Group separation comes from the width:100% header below, which claims its own
+ * line and pushes the following chips onto fresh lines.
+ */
+.molca-doctor__chip-flow {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    align-content: flex-start;
+}
+
+.molca-doctor__group-head {
+    /* width:100% forces this header onto its own line within the wrapping flow. */
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    margin-top: 7px;
+    margin-bottom: 3px;
+    padding-bottom: 2px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--molca-border-soft);
+}
+
+.molca-doctor__group-title {
+    color: var(--molca-muted);
+    font-size: 10px;
+    -unity-font-style: bold;
+    margin-left: 4px;
+    margin-right: 8px;
+}
+
+.molca-doctor__group-title:hover {
+    color: var(--molca-heading);
+}
+
+.molca-doctor__group-spacer {
+    flex-grow: 1;
+}
+
+.molca-doctor__group-count {
+    color: var(--molca-muted);
+    font-size: 10px;
+    margin-right: 6px;
+}
+
+/* Whole-group toggle: dim when the group is off/mixed, accented when fully on. */
+.molca-doctor__group-toggle {
+    height: 18px;
+    min-width: 42px;
+    font-size: 10px;
+}
+
+.molca-doctor__group-toggle--on {
+    color: var(--molca-text);
+    -unity-font-style: bold;
 }
 
 /* ---- Progress ---- */
@@ -104,10 +159,17 @@
     text-overflow: ellipsis;
 }
 
-/* ---- Results ---- */
+/* ---- Scroll + results ---- */
+
+/* Single vertical scroll shared by the checks panel and the findings list. */
+.molca-doctor__scroll {
+    flex-grow: 1;
+}
 
 .molca-doctor__results {
-    flex-grow: 1;
+    flex-grow: 0;
+    flex-shrink: 0;
+    margin-top: 6px;
 }
 
 .molca-doctor__placeholder {

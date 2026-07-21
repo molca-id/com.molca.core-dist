@@ -1,3 +1,9 @@
+---
+title: Extending Molca MCP from an SDK Fork
+category: Tooling
+order: 970
+---
+
 # Extending Molca MCP from an SDK Fork
 
 The MCP tool surface is built on the same layer model as the rest of the framework
@@ -15,7 +21,7 @@ A provider is an editor-only `ScriptableObject` subclass of `Molca.Editor.Mcp.Mc
 | Member | Required | Purpose |
 |---|---|---|
 | `Namespace` | yes | Globally-unique namespace, e.g. `molca.vr`. Two providers may not share one — the registry rejects collisions at load. |
-| `Create<Tool>Tool()` factories | yes | One zero-arg method per tool returning an `McpToolDefinition` (unique name, JSON schema, mode, kind, main-thread execute delegate). Discovered automatically — see [How tools are discovered](#how-tools-are-discovered-sprint-34). |
+| `Create<Tool>Tool()` factories | yes | One zero-arg method per tool returning an `McpToolDefinition` (unique name, JSON schema, mode, kind, main-thread execute delegate). Discovered automatically — see [How tools are discovered](#how-tools-are-discovered). |
 | `GetTools()` | no | Only override to take manual control (conditional tools / custom ordering); otherwise the convention default discovers your factories. |
 | `GetStatus()` / `GetStatusMessage()` | optional | Drive the settings-UI status dot (Configured / Disabled / Misconfigured). |
 
@@ -25,7 +31,7 @@ A provider is an editor-only `ScriptableObject` subclass of `Molca.Editor.Mcp.Mc
   `molca_vr_handtracking`) so names never collide with Core or another fork.
 - **Secrets never on the asset.** Config (endpoints, model names, enable flags) may be
   `SerializeField`s; API keys/tokens must come from project-scoped `EditorPrefs` or environment
-  variables — never a serialized field (the same rule as Core credentials, Sprints 4.5 / 16.2).
+  variables — never a serialized field (the same rule as Core credentials).
 - **Execute runs on the main thread.** The bridge marshals every call onto the Unity main thread, so
   your delegate may touch editor and runtime APIs directly. Return a JSON string.
 - **Action tools are gated.** Mark mutating tools `McpToolKind.Action`. They run only when added to
@@ -50,7 +56,7 @@ not claim one unless it ships in the layer that owns it:
 | Namespace | Token prefix | Owner |
 |---|---|---|
 | `molca` | `molca_…` | Core (`com.molca.core`) — do not extend; add your own. |
-| `molca.sdk` | `molca_sdk_…` | Shared SDK (`com.molca.sdk`). **Reserved** — no provider exists yet (no agent-facing authoring surface as of Sprint 67). Claim it only when the shared SDK layer gains a tool. |
+| `molca.sdk` | `molca_sdk_…` | Shared SDK (`com.molca.sdk`). **Reserved** — no provider exists yet (no agent-facing authoring surface). Claim it only when the shared SDK layer gains a tool. |
 | `molca.vr` | `molca_vr_…` | VR fork (`molca-sdk-vr`). |
 | `molca.dt` | `molca_dt_…` | Digital-twin fork (`molca-sdk-dt`). |
 
@@ -66,7 +72,7 @@ its status dot and tools appear with no Core changes.
 
 > Project (non-SDK) code follows the same pattern but lives under `Assets/YourProject/`.
 
-## How tools are discovered (Sprint 34)
+## How tools are discovered
 
 You **do not** write a `GetTools()` method. The base `McpToolProvider.GetTools()` discovers tools by
 convention: every **zero-parameter method that returns an `McpToolDefinition`** on your provider type
@@ -84,7 +90,7 @@ Consequences:
 - You *may* still override `GetTools()` when you need conditional tools or custom ordering — an
   override wins and discovery is not used for that type.
 
-## How the in-editor assistant exposes tools (Sprint 67)
+## How the in-editor assistant exposes tools
 
 The registry can hold ~180+ tools. The **IDE MCP bridge** still serves the full registry verbatim. The
 **in-editor assistant**, however, does **not** send every tool's schema on every request — that was a large
@@ -107,7 +113,7 @@ summaries) and a clear first sentence in the description (shown by `molca_list_t
 A read tool that often reads several items at once can accept an **array** input (batch) to save round-trips —
 see `molca_read_source`'s `paths`.
 
-### Text tool transport for local models (Sprint 69)
+### Text tool transport for local models
 
 When Assistant Settings uses **Tool Call Transport = Auto**, the `Local` backend uses a text/XML transport
 instead of structured function-calling. Fork providers do not need extra registration for this path: the
@@ -208,7 +214,7 @@ That's the layer model: extend Core/SDK by adding your *own* provider, never by 
 
 ---
 
-## Contributing to the Framework Graph (Sprint 22.8)
+## Contributing to the Framework Graph
 
 The **Framework Graph** (`Molca ▸ Utilities ▸ Framework Graph`, and the read-only
 `molca_framework_graph` MCP tool) maps how the loaded project is wired. A fork can add its own

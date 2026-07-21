@@ -28,6 +28,7 @@ namespace Molca.Editor.Doctor
     {
         private const string UssPath = "Packages/com.molca.core/Editor/Doctor/MolcaDoctorView.uss";
         private const string ChecksCollapsedKey = "Doctor.ChecksCollapsed";
+        private const string GroupExpandedKeyPrefix = "Doctor.Group.Expanded.";
 
         private List<DoctorIssue> _issues = new List<DoctorIssue>();
         private readonly HashSet<string> _disabledChecks = new HashSet<string>();
@@ -51,9 +52,10 @@ namespace Molca.Editor.Doctor
         private Label _progressLabel;
         private Button _cancelButton;
 
+        private ScrollView _scroll;
         private MolcaSectionCard _checkCard;
-        private VisualElement _checkChipRow;
-        private ScrollView _results;
+        private VisualElement _checkGroups;
+        private VisualElement _results;
 
         public MolcaDoctorView()
         {
@@ -67,6 +69,13 @@ namespace Molca.Editor.Doctor
 
             BuildToolbar();
             BuildProgress();
+
+            // The toolbar and progress bar stay pinned; the checks panel and the findings list share one
+            // scroll below them, so a long grouped check list never pushes the results out of reach.
+            _scroll = new ScrollView(ScrollViewMode.Vertical);
+            _scroll.AddToClassList("molca-doctor__scroll");
+            Add(_scroll);
+
             BuildCheckCard();
             BuildResults();
 
@@ -145,7 +154,7 @@ namespace Molca.Editor.Doctor
         {
             _checkCard = new MolcaSectionCard("Checks", subtitle: "Convention validations to run against the project");
             var card = _checkCard;
-            Add(card);
+            _scroll.Add(card);
 
             // Collapsible body: a chevron header action toggles Body visibility, persisted across
             // domain reloads via MolcaEditorPrefs so the panel reopens in the user's last state.
@@ -171,13 +180,123 @@ namespace Molca.Editor.Doctor
             none.style.marginLeft = 4;
             head.Add(none);
 
-            _checkChipRow = new VisualElement();
-            _checkChipRow.AddToClassList("molca-doctor__chip-row");
-            card.Body.Add(_checkChipRow);
+            // One flat wrapping flow, not a wrap-container per group: a wrapping row nested inside a
+            // column hits Unity's two-pass flex-wrap measurement bug (measured at unconstrained width →
+            // one line → too-short reserved height → wrapped chips overlap the next element). A single
+            // top-level wrapping flow measures correctly; each group header claims its own line via a
+            // width:100% break element instead.
+            _checkGroups = new VisualElement();
+            _checkGroups.AddToClassList("molca-doctor__chip-flow");
+            card.Body.Add(_checkGroups);
 
+            RebuildCheckChips();
+            UpdateChecksCount();
+        }
+
+        /// <summary>
+        /// (Re)builds the check chips grouped by <see cref="IDoctorCheck.Category"/>. Categories appear
+        /// in the order their first check does — i.e. the curated built-in order (see
+        /// <see cref="DoctorCheckRegistry.BuiltInOrder"/>) — and each group carries its own All/None
+        /// toggle. Called on every selection change so chip active-state mirrors <see cref="_disabledChecks"/>.
+        /// </summary>
+        private void RebuildCheckChips()
+        {
+            _checkGroups.Clear();
+
+            // Preserve the curated check order; a category is created the first time a check of that
+            // category is seen, so groups land in the same order the checks run in.
+            var groups = new List<(string Category, List<IDoctorCheck> Checks)>();
+            var indexByCategory = new Dictionary<string, int>();
             foreach (var check in MolcaDoctor.Checks)
-                _checkChipRow.Add(MakeCheckChip(check));
+            {
+                var category = check.Category;
+                if (!indexByCategory.TryGetValue(category, out var gi))
+                {
+                    gi = groups.Count;
+                    indexByCategory[category] = gi;
+                    groups.Add((category, new List<IDoctorCheck>()));
+                }
+                groups[gi].Checks.Add(check);
+            }
 
+            foreach (var group in groups)
+            {
+                bool expanded = IsCategoryExpanded(group.Category);
+                _checkGroups.Add(BuildGroupHeader(group.Category, group.Checks, expanded));
+
+                // Collapsed by default: a category contributes only its header line until expanded, so
+                // the panel stays compact. Chips live in the same flat flow (not a nested wrap container)
+                // to avoid Unity's flex-wrap height bug; the width:100% header forces the line breaks.
+                if (expanded)
+                    foreach (var check in group.Checks)
+                        _checkGroups.Add(MakeCheckChip(check));
+            }
+        }
+
+        /// <summary>
+        /// Builds a full-width category header — an expand/collapse trigger (chevron + name), the
+        /// enabled/total count, and a single whole-group toggle. Forces its own line in the flat chip
+        /// flow so the chips that follow read as a distinct section.
+        /// </summary>
+        private VisualElement BuildGroupHeader(string category, List<IDoctorCheck> checks, bool expanded)
+        {
+            var header = new VisualElement();
+            header.AddToClassList("molca-doctor__group-head");
+
+            // Chevron + name is the expand/collapse target (a Label with a click manipulator, not a
+            // button, so it reads as a section title rather than a control).
+            var trigger = new Label($"{(expanded ? "▾" : "▸")}  {category}");
+            trigger.AddToClassList("molca-doctor__group-title");
+            trigger.tooltip = expanded ? "Collapse category" : "Expand category";
+            trigger.AddManipulator(new Clickable(() => ToggleCategory(category)));
+            header.Add(trigger);
+
+            var spacer = new VisualElement();
+            spacer.AddToClassList("molca-doctor__group-spacer");
+            header.Add(spacer);
+
+            int enabled = checks.Count(c => !_disabledChecks.Contains(c.Id));
+            var count = new Label($"{enabled}/{checks.Count}");
+            count.AddToClassList("molca-doctor__group-count");
+            header.Add(count);
+
+            // One toggle flips the whole group: enable all unless already all-on, in which case disable
+            // all. The label reflects current state (all / mixed / none).
+            bool allOn = enabled == checks.Count;
+            var state = allOn ? "on" : enabled == 0 ? "off" : "mixed";
+            var ids = checks.Select(c => c.Id).ToList();
+            var toggle = MolcaButtons.Mini(state, () => SetGroupChecks(ids, enabled: !allOn));
+            toggle.AddToClassList("molca-doctor__group-toggle");
+            toggle.EnableInClassList("molca-doctor__group-toggle--on", allOn);
+            toggle.tooltip = allOn ? "Disable all in this category" : "Enable all in this category";
+            header.Add(toggle);
+
+            return header;
+        }
+
+        /// <summary>Whether a category's checks are currently expanded (persisted across domain reloads).</summary>
+        private static bool IsCategoryExpanded(string category) =>
+            MolcaEditorPrefs.GetBool(GroupExpandedKeyPrefix + category, false);
+
+        /// <summary>Flips a category's expanded state, persists it, and repaints the flow.</summary>
+        private void ToggleCategory(string category)
+        {
+            MolcaEditorPrefs.SetBool(GroupExpandedKeyPrefix + category, !IsCategoryExpanded(category));
+            RebuildCheckChips();
+        }
+
+        /// <summary>Enables or disables every check in one category, then repaints the chips.</summary>
+        private void SetGroupChecks(IEnumerable<string> ids, bool enabled)
+        {
+            foreach (var id in ids)
+            {
+                if (enabled)
+                    _disabledChecks.Remove(id);
+                else
+                    _disabledChecks.Add(id);
+            }
+
+            RebuildCheckChips();
             UpdateChecksCount();
         }
 
@@ -214,18 +333,15 @@ namespace Molca.Editor.Doctor
                     _disabledChecks.Add(c.Id);
 
             // Rebuild the chips so their active state mirrors the new selection.
-            _checkChipRow.Clear();
-            foreach (var check in MolcaDoctor.Checks)
-                _checkChipRow.Add(MakeCheckChip(check));
-
+            RebuildCheckChips();
             UpdateChecksCount();
         }
 
         private void BuildResults()
         {
-            _results = new ScrollView();
+            _results = new VisualElement();
             _results.AddToClassList("molca-doctor__results");
-            Add(_results);
+            _scroll.Add(_results);
         }
 
         /// <summary>Runs the enabled checks asynchronously with an inline, cancelable progress bar.</summary>

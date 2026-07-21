@@ -37,20 +37,29 @@ namespace Molca.Editor.Hub
         /// </summary>
         public Func<bool> IsAvailable { get; }
 
+        /// <summary>
+        /// When <c>true</c>, the tab is anchored to the right of the toolbar (after the flexible spacer)
+        /// rather than sitting inline with the primary tabs. Used for auxiliary surfaces such as Docs that
+        /// are conceptually set apart from the main workspaces. Defaults to <c>false</c> (left-aligned).
+        /// </summary>
+        public bool RightAnchored { get; }
+
         /// <summary>Creates a workspace descriptor.</summary>
         /// <param name="id">Stable unique kebab-case id (not <see cref="MolcaHubWorkspaceRegistry.SettingsId"/>).</param>
         /// <param name="label">Toolbar tab label.</param>
         /// <param name="order">Sort order among non-Settings tabs.</param>
         /// <param name="createContent">Factory that builds the hosted content on selection.</param>
         /// <param name="isAvailable">Optional availability gate; <c>null</c> means always available.</param>
+        /// <param name="rightAnchored">When <c>true</c>, anchors the tab to the right of the toolbar.</param>
         public MolcaHubWorkspaceItem(string id, string label, int order,
-            Func<VisualElement> createContent, Func<bool> isAvailable = null)
+            Func<VisualElement> createContent, Func<bool> isAvailable = null, bool rightAnchored = false)
         {
             Id = id;
             Label = label;
             Order = order;
             CreateContent = createContent;
             IsAvailable = isAvailable;
+            RightAnchored = rightAnchored;
         }
     }
 

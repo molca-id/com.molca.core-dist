@@ -1,4 +1,10 @@
-# Assistant Vision — Multimodal Image Input (Sprint 73)
+---
+title: Assistant Vision — Multimodal Image Input
+category: Assistant
+order: 1030
+---
+
+# Assistant Vision — Multimodal Image Input
 
 The in-editor assistant can **send images to a vision-capable model**, not just read a JSON description of
 the scene through a tool. This is the difference between "the snapshot tool says there are 3 cameras" and the
@@ -67,5 +73,10 @@ Add a new vision tag by extending the substring set in `AssistantModelCatalog.Is
 
 ## Non-goals
 
-Image **generation**/editing, video input, and OCR-as-a-tool are out of scope for this sprint — this is
+Image **generation**/editing, video input, and OCR-as-a-tool are out of scope — this is
 image *input* to the chat only.
+
+## See also
+
+- [Model & Provider Switcher](ASSISTANT_MODEL_SWITCHER.md)
+- [Assistant Web Tools](ASSISTANT_WEB_TOOLS.md)

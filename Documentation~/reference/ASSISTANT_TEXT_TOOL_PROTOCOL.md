@@ -1,6 +1,12 @@
+---
+title: Assistant Text Tool Protocol
+category: Assistant
+order: 1070
+---
+
 # Assistant Text Tool Protocol
 
-Sprint 69 adds an alternate tool-call transport for weak or local models that do not reliably use
+Molca provides an alternate tool-call transport for weak or local models that do not reliably use
 structured function calling. It is controlled by **Tool Call Transport** on the Assistant Settings asset
 and in Hub > Assistant.
 
@@ -63,3 +69,9 @@ as long as their name, description, and schema are descriptive. The prompt still
 Unity-routes section, but the per-turn shortlist is what keeps the most relevant available tools close to
 the user's latest words. Delete/remove requests also get a generic guardrail: if a delete/remove tool ranks,
 selection/navigation tools are not treated as a substitute for deletion.
+
+## See also
+
+- [Assistant Resilience](ASSISTANT_RESILIENCE.md)
+- [Extending MCP from a Fork](MCP_FORK_PROVIDERS.md)
+- [Model & Provider Switcher](ASSISTANT_MODEL_SWITCHER.md)

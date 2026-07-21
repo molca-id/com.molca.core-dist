@@ -21,7 +21,7 @@ namespace Molca.Editor.Onboarding
     /// <remarks>
     /// Placement: <c>Packages/com.molca.core/Editor/Onboarding/</c>.
     /// Base class: <see cref="VisualElement"/>.
-    /// Implements the contract in <c>Documentation~/reference/ONBOARDING_WIZARD.md</c>: every action here
+    /// Implements the contract in <c>Documentation~/internal/ONBOARDING_WIZARD.md</c>: every action here
     /// writes only into consumer space (<c>Assets/</c>), never into <c>Packages/</c>, and nothing here is
     /// required for the project to compile or boot — <see cref="Molca.MolcaProjectSettings"/> already
     /// auto-seeds lazily on first access. Core must never hard-reference the SDK assembly (layering rule

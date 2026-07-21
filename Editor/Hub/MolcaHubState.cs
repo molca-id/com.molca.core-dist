@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Molca.Editor.Hub
 {
@@ -19,6 +20,8 @@ namespace Molca.Editor.Hub
         private const string SelectedBuildProfileKey = "Molca.Hub.SelectedBuildProfile";
         private const string SelectedRuntimeModuleKey = "Molca.Hub.SelectedRuntimeModule";
         private const string HiddenWorkspacesKey = "Molca.Hub.HiddenWorkspaces";
+        private const string RailNodeKey = "Molca.Hub.RailNode";
+        private const string RailExpandedKey = "Molca.Hub.RailExpanded";
 
         /// <summary>
         /// The selected workspace tab, by stable string id (e.g. <c>"settings"</c>, <c>"doctor"</c>,
@@ -31,6 +34,12 @@ namespace Molca.Editor.Hub
         internal string SelectedBuildProfile { get; private set; } = string.Empty;
         internal string SelectedRuntimeModule { get; private set; } = string.Empty;
 
+        /// <summary>The active nested-rail node id (a section enum name or a <c>doc:&lt;id&gt;</c>), or empty.</summary>
+        internal string RailNode { get; private set; } = string.Empty;
+
+        /// <summary>The set of expanded rail category node ids. Empty means "expand all by default".</summary>
+        internal HashSet<string> RailExpanded { get; private set; } = new HashSet<string>();
+
         internal static MolcaHubState Load()
         {
             EnsureHiddenWorkspacesKey();
@@ -42,8 +51,20 @@ namespace Molca.Editor.Hub
                 Section = ReadEnum(SectionKey, MolcaHubSection.Project),
                 BuildVersionView = MolcaEditorPrefs.GetString(BuildVersionViewKey, "Build"),
                 SelectedBuildProfile = MolcaEditorPrefs.GetString(SelectedBuildProfileKey, string.Empty),
-                SelectedRuntimeModule = MolcaEditorPrefs.GetString(SelectedRuntimeModuleKey, string.Empty)
+                SelectedRuntimeModule = MolcaEditorPrefs.GetString(SelectedRuntimeModuleKey, string.Empty),
+                RailNode = MolcaEditorPrefs.GetString(RailNodeKey, string.Empty),
+                RailExpanded = ReadStringSet(RailExpandedKey)
             };
+        }
+
+        private static HashSet<string> ReadStringSet(string key)
+        {
+            var raw = MolcaEditorPrefs.GetString(key, string.Empty);
+            var set = new HashSet<string>();
+            if (string.IsNullOrEmpty(raw)) return set;
+            foreach (var part in raw.Split('\n'))
+                if (!string.IsNullOrEmpty(part)) set.Add(part);
+            return set;
         }
 
         private static void EnsureHiddenWorkspacesKey()
@@ -83,6 +104,20 @@ namespace Molca.Editor.Hub
         {
             Section = section;
             MolcaEditorPrefs.SetString(SectionKey, section.ToString());
+        }
+
+        /// <summary>Persists the active nested-rail node id.</summary>
+        internal void SetRailNode(string nodeId)
+        {
+            RailNode = nodeId ?? string.Empty;
+            MolcaEditorPrefs.SetString(RailNodeKey, RailNode);
+        }
+
+        /// <summary>Persists the set of expanded rail category node ids.</summary>
+        internal void SetRailExpanded(IEnumerable<string> expandedIds)
+        {
+            RailExpanded = expandedIds == null ? new HashSet<string>() : new HashSet<string>(expandedIds);
+            MolcaEditorPrefs.SetString(RailExpandedKey, string.Join("\n", RailExpanded));
         }
 
         internal void SetBuildVersionView(string view)

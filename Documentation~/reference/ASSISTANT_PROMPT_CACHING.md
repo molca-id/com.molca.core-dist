@@ -1,4 +1,10 @@
-# Assistant Prompt Caching (Sprint 74)
+---
+title: Assistant Prompt Caching
+category: Assistant
+order: 1060
+---
+
+# Assistant Prompt Caching
 
 Prompt caching reuses the **stable prefix** of a request — the system prompt plus the tool specs — across
 the many model rounds of a single turn (and across turns in a session), so it is re-sent as a discounted
@@ -29,7 +35,7 @@ tools + system — two breakpoints, well within the 4-breakpoint cap. The messag
 
 ## Prefix stability with tiered tool exposure
 
-Tiered exposure (Sprint 67) grows the offered tool set as the model activates tools via `molca_tool_schema`.
+Tiered exposure grows the offered tool set as the model activates tools via `molca_tool_schema`.
 Naïvely this would bust the cache every round. It doesn't here because:
 
 - `GetTieredToolSpecs` orders tools in **stable registry order** and only **appends** a newly-activated tool's
@@ -77,3 +83,8 @@ run.
 
 - Caching across sessions or process restarts.
 - Any change to model behavior or answer content.
+
+## See also
+
+- [Assistant Reasoning](ASSISTANT_REASONING.md)
+- [Model & Provider Switcher](ASSISTANT_MODEL_SWITCHER.md)

@@ -1,13 +1,11 @@
-﻿com.molca.core@1.12.2
-Published: 2026-07-17 15:20:01Z
-Source commit: f87f404b
-Files: 1450
+﻿com.molca.core@1.12.3
+Published: 2026-07-21 20:56:53Z
+Source commit: a29e089d
+Files: 1501
 
 CHANGELOG.md
 CHANGELOG.md.meta
 Documentation~/README.md
-Documentation~/reference/ASSISTANT_COHERENCE.md
-Documentation~/reference/ASSISTANT_EVAL_HARNESS.md
 Documentation~/reference/ASSISTANT_MEMORY.md
 Documentation~/reference/ASSISTANT_MODEL_SWITCHER.md
 Documentation~/reference/ASSISTANT_PROMPT_CACHING.md
@@ -16,18 +14,40 @@ Documentation~/reference/ASSISTANT_RESILIENCE.md
 Documentation~/reference/ASSISTANT_TEXT_TOOL_PROTOCOL.md
 Documentation~/reference/ASSISTANT_VISION.md
 Documentation~/reference/ASSISTANT_WEB_TOOLS.md
+Documentation~/reference/ASYNC_CONTRACT.md
+Documentation~/reference/ATTRIBUTES.md
+Documentation~/reference/AUDIO.md
+Documentation~/reference/BUILD_SYSTEM.md
+Documentation~/reference/COLOR_ID.md
+Documentation~/reference/CONTENT_PACKAGES.md
 Documentation~/reference/CORE_MCP_TOOLS.md
+Documentation~/reference/DATA_PROVIDERS.md
+Documentation~/reference/DEPENDENCY_INJECTION.md
+Documentation~/reference/DOCS_AUTHORING.md
 Documentation~/reference/DOCTOR_CHECKS.md
 Documentation~/reference/EDITOR_DESIGN_LANGUAGE.md
+Documentation~/reference/EVENTS.md
 Documentation~/reference/FIGMA_TO_UGUI.md
+Documentation~/reference/GETTING_STARTED.md
+Documentation~/reference/HUB.md
 Documentation~/reference/KNOWLEDGE_GRAPH.md
+Documentation~/reference/LOCALIZATION.md
 Documentation~/reference/MCP_FORK_PROVIDERS.md
-Documentation~/reference/ONBOARDING_WIZARD.md
-Documentation~/reference/SDK_PACKAGING.md
+Documentation~/reference/MODALS.md
+Documentation~/reference/NETWORKING.md
+Documentation~/reference/ONBOARDING.md
+Documentation~/reference/OVERVIEW.md
+Documentation~/reference/REFERENCE_SYSTEM.md
+Documentation~/reference/RUNTIME_MANAGER.md
 Documentation~/reference/SEQUENCE_AUTHORING.md
 Documentation~/reference/SEQUENCE_VALIDATION.md
+Documentation~/reference/SEQUENCES.md
+Documentation~/reference/SETTINGS.md
+Documentation~/reference/SUBSYSTEMS.md
+Documentation~/reference/TELEMETRY.md
 Documentation~/reference/UI_TOKENS.md
 Documentation~/reference/UNITY_MCP_TOOLS.md
+Documentation~/reference/UTILITIES.md
 Editor.meta
 Editor/AssemblyInfo.cs
 Editor/AssemblyInfo.cs.meta
@@ -137,6 +157,10 @@ Editor/Doctor/Checks/DataProviderLifetimeTokenCheck.cs
 Editor/Doctor/Checks/DataProviderLifetimeTokenCheck.cs.meta
 Editor/Doctor/Checks/DesignLanguageCheck.cs
 Editor/Doctor/Checks/DesignLanguageCheck.cs.meta
+Editor/Doctor/Checks/DocLinksCheck.cs
+Editor/Doctor/Checks/DocLinksCheck.cs.meta
+Editor/Doctor/Checks/DocsCoverageCheck.cs
+Editor/Doctor/Checks/DocsCoverageCheck.cs.meta
 Editor/Doctor/Checks/DynamicLocalizationInitContractCheck.cs
 Editor/Doctor/Checks/DynamicLocalizationInitContractCheck.cs.meta
 Editor/Doctor/Checks/DynamicLocalizationLocaleValidityCheck.cs
@@ -201,6 +225,8 @@ Editor/Doctor/Checks/UnityLifecycleWrongTypeCheck.cs
 Editor/Doctor/Checks/UnityLifecycleWrongTypeCheck.cs.meta
 Editor/Doctor/Checks/VersionSettingsCheck.cs
 Editor/Doctor/Checks/VersionSettingsCheck.cs.meta
+Editor/Doctor/DoctorCategories.cs
+Editor/Doctor/DoctorCategories.cs.meta
 Editor/Doctor/DoctorCheckRegistry.cs
 Editor/Doctor/DoctorCheckRegistry.cs.meta
 Editor/Doctor/DoctorContext.cs
@@ -235,8 +261,25 @@ Editor/FrameworkGraph/MolcaFrameworkGraphWindow.cs.meta
 Editor/FrameworkGraph/MolcaFrameworkGraphWindow.uss
 Editor/FrameworkGraph/MolcaFrameworkGraphWindow.uss.meta
 Editor/Hub.meta
+Editor/Hub/Docs.meta
+Editor/Hub/Docs/DocsWorkspaceProvider.cs
+Editor/Hub/Docs/DocsWorkspaceProvider.cs.meta
+Editor/Hub/Docs/DocsWorkspaceView.cs
+Editor/Hub/Docs/DocsWorkspaceView.cs.meta
+Editor/Hub/Docs/MolcaCoreDocsProvider.cs
+Editor/Hub/Docs/MolcaCoreDocsProvider.cs.meta
+Editor/Hub/Docs/MolcaDocsProvider.cs
+Editor/Hub/Docs/MolcaDocsProvider.cs.meta
+Editor/Hub/Docs/MolcaDocsRegistry.cs
+Editor/Hub/Docs/MolcaDocsRegistry.cs.meta
+Editor/Hub/Docs/MolcaDocViewer.cs
+Editor/Hub/Docs/MolcaDocViewer.cs.meta
+Editor/Hub/Docs/MolcaEditorDocLinks.cs
+Editor/Hub/Docs/MolcaEditorDocLinks.cs.meta
 Editor/Hub/MolcaHubCoreWorkspaceProvider.cs
 Editor/Hub/MolcaHubCoreWorkspaceProvider.cs.meta
+Editor/Hub/MolcaHubRailNode.cs
+Editor/Hub/MolcaHubRailNode.cs.meta
 Editor/Hub/MolcaHubState.cs
 Editor/Hub/MolcaHubState.cs.meta
 Editor/Hub/MolcaHubWindow.cs
@@ -471,6 +514,8 @@ Editor/MCP/Providers/CoreMcpToolProvider.CreateMcpTool.cs
 Editor/MCP/Providers/CoreMcpToolProvider.CreateMcpTool.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.cs
 Editor/MCP/Providers/CoreMcpToolProvider.cs.meta
+Editor/MCP/Providers/CoreMcpToolProvider.Docs.cs
+Editor/MCP/Providers/CoreMcpToolProvider.Docs.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Doctor.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Doctor.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.EditSource.cs
@@ -855,6 +900,12 @@ Editor/UI/MolcaEditorTokens.uss
 Editor/UI/MolcaEditorTokens.uss.meta
 Editor/UI/MolcaEditorUi.cs
 Editor/UI/MolcaEditorUi.cs.meta
+Editor/UI/MolcaMarkdown.cs
+Editor/UI/MolcaMarkdown.cs.meta
+Editor/UI/MolcaMermaid.cs
+Editor/UI/MolcaMermaid.cs.meta
+Editor/UI/MolcaMermaidView.cs
+Editor/UI/MolcaMermaidView.cs.meta
 Editor/UI/Tokens.meta
 Editor/UI/Tokens/MolcaStyleApplierEditor.cs
 Editor/UI/Tokens/MolcaStyleApplierEditor.cs.meta

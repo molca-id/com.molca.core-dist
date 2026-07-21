@@ -1,3 +1,9 @@
+---
+title: Extending Molca Doctor with Custom Checks
+category: Diagnostics
+order: 1100
+---
+
 # Extending Molca Doctor with Custom Checks
 
 Molca Doctor validates project conventions. Like the rest of the framework
@@ -18,6 +24,7 @@ editor):
 |---|---|---|
 | `Id` | yes | Stable, globally-unique, kebab-case id used in reports, the window toggle list, `.doctorignore`, and suppressions. A duplicate id is rejected loudly at discovery. |
 | `Description` | yes | One-line summary shown in the Doctor window. |
+| `Category` | no | Group the check appears under in the Doctor window, and the unit by which a run can be scoped to a related subset. **Defaults** to a value derived from the `Id` prefix (`DoctorCategories.Derive`), so most checks need not set it. Override only when the id prefix would group the check wrongly. |
 | `RunAsync(context, ct)` | yes | Runs the check and returns all findings (never null). Side-effect free — a check *reports* issues, it never fixes them. |
 
 Requirements for discovery:
@@ -90,6 +97,14 @@ namespace MyProject.Editor.Doctor
 Checks are side-effect free and independent, so order only affects report/UI grouping — never results.
 Prefix related project checks with a common id stem (e.g. `myproject-…`) to keep them grouped.
 
+In the Doctor window the checks are further organized into **categories** (see `Category` above): each
+category is a collapsible section (collapsed by default) with an enabled/total count and a single
+whole-group toggle, so you can run just the scene checks, just the networking checks, and so on without
+hand-toggling each chip — expand a category only when you want per-check control. Category order follows
+the first check of that category in the run order above. A check whose id matches no known prefix — and that does not set
+`Category` — lands in the `General` catch-all; giving it a shared id stem, or setting `Category`
+explicitly, groups it instead.
+
 ## Scoping what gets scanned
 
 A check reads sources from `DoctorContext`, which already excludes third-party/vendor locations. A
@@ -108,3 +123,9 @@ var issues = await new LegacyFooUsageCheck().RunAsync(new DoctorContext(), Cance
 
 For the discovery/ordering contract itself, see `DoctorCheckRegistry.BuildChecks` (exposed `internal`
 for tests) and `Tests/Editor/DoctorCheckRegistryTests.cs`.
+
+## See also
+
+- [Extending MCP from a Fork](MCP_FORK_PROVIDERS.md)
+- [Core MCP Tools](CORE_MCP_TOOLS.md)
+- [Editor Design Language](EDITOR_DESIGN_LANGUAGE.md)

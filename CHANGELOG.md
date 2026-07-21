@@ -2,6 +2,30 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.12.3] - 2026-07-07
+
+### Added
+- **Hub Docs system.** The Hub's Docs section is now a `TypeCache`-discovered docs-provider registry with
+  front-matter-driven metadata, a nested rail `TreeView` (docs as a first-class branch alongside Sequence
+  etc.), `molca://asset|doc` in-viewer link resolution (sibling-doc navigation, no full reload), and
+  "See also" cross-links across every reference guide. Docs are now grouped by product with a switcher, and
+  the Docs section is promoted to a right-anchored workspace tab. New "Authoring Hub Docs" guide.
+- **Reusable `MolcaMarkdown` renderer.** Extracted from the Assistant into `Molca.Editor.UI.MolcaMarkdown`
+  (`Render`/`Create` + `Variant`/`ActionScheme`/`OnAction`/`OnOpenFile`/`OnOpenUrl` options); the Assistant
+  transcript is its first re-user. Renders H1–H6 (previously H1/H2 only), monospace code blocks, and now
+  native **Mermaid flowchart** diagrams (` ```mermaid ` fences → a layered Painter2D-based renderer, with a
+  plain-text fallback).
+- **42 Core reference guides (Sprint 90)** covering Runtime/Core, Scene/Refs, Sequences, Data/UI, Settings,
+  Data Providers, Content Packages, and Diagnostics/Tooling, plus a Getting Started guide and taxonomy
+  pass. A new **`DocsCoverageCheck`** Doctor guardrail flags undocumented public systems.
+- **`DocLinksCheck`** — a Doctor check that flags broken reference-doc links.
+- **`molca_docs_list` / `molca_docs_read` / `molca_docs_search` MCP tools** for querying installed
+  packages' reference docs directly.
+- **Doctor checks grouped by category** with collapsible sections in the Hub.
+
+### Changed
+- Reconciled `.claude/` convention docs with the current code (event names, bootstrap waves).
+
 ## [1.12.2] - 2026-07-04
 
 > Core level-up pass (Sprints 78–87): silent-failure scrubs, bootstrap/DI/event/sequence hardening,

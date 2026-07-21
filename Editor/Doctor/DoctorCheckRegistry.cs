@@ -72,6 +72,8 @@ namespace Molca.Editor.Doctor
             "awaitable-missing-cancellation-token",
             "runtime-so-collection-write",
             "task-returning-public-api",
+            // Docs coverage guardrail (Sprint 90) — one reference guide per Runtime system.
+            "docs-coverage",
         };
 
         private static List<IDoctorCheck> _checks;

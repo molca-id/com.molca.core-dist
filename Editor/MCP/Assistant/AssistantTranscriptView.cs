@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using UnityEditor;
-using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.UIElements;
 using Molca.Editor.UI;
@@ -586,253 +584,26 @@ namespace Molca.Editor.Mcp.Assistant
             _ => "assistant"
         };
 
+        /// <summary>
+        /// Renders assistant text as Markdown via the shared <see cref="MolcaMarkdown"/> renderer (Sprint 88 —
+        /// the renderer was extracted to Editor/UI/ so any Hub/fork surface can reuse it). The turn kind maps
+        /// to a text tint, and the assistant's <c>molca-context://</c> pin links are wired through the
+        /// renderer's action-link hook.
+        /// </summary>
         private void RenderFormattedText(VisualElement parent, string text, ChatTurnKind turnKind)
         {
-            var blocks = AssistantTranscriptFormatter.Parse(text);
-            if (blocks.Count == 0)
+            MolcaMarkdown.Render(parent, text, new MolcaMarkdownOptions
             {
-                parent.Add(CreateInlineBlock(text, turnKind));
-                return;
-            }
-
-            foreach (var block in blocks)
-            {
-                if (block.Kind == AssistantTextBlockKind.Bullet || block.Kind == AssistantTextBlockKind.Numbered)
+                Variant = turnKind switch
                 {
-                    parent.Add(CreateListRow(block, turnKind));
-                    continue;
-                }
-
-                if (block.Kind == AssistantTextBlockKind.Code)
-                {
-                    parent.Add(CreateCodeBlock(block.Text));
-                    continue;
-                }
-
-                if (block.Kind == AssistantTextBlockKind.Task)
-                {
-                    parent.Add(CreateTaskRow(block, turnKind));
-                    continue;
-                }
-
-                if (block.Kind == AssistantTextBlockKind.Table)
-                {
-                    parent.Add(CreateTable(block, turnKind));
-                    continue;
-                }
-
-                if (block.Kind == AssistantTextBlockKind.Rule)
-                {
-                    var rule = new VisualElement();
-                    rule.AddToClassList("chat-rule");
-                    parent.Add(rule);
-                    continue;
-                }
-
-                if (block.Kind == AssistantTextBlockKind.Quote)
-                {
-                    var quote = CreateInlineBlock(block.RawText, turnKind);
-                    quote.AddToClassList("chat-quote");
-                    parent.Add(quote);
-                    continue;
-                }
-
-                var element = CreateInlineBlock(block.RawText, turnKind);
-                ApplyBlockStyle(element, block.Kind);
-                parent.Add(element);
-            }
-        }
-
-        private VisualElement CreateListRow(AssistantTextBlock block, ChatTurnKind turnKind)
-        {
-            var row = new VisualElement();
-            row.AddToClassList("chat-list-row");
-            var marker = new Label(block.Kind == AssistantTextBlockKind.Bullet ? "•" : $"{block.Number}.");
-            marker.AddToClassList("chat-list-marker");
-            ApplyTurnTextStyle(marker, turnKind);
-
-            var text = CreateInlineBlock(block.RawText, turnKind);
-            text.style.flexGrow = 1;
-            text.style.flexShrink = 1;
-
-            row.Add(marker);
-            row.Add(text);
-            return row;
-        }
-
-        /// <summary>
-        /// Builds the inline content of a block (Sprint 24.2 / 25.3). A block that is a single non-link
-        /// run — the overwhelmingly common case of plain prose — renders as one wrapping <see cref="Label"/>
-        /// instead of one label per word, which previously produced hundreds of elements per long answer.
-        /// Mixed-style or link-bearing blocks fall back to a wrapping container of per-run elements (links
-        /// must stay individually clickable, and atomic labels only break between runs).
-        /// </summary>
-        private VisualElement CreateInlineBlock(string rawText, ChatTurnKind turnKind)
-        {
-            var spans = AssistantTranscriptFormatter.ParseInline(rawText);
-
-            // Fast path: a single non-interactive run is one Label with white-space:normal, which wraps on its own.
-            if (spans.Count == 1 && spans[0].Kind != AssistantInlineKind.Link
-                && spans[0].Kind != AssistantInlineKind.Context && spans[0].Kind != AssistantInlineKind.Url)
-            {
-                var s = spans[0];
-                return MakeSpanLabel(s.Text, turnKind,
-                    isCode: s.Kind == AssistantInlineKind.Code,
-                    bold: s.Kind == AssistantInlineKind.Bold,
-                    italic: s.Kind == AssistantInlineKind.Italic);
-            }
-
-            var container = new VisualElement();
-            container.AddToClassList("chat-inline-container");
-
-            foreach (var span in spans)
-            {
-                switch (span.Kind)
-                {
-                    case AssistantInlineKind.Link:
-                        container.Add(MakeLinkLabel(span));
-                        break;
-                    case AssistantInlineKind.Context:
-                        container.Add(MakeContextLabel(span));
-                        break;
-                    case AssistantInlineKind.Url:
-                        container.Add(MakeUrlLabel(span));
-                        break;
-                    case AssistantInlineKind.Code:
-                        container.Add(MakeSpanLabel(span.Text, turnKind, isCode: true, bold: false, italic: false));
-                        break;
-                    case AssistantInlineKind.Bold:
-                        AddWords(container, span.Text, turnKind, bold: true, italic: false);
-                        break;
-                    case AssistantInlineKind.Italic:
-                        AddWords(container, span.Text, turnKind, bold: false, italic: true);
-                        break;
-                    default:
-                        AddWords(container, span.Text, turnKind, bold: false, italic: false);
-                        break;
-                }
-            }
-            return container;
-        }
-
-        private void AddWords(VisualElement container, string text, ChatTurnKind turnKind, bool bold, bool italic)
-        {
-            if (string.IsNullOrEmpty(text)) return;
-            // Split on spaces, keeping a trailing space on each word so wrapping looks natural.
-            var words = text.Split(' ');
-            for (var i = 0; i < words.Length; i++)
-            {
-                var word = i < words.Length - 1 ? words[i] + " " : words[i];
-                if (word.Length == 0) { container.Add(MakeSpanLabel(" ", turnKind, false, bold, italic)); continue; }
-                container.Add(MakeSpanLabel(word, turnKind, false, bold, italic));
-            }
-        }
-
-        private Label MakeSpanLabel(string text, ChatTurnKind turnKind, bool isCode, bool bold, bool italic)
-        {
-            var label = new Label(text);
-            label.AddToClassList("chat-span");
-            ApplyTurnTextStyle(label, turnKind);
-            if (bold) label.style.unityFontStyleAndWeight = FontStyle.Bold;
-            if (italic) label.style.unityFontStyleAndWeight = bold ? FontStyle.BoldAndItalic : FontStyle.Italic;
-            if (isCode) label.AddToClassList("chat-inline-code");
-            return label;
-        }
-
-        private Label MakeLinkLabel(AssistantInlineSpan span)
-        {
-            // Hover color is handled by the .chat-link:hover USS rule.
-            var label = new Label(span.Text)
-            {
-                tooltip = span.LinkLine > 0 ? $"Open {span.LinkPath}:{span.LinkLine}" : $"Open {span.LinkPath}"
-            };
-            label.AddToClassList("chat-link");
-            label.RegisterCallback<ClickEvent>(_ => OpenLink(span.LinkPath, span.LinkLine));
-            return label;
-        }
-
-        private Label MakeContextLabel(AssistantInlineSpan span)
-        {
-            var label = new Label(span.Text)
-            {
-                tooltip = "Pin this context for the next assistant turn"
-            };
-            label.AddToClassList("chat-link");
-            label.AddToClassList("chat-context-link");
-            label.RegisterCallback<ClickEvent>(_ => PinContext(span.ContextUri));
-            return label;
-        }
-
-        private Label MakeUrlLabel(AssistantInlineSpan span)
-        {
-            // span.LinkPath carries the http/https target; opening is an explicit click only (locked
-            // decision c). The parser already rejected non-web schemes, so this is always a safe URL.
-            var label = new Label(span.Text) { tooltip = $"Open {span.LinkPath}" };
-            label.AddToClassList("chat-link");
-            label.RegisterCallback<ClickEvent>(_ =>
-            {
-                if (!string.IsNullOrEmpty(span.LinkPath)) Application.OpenURL(span.LinkPath);
+                    ChatTurnKind.Tool => MolcaMarkdownVariant.Muted,
+                    ChatTurnKind.Error => MolcaMarkdownVariant.Error,
+                    _ => MolcaMarkdownVariant.Default
+                },
+                ActionScheme = "molca-context://",
+                ActionTooltip = "Pin this context for the next assistant turn",
+                OnAction = PinContext
             });
-            return label;
-        }
-
-        private VisualElement CreateTaskRow(AssistantTextBlock block, ChatTurnKind turnKind)
-        {
-            var row = new VisualElement();
-            row.AddToClassList("chat-list-row");
-            row.AddToClassList("chat-task");
-
-            var box = new Label(block.Checked ? "☑" : "☐");
-            box.AddToClassList("chat-list-marker");
-            box.AddToClassList("chat-task__box");
-            if (block.Checked) box.AddToClassList("chat-task__box--checked");
-            ApplyTurnTextStyle(box, turnKind);
-
-            var text = CreateInlineBlock(block.RawText, turnKind);
-            text.style.flexGrow = 1;
-            text.style.flexShrink = 1;
-            if (block.Checked) text.AddToClassList("chat-task__text--checked");
-
-            row.Add(box);
-            row.Add(text);
-            return row;
-        }
-
-        /// <summary>Bolds an inline block whether it rendered as a single <see cref="Label"/> or a container.</summary>
-        private static void BoldContent(VisualElement element)
-        {
-            if (element is Label label) { label.style.unityFontStyleAndWeight = FontStyle.Bold; return; }
-            foreach (var child in element.Children())
-                if (child is Label l) l.style.unityFontStyleAndWeight = FontStyle.Bold;
-        }
-
-        private VisualElement CreateTable(AssistantTextBlock block, ChatTurnKind turnKind)
-        {
-            var table = new VisualElement();
-            table.AddToClassList("chat-table");
-            if (block.TableRows == null) return table;
-
-            for (var r = 0; r < block.TableRows.Count; r++)
-            {
-                var cells = block.TableRows[r];
-                if (cells == null) continue;
-
-                var rowEl = new VisualElement();
-                rowEl.AddToClassList("chat-table__row");
-                if (r == 0) rowEl.AddToClassList("chat-table__row--header");
-
-                foreach (var cell in cells)
-                {
-                    var cellEl = CreateInlineBlock(cell ?? string.Empty, turnKind);
-                    cellEl.AddToClassList("chat-table__cell");
-                    cellEl.style.flexGrow = 1;
-                    cellEl.style.flexBasis = 0;
-                    if (r == 0) BoldContent(cellEl);
-                    rowEl.Add(cellEl);
-                }
-                table.Add(rowEl);
-            }
-            return table;
         }
 
         private void PinContext(string uri)
@@ -898,63 +669,6 @@ namespace Molca.Editor.Mcp.Assistant
         {
             var scene = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene();
             return scene.IsValid() && !string.IsNullOrEmpty(scene.name) ? $"Scene: {scene.name}" : "Active Scene";
-        }
-
-        private static void OpenLink(string path, int line)
-        {
-            if (string.IsNullOrEmpty(path)) return;
-            var obj = AssetDatabase.LoadMainAssetAtPath(path);
-            if (obj != null)
-            {
-                AssetDatabase.OpenAsset(obj, line > 0 ? line : -1);
-                return;
-            }
-
-            var filePath = Path.IsPathRooted(path)
-                ? path
-                : Path.Combine(Directory.GetParent(Application.dataPath)?.FullName ?? ".", path);
-            InternalEditorUtility.OpenFileAtLineExternal(filePath, line > 0 ? line : 0);
-        }
-
-        private VisualElement CreateCodeBlock(string text)
-        {
-            var label = new Label(text);
-            label.AddToClassList("chat-code-block");
-            return label;
-        }
-
-        private static void ApplyTurnTextStyle(Label label, ChatTurnKind turnKind)
-        {
-            switch (turnKind)
-            {
-                case ChatTurnKind.Tool:
-                    label.AddToClassList("chat-body--tool");
-                    break;
-                case ChatTurnKind.Error:
-                    label.AddToClassList("chat-body--error");
-                    break;
-            }
-        }
-
-        private static void ApplyBlockStyle(VisualElement element, AssistantTextBlockKind kind)
-        {
-            switch (kind)
-            {
-                case AssistantTextBlockKind.Heading:
-                    element.style.marginTop = 4;
-                    element.style.marginBottom = 4;
-                    foreach (var child in element.Children())
-                        if (child is Label l) l.style.unityFontStyleAndWeight = FontStyle.Bold;
-                    break;
-                case AssistantTextBlockKind.Warning:
-                    foreach (var child in element.Children())
-                        if (child is Label l) l.style.color = MolcaEditorColors.StatusWarn;
-                    break;
-                case AssistantTextBlockKind.Error:
-                    foreach (var child in element.Children())
-                        if (child is Label l) l.style.color = MolcaEditorColors.StatusError;
-                    break;
-            }
         }
 
         private static void AddRawToolPayloads(VisualElement parent, IReadOnlyList<ChatToolSummary> summaries)

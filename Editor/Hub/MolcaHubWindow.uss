@@ -1547,3 +1547,75 @@
     min-width: 56px;
     -unity-text-align: middle-right;
 }
+
+/* ---- Docs section: reference-guide browser (renders via MolcaMarkdown) ---- */
+.molca-hub-docs-tabs {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+
+.molca-hub-docs-tab {
+    margin-right: 4px;
+    margin-bottom: 4px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 10px;
+    padding-right: 10px;
+    border-width: 0;
+    border-radius: 3px;
+    background-color: var(--hub-control);
+    color: var(--hub-text);
+    font-size: 11px;
+}
+
+.molca-hub-docs-tab--selected {
+    background-color: var(--hub-primary);
+    color: white;
+}
+
+.molca-hub-docs-content {
+    margin-top: 8px;
+}
+
+.molca-hub-docs-body {
+    padding-left: 2px;
+    padding-right: 2px;
+}
+
+/* Product switcher above the docs navigation tree (shown only with >1 documentation set). */
+.molca-hub-docs-product {
+    margin-left: 9px;
+    margin-right: 9px;
+    margin-top: 2px;
+    margin-bottom: 6px;
+}
+
+.molca-hub-docs-product .unity-base-field__label {
+    display: none;
+}
+
+/* ---- Nested navigation rail (TreeView) ---- */
+.molca-hub-rail-tree {
+    flex-grow: 1;
+}
+
+.molca-hub-rail-node {
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.molca-hub-rail-node__label {
+    font-size: 12px;
+    color: var(--hub-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.molca-hub-rail-node--category > .molca-hub-rail-node__label {
+    -unity-font-style: bold;
+    color: var(--hub-heading);
+}

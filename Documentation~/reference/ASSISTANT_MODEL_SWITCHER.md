@@ -1,4 +1,10 @@
-# In-Window Model & Provider Switcher (Sprint 71)
+---
+title: In-Window Model & Provider Switcher
+category: Assistant
+order: 1010
+---
+
+# In-Window Model & Provider Switcher
 
 The assistant chat window has a **provider + model picker** at the top of the composer, so you can switch
 backends without leaving the chat or hand-editing the settings asset. It's built for the way the backend
@@ -54,3 +60,9 @@ free-text field covers anything not listed, so this is only about surfacing conv
 ## Non-goals
 
 Pulling/deleting models from the UI, managing the Ollama process, and any change to how keys are stored.
+
+## See also
+
+- [Assistant Reasoning](ASSISTANT_REASONING.md)
+- [Assistant Vision](ASSISTANT_VISION.md)
+- [Prompt Caching](ASSISTANT_PROMPT_CACHING.md)

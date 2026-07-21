@@ -1,3 +1,9 @@
+---
+title: Molca Knowledge Graph (graphify integration)
+category: Tooling
+order: 980
+---
+
 # Molca Knowledge Graph (graphify integration)
 
 The Molca Assistant (and IDE MCP clients) can answer open-ended questions about the **whole
@@ -75,3 +81,8 @@ graphify extracts typed edges. Do not modify Core to do this; write to the corpu
 - **No hard dependency:** Core ships no graphify dependency. The tools degrade gracefully
   ("graphify CLI not found") when it isn't installed, so a project that never uses the knowledge
   graph is unaffected.
+
+## See also
+
+- [Core MCP Tools](CORE_MCP_TOOLS.md)
+- [Unity MCP Tools](UNITY_MCP_TOOLS.md)

@@ -1,3 +1,9 @@
+---
+title: Molca Editor Design Language
+category: Tooling
+order: 930
+---
+
 # Molca Editor Design Language
 
 This document is the source of truth for custom Molca editor windows and future refactors of
@@ -9,7 +15,7 @@ Runtime UI and in-game UX are out of scope.
 
 ## Shared Foundation (`Editor/UI/`)
 
-Sprint 27 promoted the design language into a single reusable foundation. Do not copy token hex or
+The design language lives in a single reusable foundation. Do not copy token hex or
 re-implement these components per window:
 
 - **`Editor/UI/MolcaEditorTokens.uss`** — the one definition of every `--molca-*` color token (with
@@ -167,7 +173,7 @@ Every `.uss` under `Editor/` must express color through the `--molca-*` / `--hub
 `rgb()` or `#hex`. Tokens carry the `.molca-editor.molca-light` skin override, so a sheet that uses them
 flips correctly under the light skin for free; a sheet that bakes a dark `rgb()` literal stays dark on a
 light background. (This is exactly how the Hub sheet silently drifted dark-only — it half-used tokens and
-half-baked grays. Sprint 55.x re-tokenized it.)
+half-baked grays. It has since been re-tokenized.)
 
 Two sanctioned exceptions, both enforced by the `design-language` Doctor check:
 
@@ -262,3 +268,8 @@ Before finishing an editor UI refactor:
 - State: navigation choices survive a domain reload where applicable.
 - Tests: add EditMode coverage for state keys, registry/routing, binding paths, and non-duplicated
   hosted tool state where practical.
+
+## See also
+
+- [UI Tokens](UI_TOKENS.md)
+- [Figma to uGUI](FIGMA_TO_UGUI.md)

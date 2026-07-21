@@ -1,11 +1,17 @@
-# Assistant Web & Documentation Lookup (Sprint 75)
+---
+title: Assistant Web & Documentation Lookup
+category: Assistant
+order: 1040
+---
 
-Molca's assistant consumes its **own MCP registry** — a sealed tool ecosystem. Until this sprint it could
-not check a current Unity API signature, a package version, a changelog, or any external doc: it answered
-from the model's training cut-off or guessed. Knowledge-graph grounding (Sprint 47) covers the **project**;
+# Assistant Web & Documentation Lookup
+
+Molca's assistant consumes its **own MCP registry** — a sealed tool ecosystem. Without web access it cannot
+check a current Unity API signature, a package version, a changelog, or any external doc: it answers
+from the model's training cut-off or guesses. Knowledge-graph grounding covers the **project**;
 this covers the **world outside it**.
 
-This sprint adds a first-party, **read-only** web tool family — opt-in, host-allowlisted, and routed through
+Molca provides a first-party, **read-only** web tool family — opt-in, host-allowlisted, and routed through
 the hardened networking path — that closes the common need without a full third-party MCP-client stack.
 
 ## The tools
@@ -39,7 +45,7 @@ The search provider's **subscription key is a secret**: like the LLM key, it liv
 
 ## Transport, size cap, redaction
 
-- **Reuses the hardened path.** Requests go through `AssistantHttp` (Sprints 65/68): a background task pumped
+- **Reuses the hardened path.** Requests go through `AssistantHttp`: a background task pumped
   onto the editor loop (so it works while Play mode is paused), degrading a transport fault to a non-success
   result rather than throwing. `Awaitable`, honoring the async contract.
 - **Size cap.** `molca_web_fetch` truncates its text to `AssistantSettings.MaxToolResultChars` (the same
@@ -54,7 +60,7 @@ The search provider's **subscription key is a secret**: like the LLM key, it liv
 The base prompt routes **current external facts** (a Unity/C# API signature, a package version, a changelog,
 framework docs outside this project) to `molca_web_fetch` of the authoritative docs URL — or
 `molca_web_search` to find it first — in preference to training memory, and **combines** it with the KG for
-project-specific context (mirroring the Sprint-47 grounding contract). When the web tools are disabled, the
+project-specific context (mirroring the KG grounding contract). When the web tools are disabled, the
 assistant says its answer may be stale and points to the Hub setting rather than guessing.
 
 ## Search provider setup
@@ -69,5 +75,11 @@ Select the provider in the Hub, paste the key (or set the env var), and `molca_w
 
 - **No JS rendering / headless browsing** and **no crawling** — a single fetch and a search, nothing more.
 - **No third-party MCP-client stack.** Consuming external MCP **servers** as a client is a deliberate future
-  seam, not this sprint; the two first-party tools cover the 80% need. This is the documented follow-up if
+  seam; the two first-party tools cover the 80% need. This is the documented follow-up if
   broader external-tool access is later required.
+
+## See also
+
+- [Assistant Memory](ASSISTANT_MEMORY.md)
+- [Core MCP Tools](CORE_MCP_TOOLS.md)
+- [Assistant Vision](ASSISTANT_VISION.md)

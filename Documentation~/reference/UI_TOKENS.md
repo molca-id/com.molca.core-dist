@@ -1,9 +1,15 @@
+---
+title: Molca UI Tokens
+category: UI & Presentation
+order: 520
+---
+
 # Molca UI Tokens
 
 A **design-token layer over uGUI** — the framework's "style sheet". uGUI has no cascading stylesheet
 (no USS), so a token is a named handle onto the styling mechanisms the framework *already* has:
 `ColorID` swatches, `LocalizedText` style presets, sprites, and reusable prefabs. Tokens let tooling
-(the hand-authoring `MolcaStyleApplier`, and the Figma→uGUI materializer in a later sprint) refer to
+(the hand-authoring `MolcaStyleApplier`, and the Figma→uGUI materializer) refer to
 **semantic names** — `color/primary`, `surface/panel-bg`, `text/title`, `control/button` — instead of
 raw hex, sprite GUIDs, PPU multipliers, and ad-hoc prefab paths.
 
@@ -94,3 +100,8 @@ MolcaUiTokenMiner.MineToCatalog(
 
 The catalog and its values live in the **SDK/project layer**; Core only defines the shape and the
 apply/mine engine.
+
+## See also
+
+- [Editor Design Language](EDITOR_DESIGN_LANGUAGE.md)
+- [Figma to uGUI](FIGMA_TO_UGUI.md)

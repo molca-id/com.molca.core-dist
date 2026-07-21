@@ -9,7 +9,7 @@ namespace Molca.Editor.Onboarding
     /// </summary>
     /// <remarks>
     /// Implements the wizard contract in
-    /// <c>Documentation~/reference/ONBOARDING_WIZARD.md</c> (Sprint 63.7): every step here is post-compile,
+    /// <c>Documentation~/internal/ONBOARDING_WIZARD.md</c>: every step here is post-compile,
     /// opt-in, and writes only into consumer space (<c>Assets/</c>), never into <c>Packages/</c>.
     /// </remarks>
     public class OnboardingWizardWindow : EditorWindow

@@ -1,6 +1,7 @@
 using Molca.Editor.Icons;
 using Molca.Editor.UI.Components;
 using Molca.Editor.Hub.Sections;
+using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
@@ -37,7 +38,16 @@ namespace Molca.Editor.Hub
         };
 
         private readonly List<Button> _workspaceButtons = new List<Button>();
-        private readonly List<Button> _sectionButtons = new List<Button>();
+
+        // Nested navigation rail (TreeView) state. _railRoots holds the built node hierarchy; the id maps are
+        // rebuilt on every (re)build/filter so selection and expansion can be addressed by stable node id.
+        private TreeView _railTree;
+        private readonly List<MolcaHubRailNode> _railRoots = new List<MolcaHubRailNode>();
+        private readonly Dictionary<int, MolcaHubRailNode> _itemIdToNode = new Dictionary<int, MolcaHubRailNode>();
+        private readonly Dictionary<string, int> _nodeIdToItemId = new Dictionary<string, int>();
+        private HashSet<string> _expandedNodeIds = new HashSet<string>();
+        private bool _suppressRailSelection;
+        private int _nextItemId;
 
         // Non-Settings workspace tabs resolved from the provider registry (Core's Doctor/Assistant/Sequence
         // plus any consumer-contributed tabs), rebuilt each time the shell is constructed.
@@ -89,6 +99,31 @@ namespace Molca.Editor.Hub
                 MolcaHubState.Load().SetWorkspace(workspaceId); // CreateGUI restores this on first build
         }
 
+        /// <summary>
+        /// Opens (or focuses) the Hub, switches to the right-anchored Docs workspace, and selects the doc
+        /// with the given <see cref="Docs.MolcaDocEntry.Id"/>.
+        /// </summary>
+        /// <param name="docId">The reference-doc id to navigate to (e.g. from a <c>molca://doc/&lt;id&gt;</c> link).</param>
+        /// <remarks>
+        /// The target is stashed on <see cref="Docs.DocsWorkspaceView.PendingDocId"/> and consumed when the
+        /// docs view is (re)built — whether that happens now (UI already up) or later from
+        /// <see cref="CreateGUI"/> restoring the persisted workspace.
+        /// </remarks>
+        internal static void OpenDoc(string docId)
+        {
+            Docs.DocsWorkspaceView.PendingDocId = docId;
+
+            var window = GetWindow<MolcaHubWindow>();
+            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub");
+            window.minSize = new Vector2(520, 360);
+            window.Show();
+
+            if (window._state != null && window._workspaceButtons.Count > 0)
+                window.SelectWorkspace(Docs.DocsWorkspaceProvider.WorkspaceId);
+            else
+                MolcaHubState.Load().SetWorkspace(Docs.DocsWorkspaceProvider.WorkspaceId);
+        }
+
         private void OnEnable()
         {
             titleContent = MolcaEditorIcons.WindowTitle("Molca Hub");
@@ -105,7 +140,6 @@ namespace Molca.Editor.Hub
         {
             _state = MolcaHubState.Load();
             _workspaceButtons.Clear();
-            _sectionButtons.Clear();
 
             var root = rootVisualElement;
             root.Clear();
@@ -135,6 +169,17 @@ namespace Molca.Editor.Hub
             _detailDescription = root.Q<Label>("detail-description");
             _detailContent = root.Q<VisualElement>("detail-content");
 
+            // Replace the placeholder "m" monogram in the detail header with the official Molca icon.
+            var logoMark = root.Q<Label>(className: "molca-hub-logo-mark");
+            var logoTile = logoMark?.parent;
+            var brandIcon = MolcaEditorIcons.Window;
+            if (brandIcon != null && logoTile != null)
+            {
+                logoMark.style.display = DisplayStyle.None;
+                logoTile.style.backgroundImage = new StyleBackground(brandIcon);
+                logoTile.style.unityBackgroundScaleMode = ScaleMode.ScaleToFit;
+            }
+
             // Full-bleed host for the non-Settings tool workspaces (Doctor/Assistant/Visualizer). The
             // Settings body and this host are mutually exclusive; clearing the host detaches the hosted
             // view, which is how each tool view cleans up (DetachFromPanelEvent).
@@ -149,11 +194,10 @@ namespace Molca.Editor.Hub
 
             BuildWorkspaceToolbar(_workspaceToolbar);
             BuildSettingsRail();
-            BuildPlaceholderCard();
             SelectWorkspace(_state.Workspace);
         }
 
-        private static T LoadAsset<T>(string fileName) where T : Object =>
+        private static T LoadAsset<T>(string fileName) where T : UnityEngine.Object =>
             AssetDatabase.LoadAssetAtPath<T>(AssetDir + fileName);
 
         private void BuildWorkspaceToolbar(VisualElement toolbar)
@@ -162,13 +206,19 @@ namespace Molca.Editor.Hub
 
             // Settings is the anchored home tab (Core-owned, always first). Every other tab — Core's own
             // Doctor/Assistant/Sequence and any consumer-contributed workspace — comes from the registry.
+            // Left-aligned tabs sit before the flexible spacer; right-anchored tabs (e.g. Docs) after it.
             toolbar.Add(BuildToolbarToggle(MolcaHubWorkspaceRegistry.SettingsId, "Settings"));
             foreach (var item in _workspaceItems)
-                toolbar.Add(BuildToolbarToggle(item.Id, item.Label));
+                if (!item.RightAnchored)
+                    toolbar.Add(BuildToolbarToggle(item.Id, item.Label));
 
             var spacer = new VisualElement();
             spacer.AddToClassList("molca-hub-spacer");
             toolbar.Add(spacer);
+
+            foreach (var item in _workspaceItems)
+                if (item.RightAnchored)
+                    toolbar.Add(BuildToolbarToggle(item.Id, item.Label));
         }
 
         private void RefreshWorkspaceToolbar()
@@ -195,12 +245,26 @@ namespace Molca.Editor.Hub
         {
             if (_rail == null) return;
 
-            foreach (var section in Sections)
-                AddRailItem(section);
+            _expandedNodeIds = _state.RailExpanded ?? new HashSet<string>();
+            BuildRailNodes();
+
+            _railTree = new TreeView
+            {
+                fixedItemHeight = 24,
+                selectionType = SelectionType.Single,
+                makeItem = MakeRailRow,
+                bindItem = BindRailRow
+            };
+            _railTree.AddToClassList("molca-hub-rail-tree");
+            _railTree.style.flexGrow = 1;
+            _railTree.selectionChanged += OnRailSelectionChanged;
+            _rail.Add(_railTree);
+
+            RebuildRailTree(null);
 
             if (_searchField != null)
             {
-                _searchField.tooltip = "Filter Molca Hub settings sections.";
+                _searchField.tooltip = "Filter Molca Hub navigation.";
                 _searchField.label = string.Empty;
                 _searchField.SetValueWithoutNotify(string.Empty);
                 _searchPlaceholder = new Label("Search");
@@ -211,13 +275,272 @@ namespace Molca.Editor.Hub
             }
         }
 
-        private void AddRailItem(SectionInfo section)
+        // ---- Rail node model ----------------------------------------------------------------------
+
+        /// <summary>Builds the settings rail hierarchy: grouped, editable settings sections.</summary>
+        /// <remarks>
+        /// Reference docs are deliberately not part of this rail — they are read-only content hosted in their
+        /// own right-anchored "Docs" workspace tab (<see cref="Docs.DocsWorkspaceView"/>), not the editable
+        /// Settings surface.
+        /// </remarks>
+        private void BuildRailNodes()
         {
-            var row = new Button(() => SelectSection(section.Section)) { text = section.Label };
-            row.AddToClassList("molca-hub-rail-item");
-            row.userData = section;
-            _sectionButtons.Add(row);
-            _rail.Add(row);
+            _railRoots.Clear();
+
+            _railRoots.Add(Category("cat:framework", "Framework",
+                SectionLeaf(MolcaHubSection.Project),
+                SectionLeaf(MolcaHubSection.BuildVersion),
+                SectionLeaf(MolcaHubSection.RuntimeGlobal),
+                SectionLeaf(MolcaHubSection.Editor)));
+
+            _railRoots.Add(Category("cat:tooling", "Tooling",
+                SectionLeaf(MolcaHubSection.Integrations),
+                SectionLeaf(MolcaHubSection.Tasks),
+                SectionLeaf(MolcaHubSection.Mcp),
+                SectionLeaf(MolcaHubSection.Network),
+                SectionLeaf(MolcaHubSection.Sequences)));
+
+            _railRoots.Add(SectionLeaf(MolcaHubSection.Assistant));
+        }
+
+        private static MolcaHubRailNode Category(string id, string label, params MolcaHubRailNode[] children)
+            => new MolcaHubRailNode(id, label, new List<MolcaHubRailNode>(children));
+
+        private MolcaHubRailNode SectionLeaf(MolcaHubSection section)
+        {
+            var info = FindSection(section);
+            return new MolcaHubRailNode(section.ToString(), info.Label, () => CreateSectionContent(section), info.Description);
+        }
+
+        // ---- Rail TreeView build / bind / selection -----------------------------------------------
+
+        private VisualElement MakeRailRow()
+        {
+            var row = new VisualElement();
+            row.AddToClassList("molca-hub-rail-node");
+            var label = new Label { name = "label" };
+            label.AddToClassList("molca-hub-rail-node__label");
+            row.Add(label);
+            return row;
+        }
+
+        private void BindRailRow(VisualElement element, int index)
+        {
+            var node = _railTree.GetItemDataForIndex<MolcaHubRailNode>(index);
+            element.userData = node;
+            var label = element.Q<Label>("label");
+            if (label != null) label.text = node.Label;
+            element.EnableInClassList("molca-hub-rail-node--category", !node.IsLeaf);
+            WireRailFoldout(element, node);
+        }
+
+        // Bridges the TreeView's auto-created foldout toggle to id-keyed expansion persistence. The toggle is
+        // recycled across binds, so the callback is registered once. NOTE: never write the toggle's userData —
+        // TreeView stores the item id there and casts it internally.
+        private void WireRailFoldout(VisualElement element, MolcaHubRailNode node)
+        {
+            if (node.IsLeaf) return;
+            var itemRow = element.parent?.parent;
+            var toggle = itemRow?.Q<Toggle>(className: "unity-tree-view__item-toggle") ?? itemRow?.Q<Toggle>();
+            if (toggle == null || toggle.ClassListContains("molca-foldout-wired")) return;
+
+            toggle.AddToClassList("molca-foldout-wired");
+            toggle.RegisterValueChangedCallback(evt =>
+            {
+                var t = evt.currentTarget as VisualElement;
+                var contentRow = t?.parent?.Q(className: "molca-hub-rail-node");
+                if (contentRow?.userData is MolcaHubRailNode n)
+                {
+                    if (evt.newValue) _expandedNodeIds.Add(n.Id);
+                    else _expandedNodeIds.Remove(n.Id);
+                    _state.SetRailExpanded(_expandedNodeIds);
+                }
+            });
+        }
+
+        private void OnRailSelectionChanged(IEnumerable<object> selected)
+        {
+            if (_suppressRailSelection) return;
+
+            MolcaHubRailNode node = null;
+            foreach (var obj in selected) { node = obj as MolcaHubRailNode; break; }
+            if (node == null) return;
+
+            if (node.IsLeaf)
+            {
+                ShowNode(node);
+                _state.SetRailNode(node.Id);
+            }
+            else if (_nodeIdToItemId.TryGetValue(node.Id, out var itemId))
+            {
+                // Selecting a category row toggles its expansion.
+                if (_railTree.IsExpanded(itemId)) { _railTree.CollapseItem(itemId); _expandedNodeIds.Remove(node.Id); }
+                else { _railTree.ExpandItem(itemId); _expandedNodeIds.Add(node.Id); }
+                _state.SetRailExpanded(_expandedNodeIds);
+            }
+        }
+
+        private void ShowNode(MolcaHubRailNode node)
+        {
+            if (_detailContent == null || node?.CreateContent == null) return;
+            _detailContent.Clear();
+
+            // Every rail leaf is a settings section that renders its own header, so the shared detail header
+            // stays hidden. (Reference docs, which used to show it, now live in their own workspace tab.)
+            if (_detailHeader != null) _detailHeader.style.display = DisplayStyle.None;
+
+            try
+            {
+                _detailContent.Add(node.CreateContent());
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                var error = new Label($"Failed to open '{node.Label}': {ex.Message}");
+                error.AddToClassList("molca-hub-muted");
+                _detailContent.Add(error);
+            }
+        }
+
+        /// <summary>Rebuilds the rail TreeView from <see cref="_railRoots"/>, applying an optional label filter.</summary>
+        private void RebuildRailTree(string filter)
+        {
+            if (_railTree == null) return;
+
+            _itemIdToNode.Clear();
+            _nodeIdToItemId.Clear();
+            _nextItemId = 0;
+
+            var roots = new List<TreeViewItemData<MolcaHubRailNode>>();
+            foreach (var node in _railRoots)
+            {
+                var data = BuildItemData(node, filter);
+                if (data.HasValue) roots.Add(data.Value);
+            }
+
+            _suppressRailSelection = true;
+            try
+            {
+                _railTree.SetRootItems(roots);
+                _railTree.Rebuild();
+                ApplyRailExpansion(filter);
+            }
+            finally
+            {
+                _suppressRailSelection = false;
+            }
+        }
+
+        // Builds the filtered TreeViewItemData subtree for a node, or null when it (and all descendants) are
+        // filtered out. A parent whose own label matches reveals its whole subtree.
+        private TreeViewItemData<MolcaHubRailNode>? BuildItemData(MolcaHubRailNode node, string filter)
+        {
+            bool self = string.IsNullOrEmpty(filter)
+                        || node.Label.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0;
+
+            // Once this node matches, descendants are all included (pass a null/empty filter downward).
+            string childFilter = self ? null : filter;
+            List<TreeViewItemData<MolcaHubRailNode>> children = null;
+            foreach (var child in node.Children)
+            {
+                var data = BuildItemData(child, childFilter);
+                if (!data.HasValue) continue;
+                children ??= new List<TreeViewItemData<MolcaHubRailNode>>();
+                children.Add(data.Value);
+            }
+
+            if (node.IsLeaf)
+            {
+                if (!self) return null;
+            }
+            else if (!self && children == null)
+            {
+                return null;
+            }
+
+            int id = _nextItemId++;
+            _itemIdToNode[id] = node;
+            _nodeIdToItemId[node.Id] = id;
+            return new TreeViewItemData<MolcaHubRailNode>(id, node, children);
+        }
+
+        private void ApplyRailExpansion(string filter)
+        {
+            // While filtering, expand everything so surviving matches are visible; otherwise honor the
+            // persisted expansion set, defaulting to all-parents-expanded on first run (empty set).
+            if (!string.IsNullOrEmpty(filter))
+            {
+                _railTree.ExpandAll();
+                return;
+            }
+
+            _railTree.CollapseAll();
+            foreach (var pair in _itemIdToNode)
+            {
+                var node = pair.Value;
+                if (node.IsLeaf) continue;
+                if (_expandedNodeIds.Count == 0 || _expandedNodeIds.Contains(node.Id))
+                    _railTree.ExpandItem(pair.Key);
+            }
+        }
+
+        /// <summary>Selects a node by its stable id, rebuilding unfiltered first if it is not currently shown.</summary>
+        private void SelectNodeById(string nodeId)
+        {
+            if (string.IsNullOrEmpty(nodeId) || _railTree == null) return;
+
+            if (!_nodeIdToItemId.TryGetValue(nodeId, out var itemId))
+            {
+                // The node may be hidden by an active filter — clear it and rebuild so cross-navigation works.
+                if (_searchField != null) _searchField.SetValueWithoutNotify(string.Empty);
+                if (_searchPlaceholder != null) _searchPlaceholder.style.display = DisplayStyle.Flex;
+                RebuildRailTree(null);
+                if (!_nodeIdToItemId.TryGetValue(nodeId, out itemId)) return;
+            }
+
+            if (!_itemIdToNode.TryGetValue(itemId, out var node)) return;
+
+            // Highlight the row without notifying, then drive the content directly. Selecting a row inside a
+            // collapsed branch does not reliably fire selectionChanged, so we do not depend on it here.
+            _suppressRailSelection = true;
+            try { _railTree.SetSelectionByIdWithoutNotify(new[] { itemId }); }
+            finally { _suppressRailSelection = false; }
+
+            if (node.IsLeaf)
+            {
+                ShowNode(node);
+                _state.SetRailNode(node.Id);
+            }
+        }
+
+        /// <summary>Restores the persisted active rail node (falling back to the first leaf).</summary>
+        private void RestoreRailSelection()
+        {
+            var target = _state.RailNode;
+            if (string.IsNullOrEmpty(target) || !_nodeIdToItemId.ContainsKey(target))
+                target = FirstLeafId();
+            if (!string.IsNullOrEmpty(target)) SelectNodeById(target);
+        }
+
+        private string FirstLeafId()
+        {
+            foreach (var root in _railRoots)
+            {
+                var leaf = FirstLeaf(root);
+                if (leaf != null) return leaf.Id;
+            }
+            return null;
+        }
+
+        private static MolcaHubRailNode FirstLeaf(MolcaHubRailNode node)
+        {
+            if (node.IsLeaf) return node;
+            foreach (var child in node.Children)
+            {
+                var leaf = FirstLeaf(child);
+                if (leaf != null) return leaf;
+            }
+            return null;
         }
 
         private void SelectWorkspace(string workspaceId)
@@ -241,8 +564,7 @@ namespace Molca.Editor.Hub
             foreach (var button in _workspaceButtons)
                 button.EnableInClassList("molca-hub-workspace-tab--active", (string)button.userData == workspaceId);
 
-            foreach (var button in _sectionButtons)
-                button.SetEnabled(isSettings);
+            _railTree?.SetEnabled(isSettings);
 
             if (_settingsBody != null) _settingsBody.style.display = isSettings ? DisplayStyle.Flex : DisplayStyle.None;
             if (_workspaceHost != null) _workspaceHost.style.display = isSettings ? DisplayStyle.None : DisplayStyle.Flex;
@@ -253,7 +575,7 @@ namespace Molca.Editor.Hub
 
             if (isSettings)
             {
-                SelectSection(_state.Section);
+                RestoreRailSelection();
                 return;
             }
 
@@ -288,75 +610,24 @@ namespace Molca.Editor.Hub
             }
         }
 
-        private void SelectSection(MolcaHubSection section)
+        /// <summary>Cross-navigation entry point (e.g. from a section): selects the section's rail node.</summary>
+        private void SelectSection(MolcaHubSection section) => SelectNodeById(section.ToString());
+
+        /// <summary>Builds the detail view for a settings section leaf.</summary>
+        private VisualElement CreateSectionContent(MolcaHubSection section) => section switch
         {
-            _state.SetSection(section);
-            var info = FindSection(section);
-
-            foreach (var button in _sectionButtons)
-            {
-                var rowInfo = (SectionInfo)button.userData;
-                button.EnableInClassList("molca-hub-rail-item--selected", rowInfo.Section == section);
-            }
-
-            if (_detailTitle != null) _detailTitle.text = info.Label;
-            if (_detailDescription != null) _detailDescription.text = info.Description;
-            if (section == MolcaHubSection.Project)
-            {
-                if (_detailHeader != null) _detailHeader.style.display = DisplayStyle.None;
-                BuildProjectSection();
-            }
-            else if (section == MolcaHubSection.BuildVersion)
-            {
-                if (_detailHeader != null) _detailHeader.style.display = DisplayStyle.None;
-                BuildBuildVersionSection();
-            }
-            else if (section == MolcaHubSection.RuntimeGlobal)
-            {
-                if (_detailHeader != null) _detailHeader.style.display = DisplayStyle.None;
-                BuildRuntimeSection();
-            }
-            else if (section == MolcaHubSection.Editor)
-            {
-                if (_detailHeader != null) _detailHeader.style.display = DisplayStyle.None;
-                BuildEditorSection();
-            }
-            else if (section == MolcaHubSection.Mcp)
-            {
-                if (_detailHeader != null) _detailHeader.style.display = DisplayStyle.None;
-                BuildMcpSection();
-            }
-            else if (section == MolcaHubSection.Integrations)
-            {
-                if (_detailHeader != null) _detailHeader.style.display = DisplayStyle.None;
-                BuildIntegrationsSection();
-            }
-            else if (section == MolcaHubSection.Tasks)
-            {
-                if (_detailHeader != null) _detailHeader.style.display = DisplayStyle.None;
-                BuildTasksSection();
-            }
-            else if (section == MolcaHubSection.Network)
-            {
-                if (_detailHeader != null) _detailHeader.style.display = DisplayStyle.None;
-                BuildNetworkSection();
-            }
-            else if (section == MolcaHubSection.Sequences)
-            {
-                if (_detailHeader != null) _detailHeader.style.display = DisplayStyle.None;
-                BuildSequencesSection();
-            }
-            else if (section == MolcaHubSection.Assistant)
-            {
-                if (_detailHeader != null) _detailHeader.style.display = DisplayStyle.None;
-                BuildAssistantSection();
-            }
-            else
-            {
-                if (_detailHeader != null) _detailHeader.style.display = DisplayStyle.Flex;
-                BuildPlaceholderCard(info.Label, "Settings section placeholder", MolcaStatusKind.Idle, "Pending section");
-            }
-        }
+            MolcaHubSection.Project => new MolcaHubProjectSection(),
+            MolcaHubSection.BuildVersion => new MolcaHubBuildVersionSection(_state),
+            MolcaHubSection.RuntimeGlobal => new MolcaHubRuntimeSection(_state),
+            MolcaHubSection.Editor => new MolcaHubEditorSection(),
+            MolcaHubSection.Integrations => new MolcaHubIntegrationsSection(SelectSection),
+            MolcaHubSection.Tasks => new MolcaHubTasksSection(SelectSection),
+            MolcaHubSection.Mcp => new MolcaHubMcpSection(),
+            MolcaHubSection.Network => new MolcaHubNetworkSection(),
+            MolcaHubSection.Sequences => new MolcaHubSequencesSection(),
+            MolcaHubSection.Assistant => new MolcaHubAssistantSection(),
+            _ => new Label("Unknown section.")
+        };
 
         private void ApplyRailFilter(string rawFilter)
         {
@@ -364,109 +635,16 @@ namespace Molca.Editor.Hub
             if (_searchPlaceholder != null)
                 _searchPlaceholder.style.display = string.IsNullOrEmpty(filter) ? DisplayStyle.Flex : DisplayStyle.None;
 
-            foreach (var button in _sectionButtons)
+            RebuildRailTree(string.IsNullOrEmpty(filter) ? null : filter);
+
+            // Re-assert the active selection (without firing content rebuild) if it survived the filter.
+            var active = _state.RailNode;
+            if (!string.IsNullOrEmpty(active) && _nodeIdToItemId.TryGetValue(active, out var itemId))
             {
-                var info = (SectionInfo)button.userData;
-                var matches = string.IsNullOrEmpty(filter)
-                    || info.Label.IndexOf(filter, System.StringComparison.OrdinalIgnoreCase) >= 0
-                    || info.Description.IndexOf(filter, System.StringComparison.OrdinalIgnoreCase) >= 0;
-                button.style.display = matches ? DisplayStyle.Flex : DisplayStyle.None;
+                _suppressRailSelection = true;
+                try { _railTree.SetSelectionByIdWithoutNotify(new[] { itemId }); }
+                finally { _suppressRailSelection = false; }
             }
-        }
-
-        private void BuildPlaceholderCard(
-            string title = "Implementation placeholder",
-            string subtitle = "Sprint 26.1-26.3 foundation",
-            MolcaStatusKind status = MolcaStatusKind.Idle,
-            string statusText = "Layout shell")
-        {
-            if (_detailContent == null) return;
-
-            _detailContent.Clear();
-
-            var card = new MolcaSectionCard(
-                title,
-                subtitle,
-                status,
-                statusText,
-                "Later sprint tasks replace this placeholder with section-specific settings views.");
-
-            var message = new Label(
-                "The Hub shell, persisted navigation state, searchable rail, and shared section-card component are ready. Section views will add serialized settings controls into this card body pattern.");
-            message.AddToClassList("molca-hub-muted");
-            card.Body.Add(message);
-
-            _detailContent.Add(card);
-        }
-
-        private void BuildProjectSection()
-        {
-            if (_detailContent == null) return;
-            _detailContent.Clear();
-            _detailContent.Add(new MolcaHubProjectSection());
-        }
-
-        private void BuildBuildVersionSection()
-        {
-            if (_detailContent == null) return;
-            _detailContent.Clear();
-            _detailContent.Add(new MolcaHubBuildVersionSection(_state));
-        }
-
-        private void BuildRuntimeSection()
-        {
-            if (_detailContent == null) return;
-            _detailContent.Clear();
-            _detailContent.Add(new MolcaHubRuntimeSection(_state));
-        }
-
-        private void BuildEditorSection()
-        {
-            if (_detailContent == null) return;
-            _detailContent.Clear();
-            _detailContent.Add(new MolcaHubEditorSection());
-        }
-
-        private void BuildMcpSection()
-        {
-            if (_detailContent == null) return;
-            _detailContent.Clear();
-            _detailContent.Add(new MolcaHubMcpSection());
-        }
-
-        private void BuildIntegrationsSection()
-        {
-            if (_detailContent == null) return;
-            _detailContent.Clear();
-            _detailContent.Add(new MolcaHubIntegrationsSection(SelectSection));
-        }
-
-        private void BuildTasksSection()
-        {
-            if (_detailContent == null) return;
-            _detailContent.Clear();
-            _detailContent.Add(new MolcaHubTasksSection(SelectSection));
-        }
-
-        private void BuildNetworkSection()
-        {
-            if (_detailContent == null) return;
-            _detailContent.Clear();
-            _detailContent.Add(new MolcaHubNetworkSection());
-        }
-
-        private void BuildSequencesSection()
-        {
-            if (_detailContent == null) return;
-            _detailContent.Clear();
-            _detailContent.Add(new MolcaHubSequencesSection());
-        }
-
-        private void BuildAssistantSection()
-        {
-            if (_detailContent == null) return;
-            _detailContent.Clear();
-            _detailContent.Add(new MolcaHubAssistantSection());
         }
 
         private static SectionInfo FindSection(MolcaHubSection section)

@@ -1,17 +1,23 @@
-# Assistant Cross-Session Project Memory (Sprint 77)
+---
+title: Assistant Cross-Session Project Memory
+category: Assistant
+order: 1050
+---
 
-Sessions persist **transcripts**, and pinned context is **manual and per-session** — so every new chat
-re-derives the same project facts, and nothing the assistant learns survives across chats. This sprint adds a
+# Assistant Cross-Session Project Memory
+
+Sessions persist **transcripts**, and pinned context is **manual and per-session** — so without it every new
+chat re-derives the same project facts, and nothing the assistant learns survives across chats. Molca provides a
 lightweight, assistant-maintained **project memory** (the same pattern this framework's own coding-agent
 instructions use) that compounds with KG grounding: durable facts about this project/user, surfaced into
-context automatically and editable by the user. It is **distinct from the session library** (Sprint 35), which
+context automatically and editable by the user. It is **distinct from the session library**, which
 stays per-conversation.
 
 ## Where memory lives
 
 File-backed, human-readable, **consumer-scoped**: one fact per Markdown file under
 `Assets/_Molca/AssistantMemory/` (with a regenerated `INDEX.md`), inside the consumer project — **never** inside
-the read-only Core package (the Sprint-35.5 write-path rule, guarded by a test). Each entry is YAML frontmatter
+the read-only Core package (the consumer-space write-path rule, guarded by a test). Each entry is YAML frontmatter
 plus a body:
 
 ```markdown
@@ -39,7 +45,7 @@ Reading is free grounding; **writing memory is a confirmed action**, gated exact
 
 At the start of a turn the controller recalls only the **relevant** entries — ranked by keyword overlap against
 each entry's name/description/body — within the retrieval token budget (`RetrievalTokenBudget`), reusing the
-Sprint-47 retrieval-injection path. The block is prefixed with a "Project memory" header, **deduped against
+KG retrieval-injection path. The block is prefixed with a "Project memory" header, **deduped against
 pinned context** (a fact already pinned isn't re-injected), and shown as the same pinnable retrieval notice.
 Never the whole store, and never persisted into history.
 
@@ -66,3 +72,8 @@ user delete any of them.
 - **Automatic un-prompted saving of every turn** — saving is a deliberate, confirmed action.
 - **Embedding-based semantic memory search** — recall is keyword overlap; the KG already covers project
   structure for deeper retrieval.
+
+## See also
+
+- [Assistant Web Tools](ASSISTANT_WEB_TOOLS.md)
+- [Assistant Resilience](ASSISTANT_RESILIENCE.md)

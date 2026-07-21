@@ -1,3 +1,9 @@
+---
+title: Assistant Resilience
+category: Assistant
+order: 1000
+---
+
 # Assistant Resilience
 
 The in-editor assistant keeps working when the network hiccups or the model misbehaves. This page

@@ -1,12 +1,18 @@
+---
+title: Unity MCP Tools
+category: Tooling
+order: 960
+---
+
 # Unity MCP Tools
 
 `UnityMcpToolProvider` owns the general-purpose `molca.unity` namespace for Unity-native editor actions that are not specific to Molca sequences, content packages, or other Core framework domains.
 
-> These tools group under `unity/<family>` in the in-editor assistant's tiered tool catalog; the model fetches a tool's schema on demand via `molca_tool_schema` (the IDE MCP bridge still sees them all directly). See [MCP_FORK_PROVIDERS.md](MCP_FORK_PROVIDERS.md) → "How the in-editor assistant exposes tools" (Sprint 67).
+> These tools group under `unity/<family>` in the in-editor assistant's tiered tool catalog; the model fetches a tool's schema on demand via `molca_tool_schema` (the IDE MCP bridge still sees them all directly). See [MCP_FORK_PROVIDERS.md](MCP_FORK_PROVIDERS.md) → "How the in-editor assistant exposes tools".
 
 ## Provider Layout
 
-Tools are discovered by convention from the `Create*Tool()` factories across the provider's partial files (see `McpToolProvider.GetTools`, Sprint 34). No manual registration is needed.
+Tools are discovered by convention from the `Create*Tool()` factories across the provider's partial files (see `McpToolProvider.GetTools`). No manual registration is needed.
 
 - `UnityMcpToolProvider.cs`: provider asset metadata, namespace, and discovery.
 - `UnityMcpToolProvider.Common.cs`: provider-local JSON argument/result helpers.
@@ -155,3 +161,8 @@ Editor navigation (Action-kind for UI-state changes, but data-safe; run in any m
 
 - `molca_unity_prefab_replace` (replace a scene object with a prefab instance preserving transform/refs).
 - Global project-settings mutation (tags/layers/graphics asset assignment) — only per-GameObject tag/layer assignment is implemented; global edits are not per-object Undo-able and need stronger gating.
+
+## See also
+
+- [Core MCP Tools](CORE_MCP_TOOLS.md)
+- [Extending MCP from a Fork](MCP_FORK_PROVIDERS.md)

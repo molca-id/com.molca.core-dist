@@ -1,3 +1,9 @@
+---
+title: Sequence Validation
+category: Sequences
+order: 320
+---
+
 # Sequence Validation
 
 Molca Core validates a `SequenceController` at **author time** through a pluggable registry of
@@ -28,7 +34,7 @@ ISequenceValidator implementations
 
 ### Relationship to the legacy `SequenceValidator`
 
-The static `Molca.Editor.SequenceValidator` (Sprint 15.2) is **not replaced**. It still directly drives
+The static `Molca.Editor.SequenceValidator` is **not replaced**. It still directly drives
 the sequence visualizer, the graph editor node badges, the step importer dry-run, and the
 `molca_sequence_fix` auto-fix tools, and it owns the auto-fix logic. The registry simply **wraps** it:
 the `core.data-integrity` validator runs it and maps each of its findings into the merged report, so
@@ -104,7 +110,7 @@ Rules:
 
 ## The MCP tool output
 
-`molca_validate_sequence` returns (additive keys preserve the Sprint 15.2 shape):
+`molca_validate_sequence` returns (additive keys preserve the legacy shape):
 
 ```jsonc
 {
@@ -136,7 +142,7 @@ See [`MCP_FORK_PROVIDERS.md`](./MCP_FORK_PROVIDERS.md) for the MCP provider/tool
 [`SEQUENCE_AUTHORING.md`](./SEQUENCE_AUTHORING.md) for `molca_sequence_author` (declarative whole-graph
 authoring that applies a plan and converges it through this gate).
 
-## Remediation (Sprint 38)
+## Remediation
 
 Validation findings are made **actionable** by a parallel fix registry. `molca_sequence_remediate`
 composes the loop: run the validators, apply fixes, re-validate, report before/after.
@@ -144,13 +150,13 @@ composes the loop: run the validators, apply fixes, re-validate, report before/a
 ```
 molca_sequence_remediate (MCP tool)
         │
-        ├─ run SequenceValidatorRegistry  (Sprint 37)
+        ├─ run SequenceValidatorRegistry
         ├─ (optional) one explicit opt-in fix      ← reported as its own revert phase
         ├─ SequenceFixRegistry.ApplyFixes(SafeOnly) ← deterministic+non-destructive+UnityUndo, one group
         └─ re-run validators → enrich → { before, applied, after.valid, reverts[], residual[…suggestions] }
 ```
 
-### Fix facets &amp; remediation policy (Sprint 41)
+### Fix facets &amp; remediation policy
 
 A fix is **not** a single "safe" bool. It describes itself on three orthogonal facets (extend
 `SequenceValidatorFixBase`, which defaults them to deterministic / non-destructive / `UnityUndo`):
@@ -228,3 +234,8 @@ public sealed class RebindToCanonicalProcedureFix : SequenceValidatorFixBase
 
 A fork can likewise add an `ISequenceFixSuggester` to propose domain-specific remediations for its own
 finding categories.
+
+## See also
+
+- [Sequence Authoring](SEQUENCE_AUTHORING.md)
+- [Extending MCP from a Fork](MCP_FORK_PROVIDERS.md)

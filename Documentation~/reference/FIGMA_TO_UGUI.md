@@ -1,3 +1,9 @@
+---
+title: Figma → uGUI (UI Intent Spec)
+category: UI & Presentation
+order: 530
+---
+
 # Figma → uGUI (UI Intent Spec)
 
 The pipeline that turns a Figma frame into Unity **uGUI** — the VR-in-game UI target (world-space
@@ -6,11 +12,11 @@ in three stages:
 
 ```
 Figma frame  ──►  UI Intent Spec  ──►  uGUI prefab
- (Sprint 58: this doc)              (Sprint 59: molca_build_ugui)
+                                    (molca_build_ugui)
 ```
 
-This document covers **Sprint 58**: frame → a validated, token-referential **UI Intent Spec**. Building
-the prefab from the spec is Sprint 59.
+The first stage turns a frame into a validated, token-referential **UI Intent Spec**; the second builds
+the prefab from that spec.
 
 ## Relationship to Figma→UITK
 
@@ -23,7 +29,7 @@ independent normalized parse used only here.
 ## The UI Intent Spec
 
 A small, **token-referential, Unity-internal-free** JSON tree (`UiIntentSpec` / `UiIntentNode`). Every
-visual choice is a Sprint-57 token id; there are **no anchors, sizeDeltas, PPU values, sprite GUIDs, or
+visual choice is a UI token id; there are **no anchors, sizeDeltas, PPU values, sprite GUIDs, or
 hex colors**.
 
 - **Header:** `sourceFrame`, `worldScale` (panel width in metres), `minHitCm`, `catalogId`.
@@ -71,7 +77,7 @@ molca_figma_to_ui_spec(figmaUrlOrNode, fileKey?, catalog?, worldScale?=0.5, minH
 
 The output spec is the input to `molca_build_ugui` (below).
 
-## Stage 2 — Spec → uGUI prefab (`molca_build_ugui`, Sprint 59)
+## Stage 2 — Spec → uGUI prefab (`molca_build_ugui`)
 
 Deterministically materializes a validated spec into a **VR-ready uGUI prefab** — a strong first draft, not
 a finished screen. **No model judgement runs here**, so the same spec + catalog always produce the same
@@ -79,7 +85,7 @@ tree. Three passes:
 
 1. **Materializer** — builds the GameObject tree. `button` nodes instantiate the
    catalog's real control prefab (`ColorIDButton` and all); a `list` is a container with one instantiated
-   row template; `panel`/`image`/`text`/`group` are primitives. **All appearance comes from the Sprint-57
+   row template; `panel`/`image`/`text`/`group` are primitives. **All appearance comes from the UI token
    resolver** — the materializer sets no raw color/sprite/PPU. The one sanctioned raw value is the
    **magenta `TODO_…` placeholder** an `_unmapped` token produces, so gaps are visible, not silently wrong.
 2. **Layout pass** — `vertical`/`horizontal` → a `LayoutGroup` with the spec's
@@ -120,3 +126,8 @@ the layout/VR sizing, wire `locKey`s and any ScrollRect, and resolve every `TODO
 
 Regenerating overwrites the whole generated prefab. Keep hand-tweaks in a **sibling object or a prefab
 variant** rather than editing the generated asset in place, so a re-run doesn't clobber them.
+
+## See also
+
+- [UI Tokens](UI_TOKENS.md)
+- [Editor Design Language](EDITOR_DESIGN_LANGUAGE.md)
