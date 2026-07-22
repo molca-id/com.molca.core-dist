@@ -27,6 +27,17 @@ registration is needed.
 `CurrentState` is a `SequenceState`: `Idle`, `Running`, `Paused`, or `Completed`. Convenience flags
 `IsRunning`, `IsPaused`, and `IsActive` read off it.
 
+```mermaid
+graph TD
+    A((Idle)) -->|StartSequence| B([Running])
+    B -->|PauseSequence| C([Paused])
+    C -->|ResumeSequence| B
+    B -->|all steps done| D([Completed])
+    B -->|StopSequence| A
+    C -->|StopSequence| A
+    D -->|RestartSequence| B
+```
+
 ### Driving a sequence
 
 | Member | Purpose |
@@ -64,10 +75,15 @@ private void BeginTraining()
 `Step` (`MonoBehaviour`, `IReferenceable<Step>`) is a single unit of work. Its runtime `CurrentStatus` is
 a `StepStatus`: `Inactive`, `Active`, or `Completed`.
 
-```
-Inactive  →  Active (OnStepActivated)
-                ↓ UpdateStep() each frame while Active
-             Completed  (CanComplete() == true AND Complete() called AND all child steps done)
+```mermaid
+graph TD
+    A((Inactive)) -->|activated| B[Active OnStepActivated]
+    B --> C[UpdateStep each frame]
+    C --> D{CanComplete and Complete called}
+    D -->|no| C
+    D -->|yes| E{All child steps done}
+    E -->|no| C
+    E -->|yes| F([Completed])
 ```
 
 Steps nest by GameObject hierarchy. A step is **internally** complete once its own condition is met

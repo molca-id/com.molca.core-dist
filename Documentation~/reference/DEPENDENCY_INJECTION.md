@@ -146,6 +146,23 @@ For a requested type the container tries, in order:
 Resolution is re-entrancy guarded: a cycle (A needs B needs A) is detected and logged rather than
 overflowing the stack, and the resolve returns null.
 
+How the container resolves a requested type, in order, with the cycle guard short-circuiting to null:
+
+```mermaid
+graph TD
+    A((Resolve type)) --> Z{Cycle detected}
+    Z -->|yes| N([Log and return null])
+    Z -->|no| B{Exact registration}
+    B -->|hit| R([Return instance])
+    B -->|miss| C{RuntimeSubsystem of type}
+    C -->|hit| D[Cache as service]
+    D --> R
+    C -->|miss| E{Interface scan assignable}
+    E -->|hit| F[Cache singleton hit]
+    F --> R
+    E -->|miss| G([Return null])
+```
+
 ## Failure modes
 
 - A **required** dependency that can't be resolved makes `InjectDependencies` throw

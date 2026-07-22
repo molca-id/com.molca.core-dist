@@ -157,12 +157,14 @@ namespace Molca.Editor.UI
             RegexOptions.Compiled);
 
         // A link connector between two node refs. Middle-label forms (`-- text -->`) precede the plain forms
-        // so the leading dashes aren't mis-read as an open line; an optional `|label|` follows either.
+        // so the leading dashes aren't mis-read as an open line; an optional `|label|` follows either. The
+        // middle label excludes `>` so it cannot swallow the arrowhead (and the next node) of a following hop
+        // in a chain like `A --> B --> C` — otherwise `> B` would be captured as the label of a single A→C edge.
         private static readonly Regex LinkRegex = new Regex(
             @"(?:" +
-            @"--\s*(?<mlabel>.+?)\s*-{2,}>" + "|" +   // -- label -->
-            @"==\s*(?<mlabel>.+?)\s*={2,}>" + "|" +   // == label ==>
-            @"-\.\s*(?<mlabel>.+?)\s*\.-+>" + "|" +   // -. label .->
+            @"--\s*(?<mlabel>[^>]+?)\s*-{2,}>" + "|" +   // -- label -->
+            @"==\s*(?<mlabel>[^>]+?)\s*={2,}>" + "|" +   // == label ==>
+            @"-\.\s*(?<mlabel>[^>]+?)\s*\.-+>" + "|" +   // -. label .->
             @"-\.-+>" + "|" +                          // -.->
             @"-\.-+"  + "|" +                          // -.-
             @"={2,}>" + "|" +                          // ==>

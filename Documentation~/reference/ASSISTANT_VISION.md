@@ -46,6 +46,22 @@ keeps the transcript marker, and adds a `Notice` turn explaining why — the tur
 
 Add a new vision tag by extending the substring set in `AssistantModelCatalog.IsVisionModel`.
 
+End to end, an attached image flows through downscaling and the vision-capability gate before splitting into the per-provider encoding branches:
+
+```mermaid
+graph TD
+    A([Attach image]) --> B[Downscale to max 1568 px]
+    B --> C{Vision capable model?}
+    C -->|no vision| D((Drop and add Notice))
+    C -->|vision| E{Provider?}
+    E -->|Anthropic| F[Emit image block first]
+    E -->|OpenAI| G[Send image_url part]
+    E -->|Local| H[Text protocol fallback]
+    F --> Z([Send turn])
+    G --> Z
+    H --> Z
+```
+
 ## How it travels through the stack
 
 - **Neutral model.** `LlmMessage` gains an ordered `Content` list of `LlmContentPart`; in current use the

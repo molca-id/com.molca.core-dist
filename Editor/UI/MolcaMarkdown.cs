@@ -833,6 +833,14 @@ namespace Molca.Editor.UI
             table.AddToClassList("molca-md-table");
             if (block.TableRows == null) return table;
 
+            // Columns are content-weighted: each column's weight is the longest visible cell text in that
+            // column (clamped). The weight is used as flex-grow with a zero flex-basis, so columns divide the
+            // table width in proportion to their content — a 1-char "#" column stays tight while a text-heavy
+            // column takes the bulk. Because the weight is keyed by column index (not per cell), columns stay
+            // aligned across rows; because an outlier is clamped (not unbounded), a very long cell wraps within
+            // its share instead of starving the others or widening the table past its container.
+            var weights = ComputeColumnWeights(block.TableRows, options);
+
             for (var r = 0; r < block.TableRows.Count; r++)
             {
                 var cells = block.TableRows[r];
@@ -842,21 +850,76 @@ namespace Molca.Editor.UI
                 rowEl.AddToClassList("molca-md-table__row");
                 if (r == 0) rowEl.AddToClassList("molca-md-table__row--header");
 
-                foreach (var cell in cells)
+                for (var c = 0; c < cells.Count; c++)
                 {
                     // forceContainer: the cell element is the stretch-filled column slot, so its inline runs
                     // must be content-sized children — a lone code chip returned as the cell would otherwise
                     // paint its background across the whole cell.
-                    var cellEl = CreateInlineBlock(cell ?? string.Empty, options, forceContainer: true);
+                    var cellEl = CreateInlineBlock(cells[c] ?? string.Empty, options, forceContainer: true);
                     cellEl.AddToClassList("molca-md-table__cell");
-                    cellEl.style.flexGrow = 1;
-                    cellEl.style.flexBasis = 0;
+                    cellEl.style.flexGrow = c < weights.Count ? weights[c] : DefaultColumnWeight;
+                    cellEl.style.flexBasis = 0;   // ratio comes purely from flex-grow; basis stays 0
+                    cellEl.style.flexShrink = 1;  // over-wide content wraps (white-space:normal) rather than overflowing
                     if (r == 0) BoldContent(cellEl);
                     rowEl.Add(cellEl);
                 }
                 table.Add(rowEl);
             }
             return table;
+        }
+
+        /// <summary>Flex-grow weight for a table column whose content is empty or absent.</summary>
+        private const float DefaultColumnWeight = 1f;
+
+        /// <summary>Floor on a column's weight so a very short column keeps a legible minimum share of the width.</summary>
+        private const float MinColumnWeight = 3f;
+
+        /// <summary>
+        /// Ceiling on a column's weight so one overlong cell can't dominate the ratio; past this the cell wraps
+        /// within its (capped) share instead of starving the other columns.
+        /// </summary>
+        private const float MaxColumnWeight = 40f;
+
+        /// <summary>
+        /// Computes a per-column flex-grow weight for a table: the longest visible cell text in each column,
+        /// clamped to <see cref="MinColumnWeight"/>..<see cref="MaxColumnWeight"/>. See <see cref="CreateTable"/>
+        /// for how the weights drive column widths.
+        /// </summary>
+        /// <param name="rows">The parsed table rows (row 0 = header); may contain <c>null</c> rows.</param>
+        /// <param name="options">Render options, forwarded to inline parsing so link labels weigh their visible text.</param>
+        /// <returns>One clamped weight per column index, sized to the widest row.</returns>
+        private static IReadOnlyList<float> ComputeColumnWeights(
+            IReadOnlyList<IReadOnlyList<string>> rows, MolcaMarkdownOptions options)
+        {
+            var weights = new List<float>();
+            foreach (var row in rows)
+            {
+                if (row == null) continue;
+                for (var c = 0; c < row.Count; c++)
+                {
+                    float len = VisibleCellLength(row[c], options);
+                    if (c >= weights.Count) weights.Add(len);
+                    else weights[c] = Mathf.Max(weights[c], len);
+                }
+            }
+            for (var c = 0; c < weights.Count; c++)
+                weights[c] = Mathf.Clamp(weights[c], MinColumnWeight, MaxColumnWeight);
+            return weights;
+        }
+
+        /// <summary>
+        /// The rendered length of a table cell, counting only visible glyphs — Markdown markup (emphasis,
+        /// code fences, link/URL syntax) is excluded so a link like <c>[Label](target)</c> weighs its visible
+        /// <c>Label</c>, not the target. Used as a cheap, layout-free proxy for a cell's rendered width.
+        /// </summary>
+        private static int VisibleCellLength(string cell, MolcaMarkdownOptions options)
+        {
+            if (string.IsNullOrEmpty(cell)) return 0;
+            var spans = ParseInline(cell, options);
+            var len = 0;
+            for (var i = 0; i < spans.Count; i++)
+                len += spans[i].Text?.Length ?? 0;
+            return len;
         }
 
         private static VisualElement CreateCodeBlock(string text)

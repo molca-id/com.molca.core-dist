@@ -2,6 +2,24 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.12.5] - 2026-07-22
+
+### Added
+- **`MolcaMarkdown` content-weighted table columns.** Rendered tables now size columns by content instead
+  of splitting width evenly.
+- **Mermaid flowcharts added to key reference guides** (Dependency Injection, Networking, Sequences,
+  Sequence Validation, Subsystems, Figma→uGUI).
+- **Bundled Poppins-Medium font** under `Runtime/UI/Fonts/Resources/Molca/` (with its OFL license) for use
+  by UI tokens/components.
+
+### Fixed
+- **Cyclic Mermaid flowcharts no longer crash the renderer.** `MolcaMermaidView.Layout` bucketed nodes by
+  layer assuming `AssignLayers`'s bounded longest-path relaxation always reaches a fixpoint; a flowchart
+  with a cycle (e.g. a retry back-edge) never converges, producing out-of-range layer indices. Layers are
+  now normalized/clamped before bucketing.
+- **`BudgetMonitor` overlay renders its labels**, not just the bars.
+- **Repaired four failing editor tests** (`DoctorCategoriesTests`, `MolcaHubTests`).
+
 ## [1.12.4] - 2026-07-21
 
 ### Changed

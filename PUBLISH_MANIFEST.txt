@@ -1,7 +1,7 @@
-﻿com.molca.core@1.12.4
-Published: 2026-07-21 21:25:21Z
-Source commit: 61fc4e84
-Files: 1501
+﻿com.molca.core@1.12.5
+Published: 2026-07-22 10:43:38Z
+Source commit: 8e8e372a
+Files: 1508
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -1419,6 +1419,13 @@ Runtime/Telemetry/TelemetrySettings.cs.meta
 Runtime/Telemetry/TelemetrySubsystem.cs
 Runtime/Telemetry/TelemetrySubsystem.cs.meta
 Runtime/UI.meta
+Runtime/UI/Fonts.meta
+Runtime/UI/Fonts/OFL.txt
+Runtime/UI/Fonts/OFL.txt.meta
+Runtime/UI/Fonts/Resources.meta
+Runtime/UI/Fonts/Resources/Molca.meta
+Runtime/UI/Fonts/Resources/Molca/Poppins-Medium.ttf
+Runtime/UI/Fonts/Resources/Molca/Poppins-Medium.ttf.meta
 Runtime/UI/Molca.UI.asmdef
 Runtime/UI/Molca.UI.asmdef.meta
 Runtime/UI/Tokens.meta

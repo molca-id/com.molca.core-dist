@@ -144,6 +144,28 @@ namespace Molca.Editor.UI
                 }
                 if (!changed) break;
             }
+
+            NormalizeLayers();
+        }
+
+        /// <summary>
+        /// Compacts the assigned layers onto a contiguous <c>0..k-1</c> range. A cyclic graph never reaches a
+        /// relaxation fixpoint within the bounded pass count above, so the raw layer numbers can contain gaps
+        /// (e.g. a retry back-edge inflates the ranks). <see cref="Layout"/> buckets nodes by layer and then
+        /// indexes every band in <c>[0, layerCount)</c>, which would throw <see cref="KeyNotFoundException"/>
+        /// on an empty band; remapping the distinct used layers to consecutive ranks removes the gaps (and
+        /// keeps a cyclic diagram from exploding into mostly-empty bands).
+        /// </summary>
+        private void NormalizeLayers()
+        {
+            var used = new SortedSet<int>();
+            foreach (var node in _graph.Nodes) used.Add(node.Layer);
+
+            var rank = new Dictionary<int, int>();
+            var next = 0;
+            foreach (var layer in used) rank[layer] = next++;
+
+            foreach (var node in _graph.Nodes) node.Layer = rank[node.Layer];
         }
 
         private static void SizeNode(MermaidNode node)

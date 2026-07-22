@@ -81,6 +81,24 @@ through the DI container by concrete type and interfaces:
 InitializeAsync(ct)  →  MarkActive()  →  [running]  →  Shutdown()  →  Teardown()
 ```
 
+The full lifecycle, including the async-vs-legacy init branch and the init-timeout failure path:
+
+```mermaid
+graph TD
+    A((Manager drives init)) --> B{Override InitializeAsync or legacy Initialize}
+    B -->|async| C[InitializeAsync ct]
+    B -->|legacy| D[Initialize finishCallback]
+    C --> E{Init within timeout}
+    D --> E
+    E -->|timeout| F[Cancel token and mark init failed]
+    E -->|done| G[MarkActive sets IsActive]
+    F --> H([Bootstrap continues])
+    G --> I([Running])
+    I --> J[Shutdown cancels ShutdownToken]
+    J --> K[Teardown clears IsActive]
+    K --> L((Torn down))
+```
+
 | Stage | What it is |
 |---|---|
 | `InitializeAsync(CancellationToken)` | The path `RuntimeManager` actually drives. One-time async setup. |

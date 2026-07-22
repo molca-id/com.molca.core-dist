@@ -18,19 +18,17 @@ registry and returns the merged findings.
 
 ## How it fits together
 
+```mermaid
+graph TD
+    A[molca_validate_sequence tool] -->|runs| B[SequenceValidatorRegistry]
+    B -->|runs each| C[ISequenceValidator implementations]
+    C --> D[core.data-integrity]
+    C --> E[core.reference-resolution]
+    C --> F[core.structural-flow]
+    C --> G[your fork validators]
 ```
-molca_validate_sequence (MCP tool)
-        │  runs
-        ▼
-SequenceValidatorRegistry          ← TypeCache discovery, dedup by Id, ordered, exception-isolated
-        │  runs each
-        ▼
-ISequenceValidator implementations
-   ├─ core.data-integrity       (wraps the shipped data-integrity checks)
-   ├─ core.reference-resolution (author-time reference resolution)
-   ├─ core.structural-flow      (control-flow topology over derived graph edges)
-   └─ <your fork's validators>
-```
+
+`SequenceValidatorRegistry` discovers validators by `TypeCache`, dedups them by `Id`, orders them, and isolates a throwing validator into a single `ValidatorError` finding.
 
 ### Relationship to the legacy `SequenceValidator`
 
@@ -147,13 +145,16 @@ authoring that applies a plan and converges it through this gate).
 Validation findings are made **actionable** by a parallel fix registry. `molca_sequence_remediate`
 composes the loop: run the validators, apply fixes, re-validate, report before/after.
 
-```
-molca_sequence_remediate (MCP tool)
-        │
-        ├─ run SequenceValidatorRegistry
-        ├─ (optional) one explicit opt-in fix      ← reported as its own revert phase
-        ├─ SequenceFixRegistry.ApplyFixes(SafeOnly) ← deterministic+non-destructive+UnityUndo, one group
-        └─ re-run validators → enrich → { before, applied, after.valid, reverts[], residual[…suggestions] }
+```mermaid
+graph TD
+    A((molca_sequence_remediate)) --> B[Run SequenceValidatorRegistry]
+    B --> C[Optional one opt-in fix]
+    C --> D[SequenceFixRegistry ApplyFixes SafeOnly]
+    D --> E[Re-run validators and enrich]
+    E --> F{after.valid}
+    F -->|no| G[Rebind Ref Id or clear then remediate]
+    G --> B
+    F -->|yes| H([Report before and after])
 ```
 
 ### Fix facets &amp; remediation policy

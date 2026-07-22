@@ -32,8 +32,13 @@ namespace Molca.Utilities
         public bool IsVisible => _isVisible;
 
         /// <param name="panelSettings">Required by UIDocument. Null logs a warning and the overlay may not render.</param>
+        /// <param name="uiFont">
+        /// Font applied to every label. May be <c>null</c>, in which case the bundled Poppins font (else a
+        /// dynamic OS font) is resolved. The shipped PanelSettings has no text settings, so <b>without a
+        /// resolved font the labels rasterize no glyphs and only the bars render</b>.
+        /// </param>
         /// <param name="toggleKeyLabel">Display name of the toggle key, shown in the header (Sprint 54: a plain string, so the view needs no input-package dependency).</param>
-        internal void Initialize(PanelSettings panelSettings, BudgetMonitor.UIAnchor anchor, Vector2 position, string toggleKeyLabel)
+        internal void Initialize(PanelSettings panelSettings, Font uiFont, BudgetMonitor.UIAnchor anchor, Vector2 position, string toggleKeyLabel)
         {
             var doc = GetComponent<UIDocument>();
             if (panelSettings != null)
@@ -41,7 +46,7 @@ namespace Molca.Utilities
             else
                 Debug.LogWarning("[BudgetMonitor] No PanelSettings assigned — UI Toolkit overlay may not render.");
 
-            BuildPanel(doc.rootVisualElement, anchor, position, toggleKeyLabel);
+            BuildPanel(doc.rootVisualElement, uiFont, anchor, position, toggleKeyLabel);
         }
 
         public void SetVisible(bool visible)
@@ -72,9 +77,18 @@ namespace Molca.Utilities
 
         // ── Build ────────────────────────────────────────────────────────────────
 
-        private void BuildPanel(VisualElement docRoot, BudgetMonitor.UIAnchor anchor, Vector2 position, string toggleKeyLabel)
+        private void BuildPanel(VisualElement docRoot, Font uiFont, BudgetMonitor.UIAnchor anchor, Vector2 position, string toggleKeyLabel)
         {
             docRoot.pickingMode = PickingMode.Ignore;
+
+            // The shipped PanelSettings has no text settings/font assigned, so at runtime Labels rasterize no
+            // glyphs and only the colored bar VisualElements are visible. -unity-font-definition is inherited,
+            // so applying a resolved font once on the panel root covers every Label added beneath it.
+            var font = ResolveFont(uiFont);
+            if (font != null)
+                docRoot.style.unityFontDefinition = FontDefinition.FromFont(font);
+            else
+                Debug.LogWarning("[BudgetMonitor] No overlay font could be resolved; metric labels may not render (bars only).");
 
             var container = new VisualElement();
             container.style.backgroundColor = new StyleColor(BackgroundColor);
@@ -161,6 +175,10 @@ namespace Molca.Utilities
 
                 row.BarFill = new VisualElement();
                 row.BarFill.style.height = Length.Percent(100);
+                // Seed width/color from the current value so the bar isn't blank until the first RefreshValues tick.
+                float fill = Mathf.Clamp01(metric.currentValue / metric.maxValue);
+                row.BarFill.style.width           = Length.Percent(fill * 100f);
+                row.BarFill.style.backgroundColor = new StyleColor(GetBarColor(metric, fill));
 
                 barBg.Add(row.BarFill);
                 row.Root.Add(barBg);
@@ -192,6 +210,31 @@ namespace Molca.Utilities
         }
 
         // ── Helpers ──────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Resources path (namespaced, extension-less) of the Poppins font bundled with Core, loaded when no
+        /// explicit HUD font is assigned. Lives under a package <c>Resources</c> folder so it resolves in
+        /// player builds, not just the editor.
+        /// </summary>
+        private const string BundledFontResourcePath = "Molca/Poppins-Medium";
+
+        /// <summary>
+        /// Resolves the overlay label font: the explicitly-assigned HUD font first, else the bundled Poppins
+        /// font, else a dynamic OS font as a last resort so metric text never silently disappears.
+        /// </summary>
+        /// <param name="explicitFont">Font assigned on the <see cref="BudgetMonitor"/>, or <c>null</c>.</param>
+        /// <returns>A usable <see cref="Font"/>, or <c>null</c> if none could be resolved.</returns>
+        private static Font ResolveFont(Font explicitFont)
+        {
+            if (explicitFont != null) return explicitFont;
+
+            var bundled = Resources.Load<Font>(BundledFontResourcePath);
+            if (bundled != null) return bundled;
+
+            // OS fallback: the labels are plain ASCII, so any sans-serif face renders them correctly.
+            try { return Font.CreateDynamicFontFromOSFont(new[] { "Segoe UI", "Arial", "Helvetica", "sans-serif" }, 12); }
+            catch { return null; }
+        }
 
         private static void ApplyColors(MetricRowUI row, BudgetMonitor.MetricData metric)
         {

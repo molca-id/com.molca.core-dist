@@ -10,9 +10,16 @@ The pipeline that turns a Figma frame into Unity **uGUI** — the VR-in-game UI 
 canvas + `TrackedDeviceGraphicRaycaster`), distinct from the editor/2D **Figma→UITK** pipeline. It runs
 in three stages:
 
-```
-Figma frame  ──►  UI Intent Spec  ──►  uGUI prefab
-                                    (molca_build_ugui)
+```mermaid
+graph TD
+    A([Figma frame]) --> B[Deterministic pre pass]
+    B --> C[Model pass optional]
+    C --> D[Validate against catalog]
+    D --> E([UI Intent Spec])
+    E --> F[Materializer builds tree]
+    F --> G[Layout pass]
+    G --> H[VR pass]
+    H --> I([uGUI prefab])
 ```
 
 The first stage turns a frame into a validated, token-referential **UI Intent Spec**; the second builds

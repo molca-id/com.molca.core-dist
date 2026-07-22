@@ -46,6 +46,22 @@ Requests are queued and processed up to `MaxConcurrentRequests` (default 4) at a
 `HttpModule.DefaultTimeout` when unset — so neither the transport nor an interceptor can mutate the instance
 you passed in.
 
+The queued send path — clone, header merge, interceptors, transport, then error-kind-driven retry with backoff:
+
+```mermaid
+graph TD
+    A([CreateRequest]) --> B[Queue up to MaxConcurrent]
+    B --> C[Clone and merge headers]
+    C --> D[Request interceptors]
+    D --> E[Transport send]
+    E --> F[Response interceptors]
+    F --> G[Classify HttpError kind]
+    G --> H{Retryable and idempotent}
+    H -->|yes| I[Backoff full jitter]
+    I --> E
+    H -->|no| J([Return HttpResponse])
+```
+
 ### HttpResponse essentials
 
 | Member | Meaning |
@@ -167,6 +183,20 @@ configured `authTokenKey`. On a `401` for such a request, the interceptor trigge
 `RefreshAsync`, retries once with the refreshed token, and — if refresh is impossible — dispatches
 `AuthEvents.Expired` and lets the `401` surface. (`AuthManager.TryApplyToken` is `[Obsolete]`; do not
 hand-inject tokens into shared/asset-backed requests.)
+
+On a 401 for a token-bearing request, `AuthTokenInterceptor` refreshes once and retries:
+
+```mermaid
+graph TD
+    A([401 on opted in request]) --> B{Token header present}
+    B -->|no| F([401 surfaces])
+    B -->|yes| C[Single flight RefreshAsync]
+    C --> D{Refresh succeeded}
+    D -->|yes| E[Retry once with new token]
+    E --> G([Return response])
+    D -->|no| H[Dispatch AuthEvents Expired]
+    H --> F
+```
 
 `AuthManager` raises typed events (see [Events](EVENTS.md)): `AuthEvents.LoggedIn`, `LoggedOut`, and
 `Expired` — subscribe to `Expired` to route the user back to login when a session can no longer be refreshed.

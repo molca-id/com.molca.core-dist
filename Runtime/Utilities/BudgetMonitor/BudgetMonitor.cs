@@ -62,6 +62,9 @@ namespace Molca.Utilities
         [Tooltip("PanelSettings asset required by UIDocument. Must be assigned for the overlay to render.")]
         [SerializeField] private PanelSettings _panelSettings;
 
+        [Tooltip("Font for the overlay labels. Leave unassigned to use the bundled Poppins font. Without a resolvable font the shipped PanelSettings has no text settings, so metric labels draw no glyphs at runtime and only the bars are visible.")]
+        [SerializeField] private Font _hudFont;
+
         private BudgetMetricCollector _collector;
         private BudgetMonitorView _view;
         private readonly Dictionary<string, MetricData> _metrics = new Dictionary<string, MetricData>();
@@ -127,7 +130,7 @@ namespace Molca.Utilities
 
                 // AddComponent<BudgetMonitorView> also adds UIDocument via [RequireComponent].
                 _view = gameObject.AddComponent<BudgetMonitorView>();
-                _view.Initialize(_panelSettings, _anchor, _position, _toggleKey.ToString());
+                _view.Initialize(_panelSettings, _hudFont, _anchor, _position, _toggleKey.ToString());
                 _view.SetVisible(_showMonitor);
 
                 _timeLeft = _updateInterval;

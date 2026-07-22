@@ -20,6 +20,18 @@ and in Hub > Assistant.
 
 ## XML call grammar
 
+At a glance, Text mode runs one XML call per assistant message and loops round by round until no tool call remains:
+
+```mermaid
+graph TD
+    A([Model emits tool tag]) --> B[Parser strips and extracts XML]
+    B --> C[Run ExecuteAsync tool path]
+    C --> D[Append result to transcript]
+    D --> E{Another tool call?}
+    E -->|no| F((Turn complete))
+    E -.->|next round| A
+```
+
 In Text mode the model calls one tool by writing a single XML block in its assistant message:
 
 ```xml

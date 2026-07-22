@@ -18,6 +18,21 @@ A `Retry-After` hint from the server is respected. Errors that retrying can't fi
 invalid request (4xx) — fail immediately, and cancelling a turn never triggers a retry. This applies to
 every model call a turn makes, including streaming, context compaction, and chat auto-naming.
 
+Every model call runs through this per-call retry decision, with a `Retry-After` hint respected during backoff and the attempt count bounded by **Retry Max Attempts**:
+
+```mermaid
+graph TD
+    A([Model call]) --> B{Result?}
+    B -->|ok| S([Return response])
+    B -->|error| C{Classify error}
+    C -->|cancelled| Q((Exit quietly))
+    C -->|bad key or 4xx| F((Fail immediately))
+    C -->|429 or 5xx or timeout| G{Attempts left?}
+    G -->|no| X((Give up))
+    G -->|yes| D[Backoff and wait]
+    D -.->|retry| A
+```
+
 **Runaway tool loops are stopped.** If the model keeps making the exact same tool call without making
 progress, the turn stops with a *Continue* affordance instead of silently burning through its tool
 budget. The work done so far is kept — click **Continue** to resume, or rephrase your request.

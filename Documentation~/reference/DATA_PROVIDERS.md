@@ -84,6 +84,21 @@ shipped transports live under `Runtime/Networking/Data/Provider/`:
 Each provider is paired (via a **Mapping**) with the `DataModel` it feeds, so incoming JSON is shaped
 into `ImmutableData` records of a known structure.
 
+Each transport marshals onto the main thread at its own boundary, then records flow through the cache, registry, hub, and batching flusher out to the subscriber:
+
+```mermaid
+graph TD
+    WS[WebSocket] --> P
+    SIO[SocketIO] --> P
+    SSE[SSE] --> P
+    HTTP[HTTP poll] --> P
+    P[Marshal onto main thread] --> C[DataCache]
+    C --> R[DataProviderRegistry]
+    R --> H[DataSubscriptionHub]
+    H --> F[DataPoolFlusher batches 100 ms]
+    F --> S([Subscriber callback])
+```
+
 ## Reconnect & auth refresh
 
 The streaming providers share a `StreamReconnectPolicy`: on a dropped connection they reconnect with
