@@ -50,7 +50,7 @@ namespace Molca.Audio
         /// <summary>
         /// Plays a dialog audio clip by ID using the current language
         /// </summary>
-        public async void PlayFromAudioSource()
+        public async void PlayFromAudioSource() // doctor:ignore async-void is intentional: UnityEvent/inspector entry point, body owns its exceptions via try/catch
         {
             if (_dialogReference == null)
             {

@@ -22,7 +22,7 @@ namespace Molca.Modals
         /// then returns it to <paramref name="pool"/>.
         /// </summary>
         /// <param name="stripe">When true uses plain <paramref name="color"/>; false multiplies by <see cref="StripeColor"/> for alternating row tinting.</param>
-        public async void Initialize(string msg, Color color, ObjectPool<ModalMessage> pool, float duration, bool stripe)
+        public async void Initialize(string msg, Color color, ObjectPool<ModalMessage> pool, float duration, bool stripe) // doctor:ignore async-void is intentional: pool-driven fire-and-forget animation, body owns its exceptions via try/catch
         {
             int generation = ++_generation;
 
@@ -32,22 +32,30 @@ namespace Molca.Modals
 
             LayoutRebuilder.ForceRebuildLayoutImmediate(messageText.rectTransform);
 
-            float lifeTime = duration;
-            while (lifeTime > 0f)
+            try
             {
-                if (this == null || generation != _generation) return;
+                float lifeTime = duration;
+                while (lifeTime > 0f)
+                {
+                    if (this == null || generation != _generation) return;
 
-                lifeTime -= Time.deltaTime;
-                float t = 1f - (lifeTime / duration);
+                    lifeTime -= Time.deltaTime;
+                    float t = 1f - (lifeTime / duration);
 
-                // Fade out over the last 5 % of lifetime.
-                canvasGroup.alpha = t > 0.95f ? 1f - ((t - 0.95f) / 0.05f) : 1f;
+                    // Fade out over the last 5 % of lifetime.
+                    canvasGroup.alpha = t > 0.95f ? 1f - ((t - 0.95f) / 0.05f) : 1f;
 
-                await Awaitable.NextFrameAsync();
+                    await Awaitable.NextFrameAsync();
+                }
+
+                if (this != null && generation == _generation)
+                    pool.Return(this);
             }
-
-            if (this != null && generation == _generation)
-                pool.Return(this);
+            catch (System.OperationCanceledException) { }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[ModalMessage] fade animation failed: {e}", this);
+            }
         }
     }
 }

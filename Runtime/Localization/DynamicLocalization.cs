@@ -269,7 +269,7 @@ namespace Molca.Localization
         /// </summary>
         /// <param name="key">Unique key used to identify this entry in the Dynamic table.</param>
         /// <param name="forceUpdate">When true, re-registers and re-pushes entries even if already initialized.</param>
-        public async void Init(string key, bool forceUpdate = false)
+        public async void Init(string key, bool forceUpdate = false) // doctor:ignore async-void is intentional: fire-and-forget entry point for callers that cannot await, body is a try/catch shim over InitAsync
         {
             try
             {
@@ -285,7 +285,7 @@ namespace Molca.Localization
         /// Refreshes <see cref="String"/> from the localization system. Called by
         /// <see cref="LocalizationManager"/> on language change.
         /// </summary>
-        public async void RefreshCachedString()
+        public async void RefreshCachedString() // doctor:ignore async-void is intentional: LocalizationManager language-change callback, body owns its exceptions via try/catch
         {
             if (disabled)
                 return;

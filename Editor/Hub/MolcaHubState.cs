@@ -164,6 +164,9 @@ namespace Molca.Editor.Hub
         Mcp,
         Network,
         Sequences,
-        Assistant
+        Assistant,
+        AddOnsBrowse,
+        AddOnsInstalled,
+        About
     }
 }

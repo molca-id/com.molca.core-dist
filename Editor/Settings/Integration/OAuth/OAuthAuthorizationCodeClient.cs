@@ -50,6 +50,33 @@ namespace Molca.Settings.Integration.OAuth
         public async Awaitable<OAuthResult> AuthorizeAsync(
             OAuthEndpointDescriptor descriptor, CancellationToken cancellationToken = default)
         {
+            var codeResult = await AuthorizeForCodeAsync(descriptor, cancellationToken);
+            if (codeResult.Canceled)
+                return OAuthResult.Cancel();
+            if (!codeResult.Success)
+                return OAuthResult.Fail(codeResult.Error);
+
+            var form = new Dictionary<string, string>
+            {
+                ["grant_type"] = "authorization_code",
+                ["code"] = codeResult.Code,
+                ["redirect_uri"] = codeResult.RedirectUri,
+                ["client_id"] = descriptor.ClientId,
+                ["code_verifier"] = codeResult.CodeVerifier
+            };
+
+            return await ExchangeAsync(descriptor.TokenUrl, form, cancellationToken);
+        }
+
+        /// <summary>
+        /// Runs only the interactive browser + loopback + PKCE authorization leg.
+        /// </summary>
+        /// <param name="descriptor">The provider endpoints/client-id/scope (no secret).</param>
+        /// <param name="cancellationToken">Cancels the flow; cancellation is returned as a canceled result.</param>
+        /// <returns>The one-time code, PKCE verifier, and redirect URI needed by a trusted token exchanger.</returns>
+        public async Awaitable<OAuthCodeResult> AuthorizeForCodeAsync(
+            OAuthEndpointDescriptor descriptor, CancellationToken cancellationToken = default)
+        {
             descriptor.ValidateForAuthorizationCode();
             var pkce = PkceCodes.Generate();
 
@@ -60,7 +87,7 @@ namespace Molca.Settings.Integration.OAuth
             }
             catch (Exception e)
             {
-                return OAuthResult.Fail($"Could not start the local callback listener: {e.Message}");
+                return OAuthCodeResult.Fail($"Could not start the local callback listener: {e.Message}");
             }
 
             var authorizeUrl = BuildAuthorizeUrl(descriptor, pkce, listener.RedirectUri);
@@ -73,23 +100,13 @@ namespace Molca.Settings.Integration.OAuth
             }
             catch (OperationCanceledException)
             {
-                return OAuthResult.Cancel();
+                return OAuthCodeResult.Cancel();
             }
 
             if (!redirect.Success)
-                return OAuthResult.Fail(redirect.Error);
+                return OAuthCodeResult.Fail(redirect.Error);
 
-            // Exchange the code for tokens (PKCE verifier proves we started this flow).
-            var form = new Dictionary<string, string>
-            {
-                ["grant_type"] = "authorization_code",
-                ["code"] = redirect.Code,
-                ["redirect_uri"] = listener.RedirectUri,
-                ["client_id"] = descriptor.ClientId,
-                ["code_verifier"] = pkce.CodeVerifier
-            };
-
-            return await ExchangeAsync(descriptor.TokenUrl, form, cancellationToken);
+            return OAuthCodeResult.Ok(redirect.Code, pkce.CodeVerifier, listener.RedirectUri);
         }
 
         /// <summary>
@@ -165,5 +182,52 @@ namespace Molca.Settings.Integration.OAuth
             var separator = descriptor.AuthorizeUrl.Contains("?") ? "&" : "?";
             return descriptor.AuthorizeUrl + separator + OAuthHttp.EncodeForm(query);
         }
+    }
+
+    /// <summary>
+    /// The authorize-only outcome for flows that exchange the captured code on a trusted server.
+    /// </summary>
+    public readonly struct OAuthCodeResult
+    {
+        private OAuthCodeResult(
+            bool success, bool canceled, string code, string codeVerifier, string redirectUri, string error)
+        {
+            Success = success;
+            Canceled = canceled;
+            Code = code;
+            CodeVerifier = codeVerifier;
+            RedirectUri = redirectUri;
+            Error = error;
+        }
+
+        /// <summary>True when an authorization code was captured.</summary>
+        public bool Success { get; }
+
+        /// <summary>True when the user or caller canceled.</summary>
+        public bool Canceled { get; }
+
+        /// <summary>The one-time provider authorization code on success.</summary>
+        public string Code { get; }
+
+        /// <summary>The PKCE verifier paired with the challenge sent during authorization.</summary>
+        public string CodeVerifier { get; }
+
+        /// <summary>The exact loopback URI used for this authorization request.</summary>
+        public string RedirectUri { get; }
+
+        /// <summary>The failure description when unsuccessful and not canceled.</summary>
+        public string Error { get; }
+
+        /// <summary>Creates a successful authorize-only result.</summary>
+        public static OAuthCodeResult Ok(string code, string codeVerifier, string redirectUri) =>
+            new OAuthCodeResult(true, false, code, codeVerifier, redirectUri, null);
+
+        /// <summary>Creates a failed authorize-only result.</summary>
+        public static OAuthCodeResult Fail(string error) =>
+            new OAuthCodeResult(false, false, null, null, null, error);
+
+        /// <summary>Creates a canceled authorize-only result.</summary>
+        public static OAuthCodeResult Cancel() =>
+            new OAuthCodeResult(false, true, null, null, null, "Canceled.");
     }
 }

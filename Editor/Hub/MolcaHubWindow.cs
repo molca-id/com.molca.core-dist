@@ -34,7 +34,10 @@ namespace Molca.Editor.Hub
             new SectionInfo(MolcaHubSection.Mcp, "MCP", "MCP bridge, auth token, proxy, and tool provider settings."),
             new SectionInfo(MolcaHubSection.Network, "Network", "Live HTTP request counts, redacted request history, cache size, and streaming-provider status."),
             new SectionInfo(MolcaHubSection.Sequences, "Sequences", "Validation status of every SequenceController in the open scene(s)."),
-            new SectionInfo(MolcaHubSection.Assistant, "Assistant", "In-editor chat assistant provider, model, and API key.")
+            new SectionInfo(MolcaHubSection.Assistant, "Assistant", "In-editor chat assistant provider, model, and API key."),
+            new SectionInfo(MolcaHubSection.AddOnsBrowse, "Browse", "Discover and install signed add-on packs entitled to this license and compatible with this Core."),
+            new SectionInfo(MolcaHubSection.AddOnsInstalled, "Installed", "Manage installed add-ons: updates, removal, integrity status, and signed-bundle import."),
+            new SectionInfo(MolcaHubSection.About, "About", "Installed versions, framework update check, license, and links.")
         };
 
         private readonly List<Button> _workspaceButtons = new List<Button>();
@@ -64,15 +67,17 @@ namespace Molca.Editor.Hub
         private VisualElement _settingsBody;
         private VisualElement _workspaceHost;
         private VisualElement _workspaceToolbar;
+        private MolcaHubActivityRail _activityRail;
 
         /// <summary>Opens or focuses the Molca Hub window.</summary>
         [MenuItem("Molca/Hub", priority = 0)]
         public static void Open()
         {
             var window = GetWindow<MolcaHubWindow>();
-            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub");
+            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub", "logo-dark");
             window.minSize = new Vector2(520, 360);
             window.Show();
+            Telemetry.MolcaEditorTelemetry.Track("editor.hub.opened");
         }
 
         /// <summary>
@@ -88,7 +93,7 @@ namespace Molca.Editor.Hub
         internal static void Open(MolcaHubWorkspace workspace)
         {
             var window = GetWindow<MolcaHubWindow>();
-            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub");
+            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub", "logo-dark");
             window.minSize = new Vector2(520, 360);
             window.Show();
 
@@ -114,7 +119,7 @@ namespace Molca.Editor.Hub
             Docs.DocsWorkspaceView.PendingDocId = docId;
 
             var window = GetWindow<MolcaHubWindow>();
-            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub");
+            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub", "logo-dark");
             window.minSize = new Vector2(520, 360);
             window.Show();
 
@@ -124,9 +129,36 @@ namespace Molca.Editor.Hub
                 MolcaHubState.Load().SetWorkspace(Docs.DocsWorkspaceProvider.WorkspaceId);
         }
 
+        /// <summary>
+        /// Opens (or focuses) the Hub on the Settings workspace's About section.
+        /// </summary>
+        /// <remarks>
+        /// Cross-navigation entry point for surfaces outside the Settings rail — currently the activity-rail
+        /// chip that reports an available framework update. Like <see cref="Open(MolcaHubWorkspace)"/>, the
+        /// target is persisted when the UI has not been built yet so <see cref="CreateGUI"/> restores it.
+        /// </remarks>
+        internal static void OpenAbout()
+        {
+            var window = GetWindow<MolcaHubWindow>();
+            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub", "logo-dark");
+            window.minSize = new Vector2(520, 360);
+            window.Show();
+
+            if (window._state != null && window._workspaceButtons.Count > 0)
+            {
+                window.SelectWorkspace(MolcaHubWorkspaceRegistry.SettingsId);
+                window.SelectSection(MolcaHubSection.About);
+                return;
+            }
+
+            var state = MolcaHubState.Load();
+            state.SetWorkspace(MolcaHubWorkspaceRegistry.SettingsId);
+            state.SetRailNode(MolcaHubSection.About.ToString());
+        }
+
         private void OnEnable()
         {
-            titleContent = MolcaEditorIcons.WindowTitle("Molca Hub");
+            titleContent = MolcaEditorIcons.WindowTitle("Molca Hub", "logo-dark");
             MolcaHubWorkspaceRegistry.VisibilityChanged += RefreshWorkspaceToolbar;
         }
 
@@ -189,6 +221,12 @@ namespace Molca.Editor.Hub
             _workspaceHost.style.display = DisplayStyle.None;
             root.Add(_workspaceHost);
 
+            // Slim, full-width activity rail pinned to the bottom of the shell (last child of the flex-column
+            // root). It surfaces ongoing processes — e.g. a Doctor run that keeps going across tab switches —
+            // and hides itself when idle. It owns and disposes its providers via its own detach handler.
+            _activityRail = new MolcaHubActivityRail(SelectWorkspace);
+            root.Add(_activityRail);
+
             _workspaceToolbar = root.Q<VisualElement>("workspace-toolbar");
             _workspaceItems = MolcaHubWorkspaceRegistry.GetWorkspaces();
 
@@ -207,18 +245,34 @@ namespace Molca.Editor.Hub
             // Settings is the anchored home tab (Core-owned, always first). Every other tab — Core's own
             // Doctor/Assistant/Sequence and any consumer-contributed workspace — comes from the registry.
             // Left-aligned tabs sit before the flexible spacer; right-anchored tabs (e.g. Docs) after it.
-            toolbar.Add(BuildToolbarToggle(MolcaHubWorkspaceRegistry.SettingsId, "Settings"));
+            toolbar.Add(BuildToolbarToggle(MolcaHubWorkspaceRegistry.SettingsId, "Settings", "settings"));
             foreach (var item in _workspaceItems)
                 if (!item.RightAnchored)
-                    toolbar.Add(BuildToolbarToggle(item.Id, item.Label));
+                {
+                    toolbar.Add(MakeTabDivider());
+                    toolbar.Add(BuildToolbarToggle(item.Id, item.Label, item.Icon));
+                }
 
             var spacer = new VisualElement();
             spacer.AddToClassList("molca-hub-spacer");
             toolbar.Add(spacer);
 
+            var firstRight = true;
             foreach (var item in _workspaceItems)
                 if (item.RightAnchored)
-                    toolbar.Add(BuildToolbarToggle(item.Id, item.Label));
+                {
+                    if (!firstRight) toolbar.Add(MakeTabDivider());
+                    toolbar.Add(BuildToolbarToggle(item.Id, item.Label, item.Icon));
+                    firstRight = false;
+                }
+        }
+
+        /// <summary>Builds a thin vertical divider that visually separates adjacent workspace tabs.</summary>
+        private static VisualElement MakeTabDivider()
+        {
+            var divider = new VisualElement { pickingMode = PickingMode.Ignore };
+            divider.AddToClassList("molca-hub-tab-divider");
+            return divider;
         }
 
         private void RefreshWorkspaceToolbar()
@@ -232,13 +286,58 @@ namespace Molca.Editor.Hub
             SelectWorkspace(_state.Workspace);
         }
 
-        private Button BuildToolbarToggle(string workspaceId, string label)
+        /// <summary>
+        /// Builds one workspace toolbar tab as <c>[icon] [label] [underline]</c>. The selection indicator is
+        /// a child <see cref="VisualElement"/> strip (styled via the parent's <c>--active</c> class), not a
+        /// button border: Unity's built-in <see cref="Button"/> repaints its own border box on focus, which
+        /// would erase a border-based underline the moment the tab is clicked.
+        /// </summary>
+        private Button BuildToolbarToggle(string workspaceId, string label, string icon)
         {
-            var button = new Button(() => SelectWorkspace(workspaceId)) { text = label };
+            var button = new Button(() => SelectWorkspace(workspaceId));
             button.AddToClassList("molca-hub-workspace-tab");
             button.userData = workspaceId;
+
+            var iconTexture = ResolveTabIcon(icon);
+            if (iconTexture != null)
+            {
+                var image = new Image { image = iconTexture, scaleMode = ScaleMode.ScaleToFit };
+                image.AddToClassList("molca-hub-workspace-tab__icon");
+                image.pickingMode = PickingMode.Ignore;
+                button.Add(image);
+            }
+
+            var text = new Label(label) { pickingMode = PickingMode.Ignore };
+            text.AddToClassList("molca-hub-workspace-tab__label");
+            button.Add(text);
+
+            var underline = new VisualElement { pickingMode = PickingMode.Ignore };
+            underline.AddToClassList("molca-hub-workspace-tab__underline");
+            button.Add(underline);
+
             _workspaceButtons.Add(button);
             return button;
+        }
+
+        /// <summary>
+        /// Resolves a tab icon by name: first an on-brand Molca family icon shipped in the package
+        /// (<see cref="MolcaEditorIcons.Family"/>), then a skin-aware built-in editor icon. Returns
+        /// <c>null</c> when the name is empty or nothing matches, in which case the tab renders label-only.
+        /// </summary>
+        private static Texture ResolveTabIcon(string icon)
+        {
+            if (string.IsNullOrEmpty(icon)) return null;
+
+            var family = MolcaEditorIcons.Family(icon);
+            if (family != null) return family;
+
+            if (EditorGUIUtility.isProSkin && !icon.StartsWith("d_"))
+            {
+                var pro = EditorGUIUtility.IconContent("d_" + icon)?.image;
+                if (pro != null) return pro;
+            }
+
+            return EditorGUIUtility.IconContent(icon)?.image;
         }
 
         private void BuildSettingsRail()
@@ -300,7 +399,15 @@ namespace Molca.Editor.Hub
                 SectionLeaf(MolcaHubSection.Network),
                 SectionLeaf(MolcaHubSection.Sequences)));
 
+            _railRoots.Add(Category("cat:addons", "Add-ons",
+                SectionLeaf(MolcaHubSection.AddOnsBrowse),
+                SectionLeaf(MolcaHubSection.AddOnsInstalled)));
+
             _railRoots.Add(SectionLeaf(MolcaHubSection.Assistant));
+
+            // About sits last and uncategorized: it is the one leaf that reports on the framework itself
+            // rather than configuring it, and it is conventionally the bottom of a settings rail.
+            _railRoots.Add(SectionLeaf(MolcaHubSection.About));
         }
 
         private static MolcaHubRailNode Category(string id, string label, params MolcaHubRailNode[] children)
@@ -626,6 +733,9 @@ namespace Molca.Editor.Hub
             MolcaHubSection.Network => new MolcaHubNetworkSection(),
             MolcaHubSection.Sequences => new MolcaHubSequencesSection(),
             MolcaHubSection.Assistant => new MolcaHubAssistantSection(),
+            MolcaHubSection.AddOnsBrowse => new Addons.AddonBrowseView(),
+            MolcaHubSection.AddOnsInstalled => new Addons.AddonInstalledView(),
+            MolcaHubSection.About => new MolcaHubAboutSection(),
             _ => new Label("Unknown section.")
         };
 

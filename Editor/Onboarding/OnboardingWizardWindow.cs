@@ -14,7 +14,9 @@ namespace Molca.Editor.Onboarding
     /// </remarks>
     public class OnboardingWizardWindow : EditorWindow
     {
-        private const string OfferedPrefKeyPrefix = "Molca.OnboardingWizard.Offered.";
+        // MolcaEditorPrefs already scopes the key per project (by dataPath hash), so a
+        // single stable key is enough — no manual per-project suffix needed.
+        private const string OfferedPrefKey = "OnboardingWizard.Offered";
 
         [MenuItem("Molca/Onboarding Wizard", priority = 1)]
         public static void Open()
@@ -50,13 +52,12 @@ namespace Molca.Editor.Onboarding
                 if (EditorApplication.isCompiling || EditorApplication.isUpdating)
                     return;
 
-                string prefKey = OfferedPrefKeyPrefix + Application.dataPath.GetHashCode();
-                if (EditorPrefs.GetBool(prefKey, false))
+                if (MolcaEditorPrefs.GetBool(OfferedPrefKey, false))
                     return;
 
                 // Mark as offered regardless of the user's choice below — this is a one-time nudge, not a
                 // recurring nag, matching the "opt-in" language in the wizard contract.
-                EditorPrefs.SetBool(prefKey, true);
+                MolcaEditorPrefs.SetBool(OfferedPrefKey, true);
 
                 if (Molca.MolcaProjectSettings.LiveAssetExists)
                     return;

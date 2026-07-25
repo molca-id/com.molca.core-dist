@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using Molca.Editor;
 using Molca.Editor.UI;
 using Molca.Editor.UI.Components;
@@ -21,24 +20,29 @@ namespace Molca.Editor.Doctor
     /// Base class: <see cref="VisualElement"/>.
     /// The surface is pure UI Toolkit (Sprint 44 rewrite), styled by the shared design tokens
     /// (<see cref="MolcaEditorUi.Apply"/>) plus <c>MolcaDoctorView.uss</c>, so it renders uniformly with
-    /// the Hub. Lifecycle (cancelling an in-flight run) is keyed on <see cref="DetachFromPanelEvent"/>
-    /// rather than a window's <c>OnDisable</c>, so it cleans up wherever it is hosted.
+    /// the Hub. The run itself lives in <see cref="DoctorRunSession"/>, not in this view: the view
+    /// <b>subscribes</b> on <see cref="AttachToPanelEvent"/> (rebuilding its display from the session's
+    /// current state) and <b>unsubscribes</b> on <see cref="DetachFromPanelEvent"/> without cancelling.
+    /// A run therefore survives the view being detached and rebuilt — e.g. switching Hub tabs away and
+    /// back, which clears the hosted view — and a run started in one host (Hub tab, standalone window) is
+    /// mirrored live in the other. Cancellation is explicit, via the Cancel button.
     /// </remarks>
     public sealed class MolcaDoctorView : VisualElement
     {
         private const string UssPath = "Packages/com.molca.core/Editor/Doctor/MolcaDoctorView.uss";
         private const string ChecksCollapsedKey = "Doctor.ChecksCollapsed";
         private const string GroupExpandedKeyPrefix = "Doctor.Group.Expanded.";
+        private const string LogCollapsedKey = "Doctor.LogCollapsed";
 
-        private List<DoctorIssue> _issues = new List<DoctorIssue>();
-        private readonly HashSet<string> _disabledChecks = new HashSet<string>();
+        /// <summary>The shared, view-independent run owner this view renders and drives.</summary>
+        private static DoctorRunSession Session => DoctorRunSession.Instance;
+
+        /// <summary>Checks the user has turned off for the next run (lives in the session so it survives view rebuilds).</summary>
+        private static ISet<string> Disabled => Session.DisabledChecks;
+
         private bool _showErrors = true;
         private bool _showWarnings = true;
         private bool _showInfos = true;
-        private bool _hasRun;
-
-        private bool _isRunning;
-        private CancellationTokenSource _runCts;
 
         private Button _runButton;
         private Button _copyButton;
@@ -56,6 +60,17 @@ namespace Molca.Editor.Doctor
         private MolcaSectionCard _checkCard;
         private VisualElement _checkGroups;
         private VisualElement _results;
+
+        // Run Log (live per-check trace). Checks run strictly sequentially, so a single set of
+        // "current row" references is enough to finalize the row when its check completes.
+        private MolcaSectionCard _logCard;
+        private ScrollView _logScroll;
+        private Button _copyLogButton;
+        private VisualElement _currentLogDot;
+        private Label _currentLogHead;
+        private Label _currentLogDetail;
+        private string _currentHeadPrefix;
+        private IVisualElementScheduledItem _tick;
 
         public MolcaDoctorView()
         {
@@ -77,14 +92,61 @@ namespace Molca.Editor.Doctor
             Add(_scroll);
 
             BuildCheckCard();
+            BuildLogCard();
             BuildResults();
 
-            RefreshResults();
-            RegisterCallback<DetachFromPanelEvent>(_ => Dispose());
+            // Subscribe to the session while attached and sync the display from its current state; detach
+            // only unsubscribes (and stops the local ticker) — it must NOT cancel the run, so switching Hub
+            // tabs leaves a run executing in the background.
+            RegisterCallback<AttachToPanelEvent>(_ => OnAttach());
+            RegisterCallback<DetachFromPanelEvent>(_ => OnDetach());
         }
 
-        /// <summary>Cancels any in-flight run. Idempotent.</summary>
-        private void Dispose() => _runCts?.Cancel();
+        private void OnAttach()
+        {
+            // Unsubscribe first so a re-attach (element moved between panels) never double-subscribes.
+            Unsubscribe();
+            Subscribe();
+            SyncFromSession();
+        }
+
+        private void OnDetach()
+        {
+            Unsubscribe();
+            StopTick();
+        }
+
+        private void Subscribe()
+        {
+            Session.RunStarted += HandleRunStarted;
+            Session.ProgressReported += HandleProgress;
+            Session.StatusReported += HandleStatus;
+            Session.CheckCompleted += HandleCheckCompleted;
+            Session.RunFinished += HandleRunFinished;
+        }
+
+        private void Unsubscribe()
+        {
+            Session.RunStarted -= HandleRunStarted;
+            Session.ProgressReported -= HandleProgress;
+            Session.StatusReported -= HandleStatus;
+            Session.CheckCompleted -= HandleCheckCompleted;
+            Session.RunFinished -= HandleRunFinished;
+        }
+
+        /// <summary>Rebuilds the entire display to match the session's current state (called on attach).</summary>
+        private void SyncFromSession()
+        {
+            RebuildCheckChips();
+            UpdateChecksCount();
+
+            SetRunningUi(Session.IsRunning);
+            if (Session.IsRunning && Session.CurrentProgress.HasValue)
+                ApplyProgressToBar(Session.CurrentProgress.Value, Session.CurrentStatus);
+
+            SyncLogFromSession();
+            RefreshResults();
+        }
 
         private void BuildToolbar()
         {
@@ -92,7 +154,7 @@ namespace Molca.Editor.Doctor
             toolbar.AddToClassList("molca-doctor__toolbar");
             Add(toolbar);
 
-            _runButton = MolcaButtons.Primary("Run Checks", () => _ = RunChecksAsync());
+            _runButton = MolcaButtons.Primary("Run Checks", () => Session.Run());
             _runButton.AddToClassList("molca-doctor__run");
             toolbar.Add(_runButton);
 
@@ -145,7 +207,7 @@ namespace Molca.Editor.Doctor
             _progressLabel.AddToClassList("molca-doctor__progress-label");
             _progressRow.Add(_progressLabel);
 
-            _cancelButton = MolcaButtons.Mini("Cancel", () => _runCts?.Cancel());
+            _cancelButton = MolcaButtons.Mini("Cancel", () => Session.Cancel());
             _cancelButton.style.marginLeft = 8;
             _progressRow.Add(_cancelButton);
         }
@@ -197,7 +259,7 @@ namespace Molca.Editor.Doctor
         /// (Re)builds the check chips grouped by <see cref="IDoctorCheck.Category"/>. Categories appear
         /// in the order their first check does — i.e. the curated built-in order (see
         /// <see cref="DoctorCheckRegistry.BuiltInOrder"/>) — and each group carries its own All/None
-        /// toggle. Called on every selection change so chip active-state mirrors <see cref="_disabledChecks"/>.
+        /// toggle. Called on every selection change so chip active-state mirrors <see cref="Disabled"/>.
         /// </summary>
         private void RebuildCheckChips()
         {
@@ -255,7 +317,7 @@ namespace Molca.Editor.Doctor
             spacer.AddToClassList("molca-doctor__group-spacer");
             header.Add(spacer);
 
-            int enabled = checks.Count(c => !_disabledChecks.Contains(c.Id));
+            int enabled = checks.Count(c => !Disabled.Contains(c.Id));
             var count = new Label($"{enabled}/{checks.Count}");
             count.AddToClassList("molca-doctor__group-count");
             header.Add(count);
@@ -291,9 +353,9 @@ namespace Molca.Editor.Doctor
             foreach (var id in ids)
             {
                 if (enabled)
-                    _disabledChecks.Remove(id);
+                    Disabled.Remove(id);
                 else
-                    _disabledChecks.Add(id);
+                    Disabled.Add(id);
             }
 
             RebuildCheckChips();
@@ -304,7 +366,7 @@ namespace Molca.Editor.Doctor
         private void UpdateChecksCount()
         {
             int total = MolcaDoctor.Checks.Count;
-            int enabled = total - _disabledChecks.Count;
+            int enabled = total - Disabled.Count;
             _checkCard.SetStatus(MolcaStatusKind.Idle, $"{enabled}/{total}");
         }
 
@@ -312,14 +374,14 @@ namespace Molca.Editor.Doctor
         {
             var chip = new Button { text = check.Id, tooltip = check.Description };
             chip.AddToClassList("molca-doctor__chip");
-            chip.EnableInClassList("molca-doctor__chip--active", !_disabledChecks.Contains(check.Id));
+            chip.EnableInClassList("molca-doctor__chip--active", !Disabled.Contains(check.Id));
             chip.clicked += () =>
             {
-                if (_disabledChecks.Contains(check.Id))
-                    _disabledChecks.Remove(check.Id);
+                if (Disabled.Contains(check.Id))
+                    Disabled.Remove(check.Id);
                 else
-                    _disabledChecks.Add(check.Id);
-                chip.EnableInClassList("molca-doctor__chip--active", !_disabledChecks.Contains(check.Id));
+                    Disabled.Add(check.Id);
+                chip.EnableInClassList("molca-doctor__chip--active", !Disabled.Contains(check.Id));
                 UpdateChecksCount();
             };
             return chip;
@@ -327,14 +389,327 @@ namespace Molca.Editor.Doctor
 
         private void SetAllChecks(bool enabled)
         {
-            _disabledChecks.Clear();
+            Disabled.Clear();
             if (!enabled)
                 foreach (var c in MolcaDoctor.Checks)
-                    _disabledChecks.Add(c.Id);
+                    Disabled.Add(c.Id);
 
             // Rebuild the chips so their active state mirrors the new selection.
             RebuildCheckChips();
             UpdateChecksCount();
+        }
+
+        /// <summary>
+        /// Builds the collapsible "Run Log" card: a bounded, auto-scrolling trace that fills live as the
+        /// run proceeds — one row per check with a status dot, the check id, its elapsed time, and the
+        /// findings it produced — so the user can watch progress in detail rather than a single bar.
+        /// </summary>
+        private void BuildLogCard()
+        {
+            _logCard = new MolcaSectionCard("Run Log", subtitle: "Per-check trace of the most recent run");
+            _scroll.Add(_logCard);
+
+            bool collapsed = MolcaEditorPrefs.GetBool(LogCollapsedKey, false);
+            var chevron = MolcaButtons.Mini(collapsed ? "▸" : "▾", null);
+            chevron.tooltip = "Show/hide run log";
+            chevron.clicked += () =>
+            {
+                collapsed = !collapsed;
+                _logCard.Body.style.display = collapsed ? DisplayStyle.None : DisplayStyle.Flex;
+                chevron.text = collapsed ? "▸" : "▾";
+                MolcaEditorPrefs.SetBool(LogCollapsedKey, collapsed);
+            };
+            _logCard.AddHeaderAction(chevron);
+
+            _copyLogButton = MolcaButtons.Mini("Copy", () => EditorGUIUtility.systemCopyBuffer = BuildTraceReport());
+            _copyLogButton.tooltip = "Copy the run log to the clipboard";
+            _copyLogButton.SetEnabled(false);
+            _logCard.AddHeaderAction(_copyLogButton);
+
+            _logCard.Body.style.display = collapsed ? DisplayStyle.None : DisplayStyle.Flex;
+
+            // Own bounded scroll (max-height in USS) so a long run scrolls internally and never pushes the
+            // findings list out of reach; it auto-scrolls to the newest entry as checks complete.
+            _logScroll = new ScrollView(ScrollViewMode.Vertical);
+            _logScroll.AddToClassList("molca-doctor__log");
+            _logCard.Body.Add(_logScroll);
+
+            ShowLogPlaceholder();
+        }
+
+        /// <summary>Resets the log to its idle placeholder (no run yet).</summary>
+        private void ShowLogPlaceholder()
+        {
+            _logScroll.Clear();
+            var note = new Label("No run yet — click Run Checks to see a live trace.");
+            note.AddToClassList("molca-doctor__log-note");
+            _logScroll.Add(note);
+            _logCard.SetStatus(MolcaStatusKind.None);
+        }
+
+        /// <summary>Clears the log and starts a fresh trace for a run of <paramref name="total"/> checks.</summary>
+        private void ResetLog(int total)
+        {
+            StopTick();
+            _logScroll.Clear();
+            _currentLogDot = null;
+            _currentLogHead = null;
+            _currentLogDetail = null;
+            _copyLogButton.SetEnabled(false);
+            _logCard.SetStatus(MolcaStatusKind.Idle, "running");
+            AddLogNote($"Running {total} check{(total == 1 ? "" : "s")}…");
+        }
+
+        /// <summary>Rebuilds the whole log from the session's trace: completed rows, the in-flight row, or the summary.</summary>
+        private void SyncLogFromSession()
+        {
+            StopTick();
+            _currentLogDot = null;
+            _currentLogHead = null;
+            _currentLogDetail = null;
+            _logScroll.Clear();
+
+            if (!Session.HasRun && !Session.IsRunning && Session.Reports.Count == 0)
+            {
+                ShowLogPlaceholder();
+                return;
+            }
+
+            AddLogNote($"Running {Session.TotalCount} check{(Session.TotalCount == 1 ? "" : "s")}…");
+            foreach (var report in Session.Reports)
+                AppendCompletedRow(report);
+
+            if (Session.IsRunning)
+            {
+                _logCard.SetStatus(MolcaStatusKind.Idle, "running");
+                if (Session.CurrentProgress.HasValue)
+                {
+                    BeginCheckLog(Session.CurrentProgress.Value);
+                    if (!string.IsNullOrEmpty(Session.CurrentStatus))
+                        _currentLogDetail.text = Session.CurrentStatus;
+                }
+            }
+            else
+            {
+                AppendFinishNote(Session.WasCanceled);
+            }
+        }
+
+        /// <summary>Appends a dotless, muted note line (run header / summary) and scrolls to it.</summary>
+        private void AddLogNote(string text)
+        {
+            var note = new Label(text);
+            note.AddToClassList("molca-doctor__log-note");
+            _logScroll.Add(note);
+            ScrollLogToEnd();
+        }
+
+        /// <summary>Appends a "running" row for the check about to execute; kept until it completes.</summary>
+        private void BeginCheckLog(DoctorProgress p)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("molca-doctor__log-row");
+
+            _currentLogDot = new VisualElement();
+            _currentLogDot.AddToClassList("molca-doctor__log-dot");
+            _currentLogDot.AddToClassList("molca-doctor__log-dot--running");
+            row.Add(_currentLogDot);
+
+            var body = new VisualElement();
+            body.AddToClassList("molca-doctor__log-body");
+            row.Add(body);
+
+            _currentHeadPrefix = $"[{p.CompletedCount + 1}/{p.TotalCount}] {p.CurrentCheck.Id}";
+            _currentLogHead = new Label(_currentHeadPrefix);
+            _currentLogHead.AddToClassList("molca-doctor__log-head");
+            body.Add(_currentLogHead);
+
+            _currentLogDetail = new Label(p.CurrentCheck.Description);
+            _currentLogDetail.AddToClassList("molca-doctor__log-detail");
+            body.Add(_currentLogDetail);
+
+            _logScroll.Add(row);
+            ScrollLogToEnd();
+
+            // Tick the running row's elapsed time (read from the session's stopwatch, so a view that
+            // attaches mid-check shows the true elapsed) so even a check that never reports sub-progress is
+            // visibly alive. The scheduler only fires between the check's own yields, so a long synchronous
+            // stretch still pauses it — hence also instrumenting the slow checks (DocLinks / DocsCoverage).
+            _tick?.Pause();
+            _tick = schedule.Execute(TickRunning).Every(250);
+        }
+
+        /// <summary>Refreshes the running row's head with its live elapsed time from the session.</summary>
+        private void TickRunning()
+        {
+            if (_currentLogHead == null)
+                return;
+            _currentLogHead.text = $"{_currentHeadPrefix}  ·  running {FormatElapsed(Session.CurrentCheckElapsedMs)}";
+        }
+
+        /// <summary>Stops the live elapsed ticker. Idempotent.</summary>
+        private void StopTick()
+        {
+            _tick?.Pause();
+            _tick = null;
+        }
+
+        /// <summary>Appends a fully finalized row for an already-completed check (used when rebuilding).</summary>
+        private void AppendCompletedRow(DoctorCheckReport report)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("molca-doctor__log-row");
+
+            var dot = new VisualElement();
+            dot.AddToClassList("molca-doctor__log-dot");
+            dot.AddToClassList(LogDotClass(report));
+            row.Add(dot);
+
+            var body = new VisualElement();
+            body.AddToClassList("molca-doctor__log-body");
+            row.Add(body);
+
+            var summary = report.IsClean ? "clean" : DescribeCounts(report);
+            var headLabel = new Label(
+                $"[{report.Index + 1}/{report.TotalCount}] {report.Check.Id}  ·  {FormatElapsed(report.ElapsedMilliseconds)}  ·  {summary}");
+            headLabel.AddToClassList("molca-doctor__log-head");
+            body.Add(headLabel);
+
+            var detailLabel = new Label(report.Check.Description);
+            detailLabel.AddToClassList("molca-doctor__log-detail");
+            body.Add(detailLabel);
+
+            _logScroll.Add(row);
+            ScrollLogToEnd();
+        }
+
+        /// <summary>Finalizes the current running row with its outcome, timing, and finding counts.</summary>
+        private void CompleteCheckLog(DoctorCheckReport report)
+        {
+            StopTick();
+
+            // No live row to finalize (e.g. this view attached in the gap between checks) — append a
+            // finalized one so the trace stays complete.
+            if (_currentLogDot == null)
+            {
+                AppendCompletedRow(report);
+                return;
+            }
+
+            _currentLogDot.RemoveFromClassList("molca-doctor__log-dot--running");
+            _currentLogDot.AddToClassList(LogDotClass(report));
+
+            var summary = report.IsClean ? "clean" : DescribeCounts(report);
+            _currentLogHead.text =
+                $"[{report.Index + 1}/{report.TotalCount}] {report.Check.Id}  ·  {FormatElapsed(report.ElapsedMilliseconds)}  ·  {summary}";
+            _currentLogDetail.text = report.Check.Description;
+
+            _currentLogDot = null;
+            _currentLogHead = null;
+            _currentLogDetail = null;
+            ScrollLogToEnd();
+        }
+
+        /// <summary>Closes out any running row and appends the run-summary line.</summary>
+        private void FinishLog(bool canceled)
+        {
+            StopTick();
+
+            // Close out a row still marked running (e.g. cancelled mid-check).
+            if (_currentLogDot != null)
+            {
+                _currentLogDot.RemoveFromClassList("molca-doctor__log-dot--running");
+                _currentLogDot.AddToClassList("molca-status-dot--idle");
+                _currentLogDot = null;
+                _currentLogHead = null;
+                _currentLogDetail = null;
+            }
+
+            AppendFinishNote(canceled);
+        }
+
+        /// <summary>Appends the run-summary note (from the session's trace) and enables Copy.</summary>
+        private void AppendFinishNote(bool canceled)
+        {
+            int ran = Session.Reports.Count;
+            double totalMs = Session.Reports.Sum(r => r.ElapsedMilliseconds);
+            int findings = Session.Reports.Sum(r => r.Findings.Count);
+            string verb = canceled ? "Canceled" : "Done";
+            AddLogNote($"{verb} — {ran} check{(ran == 1 ? "" : "s")} in {FormatElapsed(totalMs)}, "
+                     + $"{findings} finding{(findings == 1 ? "" : "s")}.");
+
+            _logCard.SetStatus(canceled ? MolcaStatusKind.Warning : MolcaStatusKind.Ok,
+                canceled ? "canceled" : FormatElapsed(totalMs));
+            _copyLogButton.SetEnabled(ran > 0);
+        }
+
+        /// <summary>Scrolls the log to its newest row once layout has resolved.</summary>
+        private void ScrollLogToEnd()
+        {
+            if (_logScroll.childCount == 0)
+                return;
+            var last = _logScroll[_logScroll.childCount - 1];
+            _logScroll.schedule.Execute(() => _logScroll.ScrollTo(last));
+        }
+
+        /// <summary>Comma-joined severity breakdown for a check's findings (e.g. "2 errors, 1 warning").</summary>
+        private static string DescribeCounts(DoctorCheckReport report)
+        {
+            var parts = new List<string>();
+            void Add(DoctorSeverity severity, string singular)
+            {
+                int n = report.CountAt(severity);
+                if (n > 0)
+                    parts.Add($"{n} {singular}{(n == 1 ? "" : "s")}");
+            }
+
+            Add(DoctorSeverity.Error, "error");
+            Add(DoctorSeverity.Warning, "warning");
+            // "info" reads the same singular/plural; keep it uncounted-plural for consistency.
+            int infos = report.CountAt(DoctorSeverity.Info);
+            if (infos > 0)
+                parts.Add($"{infos} info");
+
+            return parts.Count == 0 ? "clean" : string.Join(", ", parts);
+        }
+
+        /// <summary>Human-readable duration: milliseconds under a second, seconds under a minute, else m:ss.</summary>
+        private static string FormatElapsed(double milliseconds)
+        {
+            if (milliseconds < 1000)
+                return $"{milliseconds:0} ms";
+            double seconds = milliseconds / 1000.0;
+            if (seconds < 60)
+                return $"{seconds:0.0} s";
+            int minutes = (int)(seconds / 60);
+            return $"{minutes}m {seconds - minutes * 60:00} s";
+        }
+
+        /// <summary>Status-dot class for a completed check: worst severity wins; clean is green.</summary>
+        private static string LogDotClass(DoctorCheckReport report)
+        {
+            if (report.Crashed || report.CountAt(DoctorSeverity.Error) > 0)
+                return "molca-status-dot--error";
+            if (report.CountAt(DoctorSeverity.Warning) > 0)
+                return "molca-status-dot--warn";
+            if (report.CountAt(DoctorSeverity.Info) > 0)
+                return "molca-status-dot--idle";
+            return "molca-status-dot--ok";
+        }
+
+        /// <summary>Builds the plain-text run log for the Copy action.</summary>
+        private string BuildTraceReport()
+        {
+            var reports = Session.Reports;
+            var sb = new System.Text.StringBuilder();
+            double totalMs = reports.Sum(r => r.ElapsedMilliseconds);
+            sb.AppendLine($"Molca Doctor — run log ({reports.Count} check(s), {FormatElapsed(totalMs)}).");
+            foreach (var r in reports)
+            {
+                var summary = r.IsClean ? "clean" : DescribeCounts(r);
+                sb.AppendLine($"[{r.Index + 1}/{r.TotalCount}] {r.Check.Id} · {FormatElapsed(r.ElapsedMilliseconds)} · {summary}");
+            }
+            return sb.ToString();
         }
 
         private void BuildResults()
@@ -344,58 +719,51 @@ namespace Molca.Editor.Doctor
             _scroll.Add(_results);
         }
 
-        /// <summary>Runs the enabled checks asynchronously with an inline, cancelable progress bar.</summary>
-        public async Awaitable RunChecksAsync()
+        // ── Session event handlers (all raised on the main thread) ───────────────────────────────
+
+        private void HandleRunStarted()
         {
-            if (_isRunning)
-                return;
-
-            var enabled = new HashSet<string>(MolcaDoctor.Checks.Select(c => c.Id).Except(_disabledChecks));
-            _isRunning = true;
-            _runCts = new CancellationTokenSource();
             SetRunningUi(true);
-
-            try
-            {
-                _issues = await MolcaDoctor.RunAllAsync(
-                    enabled,
-                    OnProgress,
-                    _runCts.Token,
-                    OnStatus);
-                _hasRun = true;
-            }
-            catch (OperationCanceledException)
-            {
-                // Canceled by the user — keep whatever _issues already held; not an error.
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"[MolcaDoctor] Run failed: {e}");
-            }
-            finally
-            {
-                _runCts?.Dispose();
-                _runCts = null;
-                _isRunning = false;
-                SetRunningUi(false);
-                RefreshResults();
-            }
+            ResetLog(Session.TotalCount);
+            RefreshResults();
         }
 
-        // RunAllAsync invokes both callbacks on the main thread, so touching UI here is safe.
-        private void OnProgress(DoctorProgress p)
+        private void HandleProgress(DoctorProgress p)
         {
             if (p.CurrentCheck == null)
                 return;
-            _progressBar.value = p.Fraction * 100f;
-            _progressBar.title = $"({p.CompletedCount + 1}/{p.TotalCount}) {p.CurrentCheck.Id}";
-            _progressLabel.text = p.CurrentCheck.Description;
+            ApplyProgressToBar(p, p.CurrentCheck.Description);
+            BeginCheckLog(p);
         }
 
-        private void OnStatus(string detail)
+        private void HandleStatus(string detail)
         {
-            if (!string.IsNullOrEmpty(detail))
-                _progressLabel.text = detail;
+            if (string.IsNullOrEmpty(detail))
+                return;
+            _progressLabel.text = detail;
+            // Mirror sub-check detail into the current log row so the trace shows progress within a check.
+            if (_currentLogDetail != null)
+                _currentLogDetail.text = detail;
+        }
+
+        private void HandleCheckCompleted(DoctorCheckReport report)
+        {
+            CompleteCheckLog(report);
+            RefreshResults(); // findings accumulate live so a mid-run view shows partial results
+        }
+
+        private void HandleRunFinished(bool canceled)
+        {
+            SetRunningUi(false);
+            FinishLog(canceled);
+            RefreshResults();
+        }
+
+        private void ApplyProgressToBar(DoctorProgress p, string detail)
+        {
+            _progressBar.value = p.Fraction * 100f;
+            _progressBar.title = $"({p.CompletedCount + 1}/{p.TotalCount}) {p.CurrentCheck?.Id}";
+            _progressLabel.text = string.IsNullOrEmpty(detail) ? p.CurrentCheck?.Description : detail;
         }
 
         private void SetRunningUi(bool running)
@@ -413,9 +781,10 @@ namespace Molca.Editor.Doctor
 
         private void RefreshResults()
         {
-            bool hasIssues = _issues.Count > 0;
-            _copyButton.SetEnabled(!_isRunning && hasIssues);
-            _exportButton.SetEnabled(!_isRunning && hasIssues);
+            var issues = Session.Issues;
+            bool hasIssues = issues.Count > 0;
+            _copyButton.SetEnabled(!Session.IsRunning && hasIssues);
+            _exportButton.SetEnabled(!Session.IsRunning && hasIssues);
 
             UpdateChipText(_errorChip, "Errors", DoctorSeverity.Error);
             UpdateChipText(_warnChip, "Warnings", DoctorSeverity.Warning);
@@ -423,7 +792,7 @@ namespace Molca.Editor.Doctor
 
             _results.Clear();
 
-            if (!_hasRun)
+            if (!Session.HasRun && !Session.IsRunning)
             {
                 _results.Add(Placeholder("Run Checks to validate the project against Molca conventions."));
                 return;
@@ -431,11 +800,11 @@ namespace Molca.Editor.Doctor
 
             if (!hasIssues)
             {
-                _results.Add(Placeholder("All checks passed — no findings."));
+                _results.Add(Placeholder(Session.IsRunning ? "Running…" : "All checks passed — no findings."));
                 return;
             }
 
-            foreach (var issue in _issues.OrderByDescending(i => i.Severity))
+            foreach (var issue in issues.OrderByDescending(i => i.Severity))
             {
                 if (!IsVisible(issue.Severity))
                     continue;
@@ -495,9 +864,10 @@ namespace Molca.Editor.Doctor
 
         private string BuildReport()
         {
+            var issues = Session.Issues;
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"Molca Doctor — {_issues.Count} finding(s): {Count(DoctorSeverity.Error)} error(s), {Count(DoctorSeverity.Warning)} warning(s).");
-            foreach (var issue in _issues.OrderByDescending(i => i.Severity))
+            sb.AppendLine($"Molca Doctor — {issues.Count} finding(s): {Count(DoctorSeverity.Error)} error(s), {Count(DoctorSeverity.Warning)} warning(s).");
+            foreach (var issue in issues.OrderByDescending(i => i.Severity))
                 sb.AppendLine(issue.ToString());
             return sb.ToString();
         }
@@ -509,7 +879,7 @@ namespace Molca.Editor.Doctor
             _ => _showInfos,
         };
 
-        private int Count(DoctorSeverity severity) => _issues.Count(i => i.Severity == severity);
+        private int Count(DoctorSeverity severity) => Session.Issues.Count(i => i.Severity == severity);
 
         private static string StatusClass(DoctorSeverity severity) => severity switch
         {

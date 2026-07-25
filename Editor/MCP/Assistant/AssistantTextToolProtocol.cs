@@ -44,7 +44,58 @@ namespace Molca.Editor.Mcp.Assistant
     /// </remarks>
     internal static class AssistantTextToolProtocol
     {
-        private const int MaxTurnReminderTools = 8;
+        private const int MaxTurnReminderTools = 5;
+
+        /// <summary>
+        /// Discovery and interaction tools always kept in the narrowed system-prompt menu (Sprint 89), even
+        /// when the retrieval ranker doesn't surface them for the turn. They are what lets the model recover
+        /// from a bad request — discover a real target, ask the user, or propose a plan — so dropping them
+        /// would strand it. Only those actually present in the registry are added; unknown names are ignored.
+        /// </summary>
+        private static readonly string[] AlwaysPresentedCore =
+        {
+            "molca_unity_scene_objects", "molca_unity_selection", "molca_unity_gameobject_components",
+            "molca_unity_component_fields", "molca_unity_assets", "molca_read_source", "molca_kg_query",
+            "molca_ask_user", "molca_propose_plan",
+        };
+
+        /// <summary>
+        /// Selects the subset of tools to <b>present</b> in the text-tool system prompt for a turn (Sprint 89):
+        /// the always-on discovery/interaction core plus the tools the ranker finds most relevant to
+        /// <paramref name="userText"/>, capped at <paramref name="limit"/>. This narrows only what the model is
+        /// shown — the caller still parses and executes against the full registry, so a tool omitted here can
+        /// still be called if the model names it. A small local model discriminates far better over this short
+        /// menu than over the full ~180-tool dump.
+        /// </summary>
+        /// <param name="userText">The current user request, used to rank relevance.</param>
+        /// <param name="tools">The full flat tool set available this turn.</param>
+        /// <param name="limit">Maximum tools to present; <c>0</c> (or a set already at/below the limit) presents all.</param>
+        /// <returns>The narrowed presentation set in deterministic name order, or <paramref name="tools"/> unchanged when no narrowing applies.</returns>
+        internal static IReadOnlyList<LlmToolSpec> SelectPresentedTools(
+            string userText, IReadOnlyList<LlmToolSpec> tools, int limit)
+        {
+            if (tools == null || tools.Count == 0) return tools ?? Array.Empty<LlmToolSpec>();
+            // Narrowing off (limit 0) or unnecessary (the whole set already fits): present everything. This
+            // makes the change a no-op for the small registries every test uses — only the live ~180-tool
+            // registry is actually narrowed.
+            if (limit <= 0 || tools.Count <= limit) return tools;
+
+            var toolMap = BuildToolMap(tools);
+            var selected = new Dictionary<string, LlmToolSpec>(StringComparer.Ordinal);
+
+            // Core first (essential, added regardless of the limit — the core is small and must survive).
+            foreach (var name in AlwaysPresentedCore)
+                if (toolMap.TryGetValue(name, out var core)) selected[name] = core;
+
+            // Then fill with the most relevant tools for this request until the limit is reached.
+            foreach (var candidate in RankRelevantTools(userText, toolMap, limit))
+            {
+                if (selected.Count >= limit) break;
+                selected[candidate.Tool.Name] = candidate.Tool;
+            }
+
+            return selected.Values.OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
+        }
 
         private static readonly Regex ToolBlockRegex = new Regex(
             @"<(?<name>[A-Za-z_][A-Za-z0-9_\-.]*)\b[^>]*>(?<body>[\s\S]*?)</\k<name>>",

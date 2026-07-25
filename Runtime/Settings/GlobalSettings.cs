@@ -104,10 +104,18 @@ namespace Molca
 
         public static int Quality => QualitySettings.GetQualityLevel();
         
-        public static async Awaitable SetQuality(int value)
+        /// <summary>
+        /// Applies and persists the <see cref="QualitySettings"/> level after a short
+        /// settle delay (lets a settings UI finish its transition first).
+        /// </summary>
+        /// <param name="value">The quality level to apply.</param>
+        /// <param name="cancellationToken">Cancels the settle delay; when cancelled, the
+        /// level is not applied. Cancellation surfaces as <see cref="OperationCanceledException"/>.</param>
+        public static async Awaitable SetQuality(int value, System.Threading.CancellationToken cancellationToken = default)
         {
             main.onQualityChanged?.Invoke(value);
-            await Awaitable.WaitForSecondsAsync(.1f);
+            await Awaitable.WaitForSecondsAsync(.1f, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             QualitySettings.SetQualityLevel(value);
             PlayerPrefs.SetInt(PREF_QUALITY, value);
         }

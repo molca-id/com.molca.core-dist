@@ -28,6 +28,13 @@ namespace Molca.Editor.Hub
         /// <summary>Sort order among non-Settings tabs (ascending; ties broken by <see cref="Id"/>).</summary>
         public int Order { get; }
 
+        /// <summary>
+        /// Optional icon rendered before the tab label. Resolved first as an on-brand Molca family icon
+        /// shipped in the package (e.g. <c>"doctor"</c>, <c>"sequence"</c>, <c>"mcp"</c>), then as a
+        /// built-in editor icon name (e.g. <c>"TextAsset Icon"</c>). <c>null</c>/empty renders label-only.
+        /// </summary>
+        public string Icon { get; }
+
         /// <summary>Builds the hosted content for this workspace. Invoked on each selection.</summary>
         public Func<VisualElement> CreateContent { get; }
 
@@ -51,8 +58,10 @@ namespace Molca.Editor.Hub
         /// <param name="createContent">Factory that builds the hosted content on selection.</param>
         /// <param name="isAvailable">Optional availability gate; <c>null</c> means always available.</param>
         /// <param name="rightAnchored">When <c>true</c>, anchors the tab to the right of the toolbar.</param>
+        /// <param name="icon">Optional tab icon (Molca family name or built-in editor icon name); see <see cref="Icon"/>.</param>
         public MolcaHubWorkspaceItem(string id, string label, int order,
-            Func<VisualElement> createContent, Func<bool> isAvailable = null, bool rightAnchored = false)
+            Func<VisualElement> createContent, Func<bool> isAvailable = null, bool rightAnchored = false,
+            string icon = null)
         {
             Id = id;
             Label = label;
@@ -60,6 +69,7 @@ namespace Molca.Editor.Hub
             CreateContent = createContent;
             IsAvailable = isAvailable;
             RightAnchored = rightAnchored;
+            Icon = icon;
         }
     }
 

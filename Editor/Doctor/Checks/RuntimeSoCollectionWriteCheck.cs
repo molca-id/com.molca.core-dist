@@ -69,6 +69,11 @@ namespace Molca.Editor.Doctor
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // Comment/string-stripped copy, used only for brace counting in the
+                // enclosing-method scan — an interpolated string such as
+                // $"removed {collection.name}" must not skew the brace balance.
+                string[] cleanLines = CleanAll(source.Lines);
+
                 string currentClass = null;
                 var fieldsInClass = new HashSet<string>();
                 for (int i = 0; i < source.Lines.Length; i++)
@@ -99,7 +104,7 @@ namespace Molca.Editor.Doctor
                         if (!Regex.IsMatch(line, $@"\b{Regex.Escape(field)}\s*\.\s*(Add|Remove|RemoveAt|Insert|Clear)\s*\("))
                             continue;
 
-                        string body = CollectEnclosingMethod(source.Lines, i);
+                        string body = CollectEnclosingMethod(source.Lines, cleanLines, i);
                         if (GuardMarkers.Any(body.Contains))
                             continue; // treated as already handling the read-only-SO rule
 
@@ -144,35 +149,148 @@ namespace Molca.Editor.Doctor
             return false;
         }
 
-        // Walks outward from `line` to the nearest enclosing method's braces (bounded),
-        // returning its text for the guard-marker substring scan.
-        private static string CollectEnclosingMethod(string[] lines, int line)
+        // Trimmed leading token of a control-flow block (as opposed to a method/property
+        // scope). A guard at the top of a method must be found even when the mutation is
+        // nested inside if/for/while blocks, so the scan walks *out* of these to the
+        // enclosing method scope.
+        private static readonly Regex ControlBlockHeader = new Regex(
+            @"^\s*(\}\s*)?\b(if|else|for|foreach|while|switch|using|lock|catch|try|do|fixed|unsafe)\b");
+
+        // Walks outward from `line` to the nearest enclosing *method* scope — skipping
+        // inner control-flow blocks (if/for/…) so a runtime guard at the method's top is
+        // included — and returns its raw text for the guard-marker substring scan.
+        // Brace counting runs on the comment/string-stripped `cleanLines`; the returned
+        // text is the original `rawLines` so guard tokens read normally.
+        private static string CollectEnclosingMethod(string[] rawLines, string[] cleanLines, int line)
         {
-            int start = line;
+            int start = 0;
             int depth = 0;
-            for (int i = line; i >= 0 && i >= line - 200; i--)
+            for (int i = line; i >= 0 && i >= line - 500; i--)
             {
-                foreach (char c in lines[i])
+                var clean = cleanLines[i];
+                bool foundMethodOpen = false;
+                for (int col = clean.Length - 1; col >= 0; col--)
                 {
-                    if (c == '}') depth++;
-                    else if (c == '{') depth--;
+                    char c = clean[col];
+                    if (c == '}')
+                    {
+                        depth++;
+                    }
+                    else if (c == '{')
+                    {
+                        if (depth > 0) { depth--; continue; }
+                        // depth == 0: this brace opens the scope directly containing our
+                        // position. If it is a control block, keep walking outward; the
+                        // method scope is the first non-control opener.
+                        if (IsControlBlockOpen(cleanLines, i, col))
+                            continue;
+                        start = i;
+                        foundMethodOpen = true;
+                        break;
+                    }
                 }
+                if (foundMethodOpen)
+                    break;
                 start = i;
-                if (depth < 0) break; // found the method's opening brace
             }
 
             var sb = new System.Text.StringBuilder();
             int d = 0;
             bool started = false;
-            for (int i = start; i < lines.Length && i < start + 200; i++)
+            for (int i = start; i < rawLines.Length && i < start + 500; i++)
             {
-                sb.Append(lines[i]).Append('\n');
-                foreach (char c in lines[i])
+                sb.Append(rawLines[i]).Append('\n');
+                foreach (char c in cleanLines[i])
                 {
                     if (c == '{') { d++; started = true; }
                     else if (c == '}') d--;
                 }
                 if (started && d <= 0) break;
+            }
+            return sb.ToString();
+        }
+
+        // True when the `{` at (braceLine, braceCol) opens a control-flow block rather
+        // than a method/type body. Uses the header text before the brace, or the nearest
+        // preceding non-empty line when the brace sits on its own line (Allman style).
+        private static bool IsControlBlockOpen(string[] cleanLines, int braceLine, int braceCol)
+        {
+            string header = cleanLines[braceLine].Substring(0, braceCol);
+            if (header.Trim().Length == 0)
+            {
+                for (int i = braceLine - 1; i >= 0 && i >= braceLine - 5; i--)
+                {
+                    if (cleanLines[i].Trim().Length == 0) continue;
+                    header = cleanLines[i];
+                    break;
+                }
+            }
+            return ControlBlockHeader.IsMatch(header);
+        }
+
+        private static string[] CleanAll(string[] lines)
+        {
+            var result = new string[lines.Length];
+            bool inBlockComment = false;
+            for (int i = 0; i < lines.Length; i++)
+                result[i] = StripNonCode(lines[i], ref inBlockComment);
+            return result;
+        }
+
+        // Blanks comment and string/char-literal content so brace scanning sees only code.
+        // Tracks `/* */` state across lines; string bodies are blanked wholesale, which is
+        // enough to keep braces inside (including interpolated) strings out of the count.
+        private static string StripNonCode(string line, ref bool inBlockComment)
+        {
+            var sb = new System.Text.StringBuilder(line.Length);
+            int i = 0;
+            while (i < line.Length)
+            {
+                if (inBlockComment)
+                {
+                    int end = line.IndexOf("*/", i, System.StringComparison.Ordinal);
+                    if (end < 0) return sb.ToString();
+                    inBlockComment = false;
+                    i = end + 2;
+                    continue;
+                }
+
+                char c = line[i];
+                if (c == '/' && i + 1 < line.Length && line[i + 1] == '/')
+                    break;
+                if (c == '/' && i + 1 < line.Length && line[i + 1] == '*')
+                {
+                    inBlockComment = true;
+                    i += 2;
+                    continue;
+                }
+                if (c == '"')
+                {
+                    i++;
+                    while (i < line.Length)
+                    {
+                        if (line[i] == '\\') { i += 2; continue; }
+                        if (line[i] == '"') { i++; break; }
+                        i++;
+                    }
+                    sb.Append(' ');
+                    continue;
+                }
+                if (c == '\'')
+                {
+                    i++;
+                    while (i < line.Length)
+                    {
+                        if (line[i] == '\\') { i += 2; continue; }
+                        if (line[i] == '\'') { i++; break; }
+                        i++;
+                    }
+                    sb.Append(' ');
+                    continue;
+                }
+
+                sb.Append(c);
+                i++;
             }
             return sb.ToString();
         }

@@ -18,11 +18,11 @@ namespace Molca.Editor.Hub
         public override IEnumerable<MolcaHubWorkspaceItem> GetWorkspaces() => new[]
         {
             new MolcaHubWorkspaceItem("doctor", "Doctor", 10,
-                () => new Molca.Editor.Doctor.MolcaDoctorView()),
+                () => new Molca.Editor.Doctor.MolcaDoctorView(), icon: "doctor"),
             new MolcaHubWorkspaceItem("assistant", "Assistant", 20,
-                () => new AssistantChatView()),
+                () => new AssistantChatView(), icon: "mcp"),
             new MolcaHubWorkspaceItem("sequence", "Sequence", 30,
-                () => new SequenceVisualizerView()),
+                () => new SequenceVisualizerView(), icon: "sequence"),
         };
     }
 }

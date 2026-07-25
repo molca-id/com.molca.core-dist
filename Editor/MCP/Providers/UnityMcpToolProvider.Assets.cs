@@ -234,7 +234,7 @@ namespace Molca.Editor.Mcp.Providers
 
         private static McpToolDefinition CreatePrefabInstantiateTool() => new McpToolDefinition(
             name: "molca_unity_prefab_instantiate",
-            description: "Instantiates a prefab asset into the active scene. Edit-mode action, allowlist-confirmed, and revertible with Unity Undo.",
+            description: "Places an EXISTING prefab or model asset into the active scene by its asset 'path'; NOT for creating a new empty or primitive GameObject — use molca_unity_gameobject_create for that. Revertible with Unity Undo.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"required\":[\"path\"],\"properties\":{" +
                 "\"path\":{\"type\":\"string\",\"description\":\"Prefab asset path.\"}," +

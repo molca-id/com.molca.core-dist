@@ -924,11 +924,29 @@ namespace Molca.Editor.UI
 
         private static VisualElement CreateCodeBlock(string text)
         {
+            var wrap = new VisualElement();
+            wrap.AddToClassList("molca-md-code-block-wrap");
+
             var label = new Label(text);
             label.AddToClassList("molca-md-code-block");
             label.style.whiteSpace = WhiteSpace.Pre; // preserve indentation and line breaks
             ApplyMonospace(label);
-            return label;
+            wrap.Add(label);
+
+            Button copy = null;
+            copy = new Button(() => CopyCodeBlock(text, copy)) { text = "Copy", tooltip = "Copy code block to clipboard" };
+            copy.AddToClassList("molca-md-code-copy-btn");
+            wrap.Add(copy);
+
+            return wrap;
+        }
+
+        /// <summary>Copies a code block's raw text to the system clipboard, flashing the button label as confirmation.</summary>
+        private static void CopyCodeBlock(string text, Button button)
+        {
+            GUIUtility.systemCopyBuffer = text;
+            button.text = "Copied";
+            button.schedule.Execute(() => button.text = "Copy").ExecuteLater(1200);
         }
 
         // A monospace OS font so code reads as code. Resolved once and cached; null (rare) leaves the label

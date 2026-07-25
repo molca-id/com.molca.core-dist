@@ -5,6 +5,7 @@ using UnityEditor;
 using UnityEngine;
 using Molca.Editor.UI.Figma;
 using Molca.Editor.UI.Build;
+using Molca.UI.Tokens;
 
 namespace Molca.Editor.Mcp.Providers
 {
@@ -130,5 +131,40 @@ namespace Molca.Editor.Mcp.Providers
             "camera" => UguiCanvasMode.Camera,
             _ => UguiCanvasMode.World, // default preserves VR behavior
         };
+
+        /// <summary>
+        /// Resolves a <see cref="MolcaUiTokenCatalog"/> by asset name, or the only/first one in the project
+        /// when no name is given. Returns null with an explanatory error when none exists.
+        /// </summary>
+        /// <remarks>
+        /// Shared with the Figma add-on's own <c>molca_figma_to_ui_spec</c> tool (duplicated there, not
+        /// referenced across the assembly boundary — same pattern as the small per-provider
+        /// <c>ParseArgs</c>/<c>Error</c> helpers every MCP tool provider carries its own copy of).
+        /// </remarks>
+        private static MolcaUiTokenRegistry ResolveUiTokenCatalog(string nameOrNull, out string error)
+        {
+            error = null;
+            var guids = AssetDatabase.FindAssets("t:MolcaUiTokenCatalog");
+            if (guids == null || guids.Length == 0)
+            {
+                error = "No UI Token Catalog found. Create one (Create > Molca > UI > UI Token Catalog) "
+                      + "or mine one from your UI prefabs (Sprint 57).";
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(nameOrNull))
+            {
+                foreach (var guid in guids)
+                {
+                    var path = AssetDatabase.GUIDToAssetPath(guid);
+                    var catalog = AssetDatabase.LoadAssetAtPath<MolcaUiTokenCatalog>(path);
+                    if (catalog != null && catalog.name == nameOrNull) return catalog;
+                }
+                error = $"No UI Token Catalog asset named '{nameOrNull}'.";
+                return null;
+            }
+
+            return AssetDatabase.LoadAssetAtPath<MolcaUiTokenCatalog>(AssetDatabase.GUIDToAssetPath(guids[0]));
+        }
     }
 }

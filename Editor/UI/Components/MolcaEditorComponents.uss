@@ -307,15 +307,36 @@
     color: var(--molca-heading);
 }
 
+.molca-md-code-block-wrap {
+    position: relative;
+    margin-top: 2px;
+    margin-bottom: 4px;
+}
+
 .molca-md-code-block {
     background-color: var(--molca-input);
     padding: 6px 8px;
+    padding-bottom: 22px;
     font-size: 11px;
-    margin-top: 2px;
-    margin-bottom: 4px;
     border-width: 1px;
     border-color: var(--molca-border);
     border-radius: 4px;
+    margin: 0;
+}
+
+.molca-md-code-copy-btn {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    font-size: 9px;
+    padding: 1px 6px;
+    margin: 0;
+    height: 16px;
+    opacity: 0.6;
+}
+
+.molca-md-code-copy-btn:hover {
+    opacity: 1;
 }
 
 .molca-md-list-row {

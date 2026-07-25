@@ -24,7 +24,8 @@ namespace Molca.Editor.Hub.Docs
                 WorkspaceId, "Docs", order: 1000,
                 createContent: () => new DocsWorkspaceView(),
                 isAvailable: () => MolcaDocsRegistry.GetDocs().Count > 0,
-                rightAnchored: true)
+                rightAnchored: true,
+                icon: "TextAsset Icon")
         };
     }
 }

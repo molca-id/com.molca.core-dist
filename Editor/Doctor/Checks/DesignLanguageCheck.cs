@@ -66,6 +66,11 @@ namespace Molca.Editor.Doctor
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // Test code is not editor-UI chrome: a raw `new Color(...)` there is a
+                // test fixture / expected value, not a design-language surface to token-ize.
+                if (IsTestFile(source.Path))
+                    continue;
+
                 bool allowHex = IsDomainColorFile(source.Path);
                 bool allowPrefs = IsMachineGlobalPrefsFile(source.Path);
                 bool allowAssetPath = IsSettingsAssetHelperFile(source.Path);
@@ -158,6 +163,11 @@ namespace Molca.Editor.Doctor
             path.EndsWith("AssistantApiAuth.cs", StringComparison.Ordinal) ||
             path.EndsWith("BuildManager.cs", StringComparison.Ordinal) ||
             path.EndsWith("ChangelogWriter.cs", StringComparison.Ordinal);
+
+        // Test sources (…/Tests/…) exercise UI rather than being UI chrome, so the
+        // design-language surface rules (tokens, scoped prefs) do not apply to them.
+        private static bool IsTestFile(string path) =>
+            path.Contains("/Tests/") || path.EndsWith("Tests.cs", StringComparison.Ordinal);
 
         // The shared helper is the one place that legitimately writes a canonical settings-asset path.
         private static bool IsSettingsAssetHelperFile(string path) =>

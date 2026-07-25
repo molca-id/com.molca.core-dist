@@ -41,6 +41,7 @@ namespace Molca.Editor.Doctor
                 ["ColorID"] = "COLOR_ID",
                 ["ContentPackage"] = "CONTENT_PACKAGES",
                 ["Events"] = "EVENTS",
+                ["Licensing"] = "LICENSING",
                 ["Localization"] = "LOCALIZATION",
                 ["Modals"] = "MODALS",
                 ["Networking"] = "NETWORKING",
@@ -55,10 +56,12 @@ namespace Molca.Editor.Doctor
 
         /// <summary>
         /// Core <c>Runtime/</c> subdirectories intentionally without their own guide (covered elsewhere).
-        /// <c>UIToolkit</c> is an editor-authoring pipeline surfaced through the UI/Figma tooling guides.
+        /// <c>UIToolkit</c> is an editor-authoring pipeline surfaced through the UI/Figma tooling guides;
+        /// <c>DevPlayer</c> is the development-only automation bridge documented in the Unity automation
+        /// plan (§17), not a user-facing runtime system.
         /// </summary>
         internal static readonly IReadOnlyCollection<string> ExcludedCoreDirs =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "UIToolkit" };
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "UIToolkit", "DevPlayer" };
 
         /// <summary>SDK <c>Runtime/Scripts/</c> feature area → the guide id that documents it.</summary>
         internal static readonly IReadOnlyDictionary<string, string> SdkFeatureGuides =
@@ -80,15 +83,22 @@ namespace Molca.Editor.Doctor
 
             var issues = new List<DoctorIssue>();
 
+            // Phase trace: the registry scan (Package Manager + TypeCache) dominates this check's runtime,
+            // so announce it before it blocks rather than leaving the run log silent.
+            context.ReportStatus("Loading docs registry…");
             var available = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var doc in MolcaDocsRegistry.GetDocs())
                 available.Add(doc.Id);
 
+            context.ReportStatus("Auditing Core Runtime systems…");
             AuditRuntimeDirectory(CoreRuntimeDir, CoreRuntimeGuides, ExcludedCoreDirs, "Core Runtime", available, issues);
 
             // SDK is optional — only audit when the shared SDK package is present in this project.
             if (Directory.Exists(SdkScriptsDir))
+            {
+                context.ReportStatus("Auditing SDK feature areas…");
                 AuditRuntimeDirectory(SdkScriptsDir, SdkFeatureGuides, Array.Empty<string>(), "SDK feature", available, issues);
+            }
 
             return issues;
         }

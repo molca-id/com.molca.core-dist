@@ -55,6 +55,10 @@ namespace Molca.Editor.Doctor
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // Per-doc trace: each doc's link resolution hits the AssetDatabase and can be slow, so
+                // reporting the current doc keeps the Doctor run log alive instead of silent for minutes.
+                context.ReportStatus($"doc {processed + 1}/{docs.Count}: {Path.GetFileName(doc.AbsolutePath)}");
+
                 string[] rawLines;
                 string body;
                 try
@@ -95,7 +99,9 @@ namespace Molca.Editor.Doctor
                         $"Broken link ({reason}): {target}", NormalizePath(doc.AbsolutePath), FindLine(rawLines, target)));
                 }
 
-                if (++processed % 8 == 0) await Awaitable.NextFrameAsync(cancellationToken);
+                // Yield every other doc so the reported per-doc status actually renders (the UI repaints
+                // only at a yield). Each doc's work dwarfs a frame wait, so this costs almost nothing.
+                if (++processed % 2 == 0) await Awaitable.NextFrameAsync(cancellationToken);
             }
 
             return issues;

@@ -2,6 +2,82 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.15.0] - 2026-07-25
+
+### Added
+- **Hub → Settings → About.** A new last rail leaf reporting what a project is actually running: every
+  installed `com.molca.*` package with its version and install source (registry / git / embedded / local),
+  the editor version and scripting runtime, wire-schema versions, and the installed add-on count. **Copy
+  diagnostics** puts the whole table on the clipboard as markdown for bug reports. The package list is
+  enumerated rather than hardcoded, so an SDK layer or fork's own Molca packages report themselves without a
+  Core edit. The card also mirrors the stored developer entitlement read-only and collects the repository,
+  documentation, changelog, and support links.
+- **Framework update check.** About reads the control plane's release feed
+  (`GET /framework/releases/latest`, `frameworkUpdate` protocol 1) through the same trust shape as the add-on
+  catalog — developer entitlement, pinned HTTPS host, machine header — and reports whether a newer Core
+  exists, whether this editor's Unity can take it, and whether the installed version is still supported.
+  Answers are cached for six hours; **Check now** bypasses the cache, the check never runs in batch mode, and
+  it is opt-out per project.
+
+  What the card offers depends on how Core is installed, because that is what decides whether an upgrade can
+  be applied at all: a registry install gets a confirmed one-click Package Manager update, a git install gets
+  the manifest dependency line copied, and an embedded or local install gets the upgrade spec copied. No code
+  path edits `Packages/manifest.json` or files on disk. A release that raises the minimum Unity is reported
+  but never offered — when the feed also names an older installable release, that one is offered and the
+  blocked one stays visible with its requirement. Being offline or not signed in is reported inside the card,
+  with no console error and no dialog. An optional activity-rail chip (off by default) surfaces an available
+  update outside About.
+
+### Changed
+- **Developer OAuth code exchange moved to the control plane.** Core now sends the one-time Google
+  authorization code, PKCE verifier, and loopback redirect URI to `/activate-dev`; it no longer ships a
+  Google client secret or handles Google access tokens. The shared authorization-code client adds an
+  authorize-only API while retaining the existing client-side exchange behavior for integrations.
+
+## [1.14.0] - 2026-07-24
+
+### Added
+- **Revamped Add-ons Hub UI.** "Add-ons" is now its own Settings-rail root with **Browse** and **Installed**
+  children, rebuilt on the shared editor design language (`MolcaSectionCard`/`MolcaSearchField`/`MolcaButtons`,
+  tokenised USS) instead of the previous inline-styled single list. Cards show per-add-on status (installed /
+  update available / source-drift / files-missing), an expandable details foldout (trust, compatibility,
+  integrity), search, and an add-on icon (custom `package.json` `"icon"` with a generic fallback). Add-ons can
+  also contribute their own `Documentation~/reference/*.md` guides, which surface automatically in the Hub
+  **Docs** tab (any installed `com.molca.*` package is scanned).
+- **Add-on license gate + load-time integrity check.** The Hub Add-ons panel withholds the online
+  browse/install/update/remove surface unless a valid Molca developer license is present (offline signed-bundle
+  import stays available by design). On editor load, installed add-ons are checked against the ownership
+  ledger: a warning is logged when the license is invalid and when an installed add-on's `.cs` source has
+  drifted from the signed content it was installed from (new `contentHash` recorded at install).
+
+### Changed
+- **Add-on activation defers its asset refresh** to a clean editor tick (`EditorApplication.delayCall`) instead
+  of refreshing inline, fixing a domain-reload hang when updating an already-resolved add-on package.
+- **Figma integration extracted to an add-on.** `FigmaIntegrationProvider` and its API client/translator,
+  the Figma-specific UI Intent Spec producers (`FigmaFrameModel`, `FigmaColorSnap`, `FigmaTokenMapper`,
+  `FigmaSpecComposer`), and the `molca_figma_*` / `molca_figma_to_ui_spec` MCP tools moved out of Core into
+  the `com.molca.addon.figma` add-on package (`FigmaMcpToolProvider`, `molca.figma` namespace) — the first
+  real capability distributed through the licensed add-on channel. `UiIntentSpec` and
+  `UiIntentSpecValidator` stay in Core (relocated from `Editor/UI/Figma/` to `Editor/UI/Build/`, same
+  namespace) as the generic contract the uGUI build pipeline and `molca_build_ugui` already depended on.
+
+## [1.13.0] - 2026-07-23
+
+### Added
+- **Licensed Add-ons workspace.** The Hub can browse, install, update, remove, and import signed offline
+  add-on packages using the current developer entitlement.
+- **Defense-in-depth package verification.** Add-on acquisition validates the keyed RSA manifest, expected
+  hash and size, Core/runtime compatibility, trusted hosts, tar confinement, package identity, and assembly
+  policy before transactional activation.
+- **Add-on ownership, recovery, audit, and telemetry.** Manager-owned installations have a durable ledger,
+  recoverable removal, local audit history, and a retrying privacy-preserving event queue.
+- **Editor tests and consumer guides** for the distribution contract and Add-ons workflow.
+
+### Changed
+- Internal licensing, signing, authoring, publishing, and deployment documentation now lives in the private
+  `molca-unity-platform` integration repository rather than the consumer Unity package.
+- The backend and dashboard were extracted from this repository into `molca-unity-control-plane`.
+
 ## [1.12.5] - 2026-07-22
 
 ### Added

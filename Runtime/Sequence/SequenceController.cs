@@ -181,7 +181,7 @@ namespace Molca.Sequence
         /// UnityEvent/inspector-friendly shim over <see cref="StartSequenceAsync"/>.
         /// Fire-and-forget with owned exceptions (async contract rule 2).
         /// </summary>
-        public async void StartSequence()
+        public async void StartSequence() // doctor:ignore async-void is intentional: UnityEvent/inspector shim, body is a try/catch wrapper over StartSequenceAsync
         {
             try
             {

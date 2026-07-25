@@ -225,7 +225,7 @@ namespace Molca.Audio
         /// exceptions are contained here instead of escaping into Unity's
         /// synchronization context unobserved.
         /// </summary>
-        public async void PlayMusic(string collectionName, string id)
+        public async void PlayMusic(string collectionName, string id) // doctor:ignore async-void is intentional: legacy compat entry point, body is a try/catch shim over PlayMusicAsync
         {
             try
             {
@@ -342,7 +342,7 @@ namespace Molca.Audio
         /// Legacy entry point for <see cref="PlaySFXAsync"/>. Thin async-void shim;
         /// exceptions are contained here.
         /// </summary>
-        public async void PlaySFX(string collectionName, string id, float volume = 1f, AudioSource audioSource = null)
+        public async void PlaySFX(string collectionName, string id, float volume = 1f, AudioSource audioSource = null) // doctor:ignore async-void is intentional: legacy compat entry point, body is a try/catch shim over PlaySFXAsync
         {
             try
             {
@@ -396,7 +396,7 @@ namespace Molca.Audio
         /// Legacy entry point for <see cref="PlayVoiceAsync"/>. Thin async-void shim;
         /// exceptions are contained here.
         /// </summary>
-        public async void PlayVoice(string collectionName, string id, float volume = 1f, AudioSource audioSource = null)
+        public async void PlayVoice(string collectionName, string id, float volume = 1f, AudioSource audioSource = null) // doctor:ignore async-void is intentional: legacy compat entry point, body is a try/catch shim over PlayVoiceAsync
         {
             try
             {
@@ -450,7 +450,7 @@ namespace Molca.Audio
         /// Legacy entry point for <see cref="PlayFromSourceAsync"/>. Thin async-void
         /// shim; exceptions are contained here.
         /// </summary>
-        public async void PlayFromSource(AudioSource audioSource, string collectionName, string id, AudioLibrary.AudioType audioType, float volume = 1f)
+        public async void PlayFromSource(AudioSource audioSource, string collectionName, string id, AudioLibrary.AudioType audioType, float volume = 1f) // doctor:ignore async-void is intentional: legacy compat entry point, body is a try/catch shim over PlayFromSourceAsync
         {
             try
             {

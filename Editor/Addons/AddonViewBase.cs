@@ -1,0 +1,400 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+using Molca.Editor.Icons;
+using Molca.Editor.Licensing;
+using Molca.Editor.UI;
+using Molca.Editor.UI.Components;
+using Newtonsoft.Json.Linq;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.UIElements;
+
+namespace Molca.Editor.Addons
+{
+    /// <summary>
+    /// Shared base for the Add-ons Hub views (Browse / Installed). Owns the design-language shell (title +
+    /// search + status + scrollable card list), the developer-license gate, the add-on acquisition services,
+    /// the confirmed install/update/remove/offline-import flows, and the shared card builder. Subclasses only
+    /// supply what to fetch (<see cref="FetchAsync"/>) and how to turn it into cards (<see cref="RenderCards"/>).
+    /// </summary>
+    /// <remarks>
+    /// Design language via <see cref="MolcaEditorUi.Apply"/> + the scoped <c>MolcaAddonsView.uss</c>; no inline
+    /// colors. Acquisition/verification is unchanged — this is presentation only.
+    /// </remarks>
+    internal abstract class AddonViewBase : VisualElement
+    {
+        private const string StyleSheetPath = "Packages/com.molca.core/Editor/Addons/MolcaAddonsView.uss";
+
+        protected readonly AddonCatalogClient Client = new AddonCatalogClient();
+        protected readonly AddonInstaller Installer = new AddonInstaller();
+        protected readonly ScrollView List;
+        protected readonly Label Status;
+        protected readonly MolcaSearchField Search;
+
+        private readonly VisualElement _channelSlot;
+        private CancellationTokenSource _cancellation;
+        private bool _busy;
+
+        /// <summary>Pre-release channel this view requests; the server caps it at the license ceiling.</summary>
+        protected string Channel { get; private set; } = AddonChannels.Preferred;
+
+        /// <summary>Row-shaped display model shared by Browse and Installed cards.</summary>
+        protected sealed class AddonCardModel
+        {
+            public string Id;
+            public string Name;
+            public string Publisher;
+            public string Description;
+            public string VersionText;
+            public bool HasRuntime;
+            public MolcaStatusKind Status = MolcaStatusKind.None;
+            public string StatusText;
+            public Texture2D Icon;
+            public readonly List<(string label, string value)> Details = new List<(string, string)>();
+        }
+
+        protected AddonViewBase(string title, string description, bool showImportAction)
+        {
+            AddToClassList("molca-addons-view");
+            MolcaEditorUi.Apply(this);
+            var sheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(StyleSheetPath);
+            if (sheet != null && !styleSheets.Contains(sheet)) styleSheets.Add(sheet);
+
+            var header = new VisualElement();
+            header.AddToClassList("molca-addons-header");
+
+            var titleStack = new VisualElement();
+            titleStack.AddToClassList("molca-addons-title-stack");
+            var titleLabel = new Label(title);
+            titleLabel.AddToClassList("molca-addons-title");
+            titleStack.Add(titleLabel);
+            var descLabel = new Label(description);
+            descLabel.AddToClassList("molca-addons-subtitle");
+            titleStack.Add(descLabel);
+            header.Add(titleStack);
+
+            var actions = new VisualElement();
+            actions.AddToClassList("molca-addons-header-actions");
+            // Populated after the first fetch: only the server knows how far up the ladder this license
+            // reaches, and offering a channel it cannot see would be a dead control.
+            _channelSlot = new VisualElement();
+            _channelSlot.AddToClassList("molca-addons-channel");
+            actions.Add(_channelSlot);
+            if (showImportAction)
+                actions.Add(MolcaButtons.Toolbar("Import signed bundle…", ImportOffline));
+            actions.Add(MolcaButtons.Toolbar("Refresh", () => Refresh(forceRefresh: true)));
+            header.Add(actions);
+            Add(header);
+
+            Search = new MolcaSearchField("Search add-ons");
+            Search.OnSearchChanged += _ => RenderCards(Search.Value);
+            Add(Search);
+
+            Status = new Label();
+            Status.AddToClassList("molca-addons-status");
+            Add(Status);
+
+            List = new ScrollView();
+            List.AddToClassList("molca-addons-list");
+            Add(List);
+
+            RegisterCallback<DetachFromPanelEvent>(_ => CancelOutstanding());
+            // Deferred to AttachToPanel (not the ctor): subclass field initializers run after this base ctor,
+            // so fetching here would race an uninitialized subclass. Attach fires once the view is fully built.
+            // Switching tabs reuses the shared catalog cache rather than refetching.
+            RegisterCallback<AttachToPanelEvent>(_ => Refresh(forceRefresh: false));
+        }
+
+        /// <summary>Fetches the data the view needs into subclass-held state. Called on refresh.</summary>
+        /// <param name="forceRefresh">True to bypass the shared catalog cache.</param>
+        /// <param name="cancellationToken">Cancels the fetch when the view detaches.</param>
+        protected abstract Awaitable FetchAsync(bool forceRefresh, CancellationToken cancellationToken);
+
+        /// <summary>Rebuilds the card list from fetched state, applying the current search filter.</summary>
+        protected abstract void RenderCards(string filter);
+
+        /// <summary>
+        /// Rebuilds the channel selector once a fetch has revealed the license's ceiling. A license
+        /// limited to stable gets no control at all rather than a one-option dropdown.
+        /// </summary>
+        protected void UpdateChannelSelector(string maxChannel)
+        {
+            _channelSlot.Clear();
+            if (AddonChannels.Rank(maxChannel) <= 0) return;
+
+            var choices = new List<string>(AddonChannels.Available(maxChannel));
+            string current = choices.Contains(Channel) ? Channel : AddonChannels.Stable;
+            var dropdown = new DropdownField(choices, choices.IndexOf(current));
+            dropdown.tooltip = "Pre-release channel this license may install from.";
+            dropdown.RegisterValueChangedCallback(changed =>
+            {
+                Channel = changed.newValue;
+                AddonChannels.Preferred = changed.newValue;
+                Refresh(forceRefresh: true);
+            });
+            _channelSlot.Add(dropdown);
+        }
+
+        /// <summary>Re-applies the license gate, refetches, and re-renders.</summary>
+        /// <param name="forceRefresh">True to bypass the shared catalog cache.</param>
+        protected async void Refresh(bool forceRefresh = true)
+        {
+            if (_busy) return;
+            List.Clear();
+
+            // Ungated add-ons still require a valid Molca license. When invalid, the management surface is
+            // withheld (offline import, in the header, stays available on the Installed view by design).
+            if (!IsLicensed(out DevLicenseStatus licenseStatus))
+            {
+                Status.text = $"Add-on management is unavailable — your Molca developer license is " +
+                              $"{Describe(licenseStatus)}. Add-ons require a valid Molca license.";
+                List.Add(MolcaButtons.Primary("Open developer sign-in", DevLicenseWindow.Open));
+                return;
+            }
+
+            _busy = true;
+            ResetCancellation();
+            Status.text = "Loading…";
+            try
+            {
+                await FetchAsync(forceRefresh, _cancellation.Token);
+                RenderCards(Search.Value);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception exception)
+            {
+                Status.text = $"Could not load add-ons: {exception.Message}";
+            }
+            finally { _busy = false; }
+        }
+
+        // ---- Shared card builder --------------------------------------------------------------------
+
+        /// <summary>Builds one [icon | card] row from a model plus header-action buttons.</summary>
+        protected VisualElement BuildCard(AddonCardModel model, params Button[] actions)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("molca-addons-row");
+
+            var icon = new Image { scaleMode = ScaleMode.ScaleToFit, image = model.Icon != null ? model.Icon : GenericIcon };
+            icon.AddToClassList("molca-addons-icon");
+            row.Add(icon);
+
+            string runtimeText = model.HasRuntime ? "runtime code" : "Editor-only";
+            string subtitle = $"{model.Publisher}  ·  {model.VersionText}  ·  {runtimeText}";
+            var card = new MolcaSectionCard(model.Name, subtitle, model.Status, model.StatusText);
+            card.AddToClassList("molca-addons-card");
+
+            var desc = new Label(string.IsNullOrWhiteSpace(model.Description) ? "No description." : model.Description);
+            desc.AddToClassList("molca-addons-description");
+            card.Body.Add(desc);
+
+            if (model.Details.Count > 0)
+            {
+                var fold = new Foldout { text = "Details", value = false };
+                fold.AddToClassList("molca-addons-details");
+                foreach (var (label, value) in model.Details)
+                {
+                    var detailRow = new VisualElement();
+                    detailRow.AddToClassList("molca-addons-detail-row");
+                    var labelEl = new Label(label);
+                    labelEl.AddToClassList("molca-addons-detail-label");
+                    var valueEl = new Label(value ?? string.Empty);
+                    valueEl.AddToClassList("molca-addons-detail-value");
+                    detailRow.Add(labelEl);
+                    detailRow.Add(valueEl);
+                    fold.Add(detailRow);
+                }
+                card.Body.Add(fold);
+            }
+
+            foreach (var action in actions)
+                if (action != null) card.AddHeaderAction(action);
+
+            row.Add(card);
+            return row;
+        }
+
+        /// <summary>Interim generic add-on glyph (reuses the storage family icon until a bespoke one ships).</summary>
+        protected static Texture2D GenericIcon => MolcaEditorIcons.Family("storage");
+
+        /// <summary>
+        /// Loads an installed add-on's declared <c>package.json</c> <c>"icon"</c> (package-relative), or null
+        /// when absent/unresolvable. Only meaningful for installed packages present under <c>Packages/</c>.
+        /// </summary>
+        protected static Texture2D LoadPackageIcon(string id)
+        {
+            try
+            {
+                string manifestPath = Path.GetFullPath($"Packages/{id}/package.json");
+                if (!File.Exists(manifestPath)) return null;
+                string iconPath = (string)JObject.Parse(File.ReadAllText(manifestPath))["icon"];
+                if (string.IsNullOrWhiteSpace(iconPath)) return null;
+                return AssetDatabase.LoadAssetAtPath<Texture2D>($"Packages/{id}/{iconPath}");
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Trims free-form publisher text to a length a modal dialog can actually show.</summary>
+        protected static string Truncate(string value, int limit) =>
+            string.IsNullOrEmpty(value) || value.Length <= limit ? value : value.Substring(0, limit) + "…";
+
+        protected static string FormatBytes(long bytes)
+        {
+            if (bytes <= 0) return "unknown size";
+            string[] units = { "B", "KB", "MB", "GB" };
+            double value = bytes;
+            int unit = 0;
+            while (value >= 1024 && unit < units.Length - 1) { value /= 1024; unit++; }
+            return unit == 0 ? $"{bytes} B" : $"{value:0.#} {units[unit]}";
+        }
+
+        // ---- Shared install / update / remove / import flows ----------------------------------------
+
+        protected async void BeginInstall(AddonCatalogPackage pack, AddonCatalogVersion version)
+        {
+            if (_busy) return;
+            if (!IsLicensed(out DevLicenseStatus licenseStatus))
+            {
+                Status.text = $"Cannot install — your Molca developer license is {Describe(licenseStatus)}.";
+                Refresh();
+                return;
+            }
+            _busy = true;
+            ResetCancellation();
+            Status.text = $"Verifying {pack.id} {version.version}…";
+            try
+            {
+                var manifestResult = await Client.GetManifestAsync(pack.id, version.version, _cancellation.Token);
+                if (!manifestResult.Success)
+                {
+                    AddonAuditLog.Record("verify", "failed", pack.id, version.version, version.sha256, error: manifestResult.Error);
+                    AddonTelemetry.Record("verify_fail", pack.id, version.version, manifestResult.Error);
+                    EditorUtility.DisplayDialog("Add-on verification failed", manifestResult.Error, "OK");
+                    Status.text = manifestResult.Error;
+                    return;
+                }
+
+                AddonManifest manifest = manifestResult.Value.Manifest;
+                var source = new Uri(manifest.downloadUrl);
+                string warning = manifest.hasRuntime
+                    ? "\n\nThis pack contains runtime code. Rebuild players before distributing them."
+                    : "\n\nThis pack is Editor-only and will not enter player builds.";
+                string notes = string.IsNullOrWhiteSpace(manifest.releaseNotes)
+                    ? string.Empty
+                    : $"\n\nWhat's new:\n{Truncate(manifest.releaseNotes, 600)}";
+                string confirmation =
+                    $"Install {manifest.name} {manifest.version}?\n\n" +
+                    $"Package: {manifest.id}\nPublisher: {manifest.publisher}\nSource: {source.Host}\n" +
+                    $"SHA-256: {manifest.sha256}\nSigning key: {manifestResult.Value.KeyId}" + warning + notes +
+                    "\n\nDownloaded code runs with full Unity Editor privileges.";
+                if (!EditorUtility.DisplayDialog("Confirm signed add-on", confirmation, "Install", "Cancel"))
+                {
+                    Status.text = "Installation canceled.";
+                    return;
+                }
+
+                Status.text = $"Downloading and installing {manifest.id} {manifest.version}…";
+                AddonInstallResult result = await Installer.InstallAsync(manifestResult.Value, _cancellation.Token);
+                // The installed set changed, so the shared catalog view of it is stale for both tabs.
+                if (result.Success) AddonCatalogCache.Invalidate();
+                Status.text = result.Message;
+                if (!result.Success) EditorUtility.DisplayDialog("Add-on installation failed", result.Message, "OK");
+                else if (!string.IsNullOrEmpty(result.RecoveryPath))
+                    Debug.Log($"[Molca Add-ons] Previous package retained for recovery at: {result.RecoveryPath}");
+                // A successful install triggers a deferred domain reload that recreates this view, so the card
+                // list refreshes automatically — no manual Refresh() (which would also reenter mid-flow).
+            }
+            catch (OperationCanceledException) { Status.text = "Installation canceled."; }
+            catch (Exception exception)
+            {
+                Status.text = $"Installation failed: {exception.Message}";
+                Debug.LogError($"[Molca Add-ons] Installation failed: {exception}");
+            }
+            finally { _busy = false; }
+        }
+
+        protected void Remove(InstalledAddonRecord installed)
+        {
+            if (_busy) return;
+            if (!IsLicensed(out DevLicenseStatus licenseStatus))
+            {
+                Status.text = $"Cannot manage add-ons — your Molca developer license is {Describe(licenseStatus)}.";
+                Refresh();
+                return;
+            }
+            string runtimeWarning = installed.hasRuntime ? "\n\nThis removes runtime code; rebuild affected players." : string.Empty;
+            if (!EditorUtility.DisplayDialog("Remove add-on",
+                $"Remove {installed.name} {installed.version} ({installed.id})?\n\n" +
+                "The package will be moved into Library/Molca/Addons/Recovery rather than permanently deleted." + runtimeWarning,
+                "Remove", "Cancel")) return;
+
+            AddonInstallResult result = Installer.Remove(installed.id);
+            if (result.Success) AddonCatalogCache.Invalidate();
+            Status.text = result.Message;
+            if (!result.Success) EditorUtility.DisplayDialog("Add-on removal failed", result.Message, "OK");
+            else if (!string.IsNullOrEmpty(result.RecoveryPath))
+                Debug.Log($"[Molca Add-ons] Removed package retained for recovery at: {result.RecoveryPath}");
+            // Removal triggers a deferred domain reload that recreates this view; no manual Refresh().
+        }
+
+        protected void ImportOffline()
+        {
+            if (_busy) return;
+            string manifestPath = EditorUtility.OpenFilePanel("Select signed Molca manifest", string.Empty, "molca-manifest");
+            if (string.IsNullOrEmpty(manifestPath)) return;
+            if (!AddonManifestVerifier.TryVerifyOffline(File.ReadAllText(manifestPath), out var verified, out string error))
+            {
+                EditorUtility.DisplayDialog("Offline manifest rejected", error, "OK");
+                return;
+            }
+            string archivePath = EditorUtility.OpenFilePanel("Select matching UPM tarball", Path.GetDirectoryName(manifestPath), "tgz");
+            if (string.IsNullOrEmpty(archivePath)) return;
+            AddonManifest manifest = verified.Manifest;
+            string warning = manifest.hasRuntime
+                ? "\n\nThis pack contains runtime code. Rebuild players before distributing them."
+                : "\n\nThis pack is Editor-only and will not enter player builds.";
+            if (!EditorUtility.DisplayDialog("Confirm offline signed add-on",
+                $"Install {manifest.name} {manifest.version}?\n\nPackage: {manifest.id}\nPublisher: {manifest.publisher}" +
+                $"\nArtifact: {archivePath}\nSHA-256: {manifest.sha256}\nSigning key: {verified.KeyId}" + warning +
+                "\n\nThe local bytes must exactly match the signed hash. Downloaded code runs with full Editor privileges.",
+                "Install", "Cancel")) return;
+            AddonInstallResult result = Installer.InstallOffline(verified, archivePath);
+            Status.text = result.Message;
+            if (!result.Success) EditorUtility.DisplayDialog("Offline installation failed", result.Message, "OK");
+            // A successful import triggers a deferred domain reload that recreates this view; no manual Refresh().
+        }
+
+        // ---- License gate + cancellation ------------------------------------------------------------
+
+        protected static bool IsLicensed(out DevLicenseStatus status)
+        {
+            status = DevEntitlementVerifier.Evaluate(
+                DevEntitlementStore.LoadEffective(), SystemInfo.deviceUniqueIdentifier, out _);
+            return status == DevLicenseStatus.Valid;
+        }
+
+        protected static string Describe(DevLicenseStatus status) => status switch
+        {
+            DevLicenseStatus.Missing => "not signed in",
+            DevLicenseStatus.Expired => "expired",
+            DevLicenseStatus.WrongMachine => "issued for a different machine",
+            _ => "invalid",
+        };
+
+        private void ResetCancellation()
+        {
+            CancelOutstanding();
+            _cancellation = new CancellationTokenSource();
+        }
+
+        private void CancelOutstanding()
+        {
+            _cancellation?.Cancel();
+            _cancellation?.Dispose();
+            _cancellation = null;
+        }
+    }
+}

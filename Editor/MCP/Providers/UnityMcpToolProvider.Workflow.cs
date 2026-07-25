@@ -29,12 +29,13 @@ namespace Molca.Editor.Mcp.Providers
 
         private static McpToolDefinition CreateSelectTool() => new McpToolDefinition(
             name: "molca_unity_select",
-            description: "Selects one or more objects in the editor: project assets by 'path'/'paths', GameObjects "
-                       + "by 'target'/'targets' (hierarchy path or instance id), or any objects by "
-                       + "'instanceId'/'instanceIds'. To select every GameObject with a given component or name, "
-                       + "pass 'componentType' and/or 'nameContains' — one call, no need to enumerate the scene "
-                       + "first. All forms can be combined; the first resolved object becomes the active "
-                       + "selection. Changes editor selection only; not data-mutating.",
+            description: "Selects/highlights objects in the editor only — it does NOT delete, move, or edit "
+                       + "them (use molca_unity_gameobject_delete or molca_unity_gameobject_set_transform for "
+                       + "those). Selects project assets by 'path'/'paths', GameObjects by 'target'/'targets' "
+                       + "(hierarchy path or instance id), or any objects by 'instanceId'/'instanceIds'. To "
+                       + "select every GameObject with a given component or name, pass 'componentType' and/or "
+                       + "'nameContains' — one call, no need to enumerate the scene first. All forms can be "
+                       + "combined; the first resolved object becomes the active selection.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
                 "\"path\":{\"type\":\"string\",\"description\":\"Project asset path to select.\"}," +

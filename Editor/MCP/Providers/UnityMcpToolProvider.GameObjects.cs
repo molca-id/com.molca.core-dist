@@ -177,8 +177,9 @@ namespace Molca.Editor.Mcp.Providers
 
         private static McpToolDefinition CreateGameObjectCreateTool() => new McpToolDefinition(
             name: "molca_unity_gameobject_create",
-            description: "Creates a GameObject in the scene. Empty by default, or a 'primitive' "
-                       + "(Cube/Sphere/Capsule/Cylinder/Plane/Quad). Optional 'parent' is a hierarchy path "
+            description: "Creates a NEW empty or 'primitive' (Cube/Sphere/Capsule/Cylinder/Plane/Quad) "
+                       + "GameObject; NOT for placing an existing prefab or model asset — use "
+                       + "molca_unity_prefab_instantiate for that. Optional 'parent' is a hierarchy path "
                        + "or instance id. Returns the new object's path and instance id. One undo group; "
                        + "revert with Ctrl+Z.",
             inputSchemaJson:
@@ -224,8 +225,9 @@ namespace Molca.Editor.Mcp.Providers
 
         private static McpToolDefinition CreateGameObjectDeleteTool() => new McpToolDefinition(
             name: "molca_unity_gameobject_delete",
-            description: "Deletes a GameObject (by hierarchy path or instance id) and its children. One undo "
-                       + "group; revert with Ctrl+Z.",
+            description: "Deletes a GameObject and its children (by hierarchy path or instance id); to remove "
+                       + "a single COMPONENT instead of the whole object use "
+                       + "molca_unity_gameobject_remove_component. One undo group; revert with Ctrl+Z.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
                 "\"target\":{\"type\":\"string\",\"description\":\"Hierarchy path or instance id.\"}}," +
@@ -325,8 +327,9 @@ namespace Molca.Editor.Mcp.Providers
 
         private static McpToolDefinition CreateGameObjectAddComponentTool() => new McpToolDefinition(
             name: "molca_unity_gameobject_add_component",
-            description: "Adds a component of the given 'type' (class name or full name) to one GameObject "
-                       + "('target') or several ('targets'). Revert with Ctrl+Z.",
+            description: "Adds a component of the given 'type' to an EXISTING GameObject ('target') or "
+                       + "several ('targets'); NOT for creating a GameObject — use "
+                       + "molca_unity_gameobject_create first. Revert with Ctrl+Z.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
                 TargetsSchema + "," +

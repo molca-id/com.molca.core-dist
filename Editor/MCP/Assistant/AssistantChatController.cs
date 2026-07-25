@@ -306,6 +306,62 @@ namespace Molca.Editor.Mcp.Assistant
         }
 
         /// <summary>
+        /// Optional override asset for the compact Local prompt (Sprint 89). Loaded like the main prompt so it
+        /// can be tuned without a recompile; when absent, <see cref="CompactLocalSystemPrompt"/> is used.
+        /// </summary>
+        private const string LocalSystemPromptAssetPath =
+            "Packages/com.molca.core/Editor/MCP/Assistant/AssistantSystemPrompt.Local.txt";
+
+        /// <summary>
+        /// Compact system prompt used for the Local text-tool path (Sprint 89). The full
+        /// <see cref="SystemPrompt"/> is written for a capable cloud model and carries guidance a small local
+        /// model (e.g. qwen3.5:4b) cannot act on — knowledge-graph query discipline, research sub-agents,
+        /// structured plan mode, memory management, context links. That prose is dead weight against the 4B's
+        /// short effective attention, so the Local path gets only the essentials: scope, grounding,
+        /// discover-before-acting, report-the-outcome, ask-when-blocked, and answer-briefly. The text-tool XML
+        /// grammar, routing hints, and the (narrowed) tool list are appended on top by
+        /// <see cref="AssistantTextToolProtocol.BuildSystemPrompt"/>, so they are deliberately not repeated here.
+        /// </summary>
+        private const string CompactLocalSystemPrompt =
+            "You are the Molca in-editor assistant: a Unity engineer working inside a Unity project built on " +
+            "the Molca framework. You are not a general chatbot.\n\n" +
+            "Scope: only help with this Unity project or the Molca framework — scenes, GameObjects, components, " +
+            "assets, scripts, builds, project settings, and framework code. If a request does not need the " +
+            "project (trivia, general writing, world knowledge), refuse in one sentence and steer back to the " +
+            "project. A short reply like \"yes\" or \"the second one\" continues the current task and is in " +
+            "scope. Reply in the user's language.\n\n" +
+            "Ground every answer in live state — when a tool can tell you the real state, call it instead of " +
+            "guessing:\n" +
+            "- Scenes, objects, selection: molca_unity_scenes, molca_unity_scene_objects, molca_unity_selection.\n" +
+            "- Assets: molca_unity_assets.\n" +
+            "- A component or its fields before adding or editing them: molca_unity_gameobject_components, " +
+            "molca_unity_component_fields.\n" +
+            "- How something works or where it is defined: molca_kg_query, when a knowledge graph is available.\n" +
+            "Never call an action tool with a target you have not discovered. To act on \"the sphere\" or " +
+            "\"it\", first find its real path or instance id with a discovery tool, then use that exact value — " +
+            "unless you just created or discovered it this conversation, in which case reuse that value directly.\n\n" +
+            "Actions: use an action tool only when the user asks for the action. After any tool returns, tell " +
+            "the user the concrete outcome; never say a tool is unavailable once it has returned a result.\n\n" +
+            "When you are genuinely blocked — a required detail is missing, or several objects match and none " +
+            "is clearly the one — call molca_ask_user with the choices as short options. Do not ask when the " +
+            "target is obvious from what you just created or discovered.\n\n" +
+            "Answer briefly: lead with the direct answer in a sentence or two, then short bullets only if they " +
+            "help. Do not narrate your reasoning or announce which tools you are about to call.";
+
+        // Lazily loaded compact Local prompt; prefers the optional override asset, else the embedded compact prompt.
+        private static string _localSystemPrompt;
+
+        /// <summary>The compact system prompt sent on the Local text-tool path (Sprint 89).</summary>
+        public static string LocalSystemPromptText => _localSystemPrompt ??= LoadLocalSystemPrompt();
+
+        private static string LoadLocalSystemPrompt()
+        {
+            var asset = UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.TextAsset>(LocalSystemPromptAssetPath);
+            var text = asset != null ? asset.text?.Trim() : null;
+            return string.IsNullOrEmpty(text) ? CompactLocalSystemPrompt : text;
+        }
+
+        /// <summary>
         /// Appends the tiered-tool-exposure protocol + the grouped tool catalog to the system prompt
         /// (Sprint 67). The model sees every available tool by name+summary here, but must call
         /// <c>molca_tool_schema</c> to get a tool's parameters before first use — only then is that tool's
@@ -366,6 +422,12 @@ namespace Molca.Editor.Mcp.Assistant
         private readonly AssistantSettings _settings;
         private readonly Func<ILlmProvider> _providerFactory;
         private readonly bool _usesInjectedProviderFactory;
+
+        // The current turn's raw user request (Sprint 89), so the harness can add a corrective steering hint
+        // when a tool call looks like a known mis-route for that intent (see MisrouteHint). Set at the start of
+        // each turn and cleared when it ends.
+        private string _currentTurnText;
+
         private readonly List<LlmMessage> _history = new List<LlmMessage>();
         private readonly List<ChatTurn> _transcript = new List<ChatTurn>();
         private readonly List<AssistantContextItem> _pinnedContext = new List<AssistantContextItem>();
@@ -878,6 +940,7 @@ namespace Molca.Editor.Mcp.Assistant
             var hasImages = images != null && images.Count > 0;
             if (IsBusy || (string.IsNullOrWhiteSpace(userText) && !hasImages)) return;
             userText ??= string.Empty;
+            _currentTurnText = userText; // intent for the harness mis-route hint (Sprint 89)
 
             if (!_usesInjectedProviderFactory)
             {
@@ -945,8 +1008,19 @@ namespace Molca.Editor.Mcp.Assistant
                 _activatedTools.Clear();
                 var useFlatTools = useTextToolProtocol || _settings.UseFlatToolExposure;
                 var flatTools = useFlatTools ? AssistantToolBridge.GetFlatToolSpecs(registry, isActionAllowed) : null;
+                // Retrieval-narrowed PRESENTATION for the Local text path (Sprint 89): list only the tools most
+                // relevant to this turn in the system prompt instead of the full ~180-tool dump, so a small
+                // local model discriminates over a short menu (its stated weakness). Presentation only — the
+                // parse/execute set below stays the full `flatTools`, so a correctly-named call to any real tool
+                // still runs and a narrowing miss can never lock the model out. No-op for small registries and
+                // when the limit is 0. Cloud paths are unaffected (they don't use the text system prompt).
+                var presentedFlatTools = useTextToolProtocol
+                    ? AssistantTextToolProtocol.SelectPresentedTools(userText, flatTools, _settings.LocalPresentedToolLimit)
+                    : flatTools;
+                // The Local text path uses the compact prompt (Sprint 89) — the full prompt's frontier-oriented
+                // guidance is dead weight against a small model's short attention. Cloud keeps the full prompt.
                 var systemPrompt = useTextToolProtocol
-                    ? AssistantTextToolProtocol.BuildSystemPrompt(SystemPrompt, flatTools)
+                    ? AssistantTextToolProtocol.BuildSystemPrompt(LocalSystemPromptText, presentedFlatTools)
                     : useFlatTools
                         ? SystemPrompt
                         : BuildSystemPromptWithCatalog(AssistantToolBridge.BuildToolCatalog(registry, isActionAllowed));
@@ -1384,6 +1458,7 @@ namespace Molca.Editor.Mcp.Assistant
                 ActiveToolProgress = null;
                 // The retrieved block is transient — drop it so it never persists or leaks into the next turn.
                 _pendingRetrievedContext = null;
+                _currentTurnText = null;
                 Persist();
                 Changed?.Invoke();
             }
@@ -1452,7 +1527,11 @@ namespace Molca.Editor.Mcp.Assistant
         private async Awaitable MaybeCompactAsync(ILlmProvider provider, CancellationToken cancellationToken)
         {
             if (!_settings.AutoCompact) return;
-            if (EstimateContextTokens() < _settings.AutoCompactThreshold) return;
+            // Compact against the backend-effective threshold (Sprint 89): for Local this tracks the runtime's
+            // context window, so a long session compacts before Ollama silently truncates rather than at the
+            // far larger cloud threshold.
+            var compactThreshold = _settings.EffectiveAutoCompactThreshold(_settings.Provider);
+            if (EstimateContextTokens() < compactThreshold) return;
 
             // Tier 1 (cheap, no LLM call): digest tool-result payloads older than the most-recent turn(s)
             // into one-line stubs. These age fastest and dominate token cost, so this alone often drops the
@@ -1468,7 +1547,7 @@ namespace Molca.Editor.Mcp.Assistant
                     Changed?.Invoke();
 
                     // If digesting alone brought us under the threshold, skip the (paid) turn-summary entirely.
-                    if (EstimateContextTokens() < _settings.AutoCompactThreshold) return;
+                    if (EstimateContextTokens() < compactThreshold) return;
                 }
             }
 
@@ -1516,7 +1595,7 @@ namespace Molca.Editor.Mcp.Assistant
         public bool AutoCompactEnabled => _settings.AutoCompact;
 
         /// <summary>The configured auto-compaction threshold in tokens, for the composer readout (Sprint 46).</summary>
-        public int AutoCompactThreshold => _settings.AutoCompactThreshold;
+        public int AutoCompactThreshold => _settings.EffectiveAutoCompactThreshold(_settings.Provider);
 
         /// <summary>Cumulative input (prompt) tokens billed across this session (Sprint 49).</summary>
         public long SessionInputTokens => _sessionInputTokens;
@@ -1619,7 +1698,9 @@ namespace Molca.Editor.Mcp.Assistant
         private LlmToolResult AddToolResult(
             LlmMessage resultMsg, LlmToolCall call, LlmToolResult result, bool useTextToolProtocol)
         {
-            var capped = CapToolResult(result);
+            // Harness mis-route steering (Sprint 89): append a corrective hint when a successful call looks like
+            // a known wrong tool for this turn's intent, so the model self-corrects on the next round.
+            var capped = MaybeAppendMisrouteHint(call, CapToolResult(result));
             if (useTextToolProtocol)
             {
                 var text = AssistantTextToolProtocol.FormatToolResult(call, capped);
@@ -1632,6 +1713,44 @@ namespace Molca.Editor.Mcp.Assistant
                 resultMsg.ToolResults.Add(capped);
             }
             return capped;
+        }
+
+        /// <summary>
+        /// Appends the corrective mis-route hint for the current turn's intent to a <b>successful</b> tool
+        /// result (Sprint 89), or returns <paramref name="result"/> unchanged when no hint applies. Never
+        /// touches an error result, and never blocks the call — the hint just steers the next round.
+        /// </summary>
+        private LlmToolResult MaybeAppendMisrouteHint(LlmToolCall call, LlmToolResult result)
+        {
+            if (result == null || result.IsError) return result;
+            var hint = MisrouteHint(call?.Name, _currentTurnText);
+            if (hint == null) return result;
+            var content = string.IsNullOrEmpty(result.Content) ? string.Empty : result.Content;
+            return new LlmToolResult(result.ToolCallId, content + "\n\n[hint] " + hint, result.IsError);
+        }
+
+        /// <summary>
+        /// The corrective steering hint for a known tool mis-route given the turn's intent (Sprint 89), or
+        /// <c>null</c> when the call looks correct. Conservative: only well-established confusions are encoded,
+        /// and the phrasing is conditional so it is harmless when the call was in fact a legitimate step.
+        /// Applies on both transports; a hint is non-blocking (the called tool still ran).
+        /// </summary>
+        /// <param name="toolName">The tool the model called.</param>
+        /// <param name="turnText">The current turn's raw user request.</param>
+        /// <returns>A one-line steering hint, or <c>null</c>.</returns>
+        internal static string MisrouteHint(string toolName, string turnText)
+        {
+            if (string.IsNullOrEmpty(toolName) || string.IsNullOrWhiteSpace(turnText)) return null;
+            var intent = turnText.ToLowerInvariant();
+
+            // Select-for-delete: molca_unity_select only changes the editor selection and never deletes. When
+            // the request is to delete/destroy something, steer to the delete tool. Conditional wording keeps
+            // it harmless if the select was a legitimate inspect-before-acting step.
+            if (toolName == "molca_unity_select" && (intent.Contains("delete") || intent.Contains("destroy")))
+                return "If the goal is to delete a GameObject, molca_unity_select only changes the editor "
+                     + "selection — use molca_unity_gameobject_delete with the target's path or instance id.";
+
+            return null;
         }
 
         /// <summary>
@@ -1805,7 +1924,9 @@ namespace Molca.Editor.Mcp.Assistant
             // Goal-persistence reinforcement (Sprint 72): a short/low-info turn ("continue", "okay then")
             // otherwise loses the standing goal. Applied here so BOTH transports get it (the asymmetry that
             // let this reach FunctionCalling unmitigated is what caused the bug). Transient — request-only.
-            AddGoalReinforcementToCurrentUserMessage(messages);
+            // Sprint 89: for the Local text path, also append the last executed step ("— last step: X done")
+            // so a forgetful small model resumes where it left off; cloud passes null → unchanged Sprint-72 note.
+            AddGoalReinforcementToCurrentUserMessage(messages, useTextToolProtocol ? DescribeLastToolStep() : null);
             if (string.IsNullOrEmpty(_pendingRetrievedContext)) return messages;
 
             // Prefix the most recent genuine user prompt (the current turn) — a fresh message instance so the
@@ -1858,7 +1979,7 @@ namespace Molca.Editor.Mcp.Assistant
         /// standing goal. The note lives only in the request copy — never persisted to <see cref="_history"/> —
         /// and is applied for both transports.
         /// </summary>
-        private static void AddGoalReinforcementToCurrentUserMessage(IList<LlmMessage> messages)
+        private static void AddGoalReinforcementToCurrentUserMessage(IList<LlmMessage> messages, string lastStepRecap = null)
         {
             if (messages == null || messages.Count == 0) return;
 
@@ -1878,15 +1999,43 @@ namespace Molca.Editor.Mcp.Assistant
             var goal = FindStandingGoal(messages, currentIndex);
             if (string.IsNullOrWhiteSpace(goal)) return;
 
+            // Sprint 89: append the last executed step to the note for the Local path, so a forgetful small
+            // model knows where the task left off. lastStepRecap is null on the cloud path → the note is the
+            // exact Sprint-72 string, so that behavior (and its test) is unchanged.
+            var note = $"[Continuing the current task: {Truncate(goal.Trim(), 240)}";
+            if (!string.IsNullOrWhiteSpace(lastStepRecap)) note += $" — last step: {lastStepRecap}";
+            note += "]";
+
             // Replace with a fresh instance (never mutate a shared _history message under FunctionCalling).
             messages[currentIndex] = new LlmMessage
             {
                 Role = LlmRole.User,
-                Text = $"[Continuing the current task: {Truncate(goal.Trim(), 240)}]\n\n{current.Text}",
+                Text = $"{note}\n\n{current.Text}",
                 ToolCalls = current.ToolCalls,
                 // Preserve image parts (Sprint 73) when reinstating the standing goal onto the current turn.
                 Content = current.Content
             };
+        }
+
+        /// <summary>
+        /// A one-line recap of the most recently executed tool step from the visible transcript (Sprint 89):
+        /// <c>"&lt;tool&gt; done"</c> or <c>"&lt;tool&gt; failed"</c>, or <c>null</c> when no tool has run yet.
+        /// Reads the structured transcript rather than rendered history, so it is transport-agnostic. Used to
+        /// remind a forgetful local model where a multi-turn task left off (see
+        /// <see cref="AddGoalReinforcementToCurrentUserMessage"/>).
+        /// </summary>
+        private string DescribeLastToolStep()
+        {
+            for (var i = _transcript.Count - 1; i >= 0; i--)
+            {
+                var turn = _transcript[i];
+                if (turn.Kind != ChatTurnKind.Work || turn.ToolSummaries == null || turn.ToolSummaries.Count == 0)
+                    continue;
+                var last = turn.ToolSummaries[turn.ToolSummaries.Count - 1];
+                if (string.IsNullOrEmpty(last.Name)) continue;
+                return last.IsError ? $"{last.Name} failed" : $"{last.Name} done";
+            }
+            return null;
         }
 
         /// <summary>Whether a user turn is a short acknowledgment/continuation with no goal of its own.</summary>

@@ -43,6 +43,12 @@ namespace Molca.Editor.Doctor
         /// caller can show that progress is happening within a single check. Reset to
         /// null automatically as each check begins.
         /// </param>
+        /// <param name="onCheckCompleted">
+        /// Optional callback invoked on the main thread once per check, immediately after
+        /// it finishes, carrying that check's findings and elapsed time (see
+        /// <see cref="DoctorCheckReport"/>). Enables a live, per-check trace log. Not
+        /// invoked for a check interrupted by cancellation.
+        /// </param>
         /// <returns>All findings, in the order their checks produced them.</returns>
         /// <remarks>
         /// CPU-only checks run on a background thread (the editor stays responsive);
@@ -53,7 +59,8 @@ namespace Molca.Editor.Doctor
             ISet<string> enabledIds = null,
             Action<DoctorProgress> onProgress = null,
             CancellationToken cancellationToken = default,
-            Action<string> onStatus = null)
+            Action<string> onStatus = null,
+            Action<DoctorCheckReport> onCheckCompleted = null)
         {
             var context = new DoctorContext { StatusReporter = onStatus };
             var issues = new List<DoctorIssue>();
@@ -74,27 +81,55 @@ namespace Molca.Editor.Doctor
                 onStatus?.Invoke(null); // clear stale detail from the previous check
                 onProgress?.Invoke(new DoctorProgress(i, toRun.Count, check));
 
+                // This check's findings, kept separate so the completion callback can attribute
+                // findings (and timing) to the individual check for the trace log.
+                var checkFindings = new List<DoctorIssue>();
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                bool crashed = false;
                 try
                 {
                     var found = await check.RunAsync(context, cancellationToken);
                     if (found != null)
-                        issues.AddRange(found);
+                        checkFindings.AddRange(found);
                 }
                 catch (OperationCanceledException)
                 {
-                    break; // cancellation is not an error — stop quietly
+                    break; // cancellation is not an error — stop quietly (no completion report)
                 }
                 catch (Exception e)
                 {
                     // A crashing check must surface as a finding, not abort the run.
-                    issues.Add(new DoctorIssue(check.Id, DoctorSeverity.Error,
+                    crashed = true;
+                    checkFindings.Add(new DoctorIssue(check.Id, DoctorSeverity.Error,
                         $"Check crashed: {e.GetType().Name}: {e.Message}"));
+                }
+
+                stopwatch.Stop();
+                issues.AddRange(checkFindings);
+
+                if (onCheckCompleted != null)
+                {
+                    // Report completion on the main thread: a background check may have resumed us on a
+                    // worker thread, and the callback touches UI.
+                    await Awaitable.MainThreadAsync();
+                    onCheckCompleted(new DoctorCheckReport(
+                        check, i, toRun.Count, checkFindings, stopwatch.Elapsed.TotalMilliseconds, crashed));
                 }
             }
 
             // Guarantee the caller resumes on the main thread regardless of where the
             // last check left us.
             await Awaitable.MainThreadAsync();
+
+            // Which checks a project runs, and how many findings they produce, is the clearest signal
+            // of which framework systems are actually in use. Counts only — never a finding's message,
+            // which can contain project asset paths.
+            Telemetry.MolcaEditorTelemetry.Track("editor.doctor.run", new Dictionary<string, object>
+            {
+                { "checks", toRun.Count },
+                { "errors", issues.Count(issue => issue.Severity == DoctorSeverity.Error) },
+                { "warnings", issues.Count(issue => issue.Severity == DoctorSeverity.Warning) },
+            });
             return issues;
         }
 

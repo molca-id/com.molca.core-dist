@@ -116,6 +116,9 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("How tools are exposed to the model. Auto = flat for Local (full schemas sent directly, one-step calls — best for small local models) and tiered for cloud (compact catalog + on-demand schema fetch). Flat/Tiered force a mode.")]
         [SerializeField] private ToolExposureMode toolExposure = ToolExposureMode.Auto;
 
+        [Tooltip("Local text-tool path only: present at most this many of the tools most relevant to the turn in the system prompt, instead of the whole ~180-tool list, so a small local model discriminates over a short menu. Parsing and execution still accept ANY real tool, so this never blocks a valid call. 0 = present the full list (previous behavior). Has no effect on cloud providers.")]
+        [SerializeField] private int localPresentedToolLimit = 24;
+
         [Tooltip("How tool calls are transported. Auto = Text/XML for Local models and structured function-calling for cloud providers. Text returns tool results as normal user text for weaker local models.")]
         [SerializeField] private ToolCallTransport toolCallTransport = ToolCallTransport.Auto;
 
@@ -127,6 +130,9 @@ namespace Molca.Editor.Mcp.Assistant
 
         [Tooltip("Estimated prompt-token size that triggers auto-compaction before the next turn is sent. Matches the manual context warning by default.")]
         [SerializeField] private int autoCompactThreshold = 120000;
+
+        [Tooltip("Local backend only: the context window (num_ctx tokens) the local runtime is configured for. Set this to match your Ollama context length (Ollama app -> Settings -> Context length). Auto-compaction is aligned to this so a long local session compacts BEFORE the runtime silently truncates history, instead of at the much larger cloud threshold above. Ignored for cloud providers.")]
+        [SerializeField] private int localContextWindow = 32768;
 
         [Tooltip("When auto-compacting, first condense old tool-result payloads (no model call) before paying for a turn summary — often enough on its own.")]
         [SerializeField] private bool compactToolResultsFirst = true;
@@ -208,6 +214,16 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>How the tool surface is exposed to the model (Sprint 68.9).</summary>
         public ToolExposureMode ToolExposure { get => toolExposure; set => toolExposure = value; }
 
+        /// <summary>
+        /// Maximum number of tools to <b>present</b> in the Local text-tool system prompt per turn (Sprint 89):
+        /// only the most relevant tools for the current request are listed instead of the full registry, so a
+        /// small local model chooses from a short menu. <c>0</c> disables narrowing (the full list is presented,
+        /// the previous behavior). This governs presentation only — parsing and execution still accept any real
+        /// registry tool, so a narrowing miss can never block a valid call — and it is ignored on cloud providers.
+        /// Clamped to a safe range.
+        /// </summary>
+        public int LocalPresentedToolLimit => Mathf.Clamp(localPresentedToolLimit, 0, 500);
+
         /// <summary>How tool calls and tool results are transported between the assistant and model (Sprint 69).</summary>
         public ToolCallTransport ToolCallTransport { get => toolCallTransport; set => toolCallTransport = value; }
 
@@ -265,6 +281,30 @@ namespace Molca.Editor.Mcp.Assistant
         /// against <see cref="AssistantChatController.EstimateContextTokens(string)"/> before each turn.
         /// </summary>
         public int AutoCompactThreshold => Mathf.Clamp(autoCompactThreshold, 8000, 1000000);
+
+        /// <summary>
+        /// The context window (num_ctx tokens) the Local runtime is configured for (Sprint 89), clamped to a
+        /// safe range. Set to match the Ollama context length so auto-compaction fires before the runtime
+        /// truncates. Ignored for cloud providers (they have no fixed local window).
+        /// </summary>
+        public int LocalContextWindow => Mathf.Clamp(localContextWindow, 2048, 1000000);
+
+        /// <summary>
+        /// The effective auto-compaction threshold for <paramref name="provider"/> (Sprint 89). For the Local
+        /// backend this is the smaller of <see cref="AutoCompactThreshold"/> and ~60% of
+        /// <see cref="LocalContextWindow"/> — leaving ~40% of the window for the response and the current
+        /// turn's growth — so a long local session compacts before Ollama silently truncates history at the
+        /// much larger cloud threshold. Cloud providers return <see cref="AutoCompactThreshold"/> unchanged.
+        /// </summary>
+        /// <param name="provider">The active LLM backend.</param>
+        /// <returns>The token size at which auto-compaction should trigger for this backend.</returns>
+        public int EffectiveAutoCompactThreshold(LlmProviderKind provider)
+        {
+            var baseThreshold = AutoCompactThreshold;
+            if (provider != LlmProviderKind.Local) return baseThreshold;
+            var windowBudget = Mathf.Max(2000, Mathf.RoundToInt(LocalContextWindow * 0.6f));
+            return Mathf.Min(baseThreshold, windowBudget);
+        }
 
         /// <summary>
         /// Whether auto-compaction first digests old tool-result payloads (a free, no-model-call pass) before

@@ -10,6 +10,13 @@ The pipeline that turns a Figma frame into Unity **uGUI** — the VR-in-game UI 
 canvas + `TrackedDeviceGraphicRaycaster`), distinct from the editor/2D **Figma→UITK** pipeline. It runs
 in three stages:
 
+> **Ownership split (post-extraction):** `UiIntentSpec` / `UiIntentSpecValidator` and the
+> `molca_build_ugui` materializer/layout/VR-pass stages are generic Core (`Molca.Editor.UI.Build`) — they
+> accept a UI Intent Spec from *any* producer. The Figma-specific producer (frame parsing, color/text
+> snapping, button/list recognition, and the `molca_figma_to_ui_spec` tool) moved to the
+> `com.molca.addon.figma` add-on's `molca.figma` namespace. This doc still describes the whole pipeline
+> end to end; only the package boundary changed, not the behavior.
+
 ```mermaid
 graph TD
     A([Figma frame]) --> B[Deterministic pre pass]

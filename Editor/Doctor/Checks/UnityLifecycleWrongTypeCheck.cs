@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -93,49 +94,169 @@ namespace Molca.Editor.Doctor
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                string currentClass = null;
+                // Track the *innermost enclosing class* by brace depth. The previous
+                // implementation only latched `currentClass` on each `class` line and
+                // never popped it when a nested type's scope closed, so an outer type's
+                // real lifecycle methods (e.g. AudioManager.OnDestroy declared after a
+                // nested LoadedClipRecord) were misattributed to the last-seen nested
+                // class — the source of a wave of false positives.
+                var scope = new Stack<(string name, int openDepth)>();
+                int depth = 0;
+                string pendingClass = null;   // class awaiting its opening brace
+                int pendingClassMinIndex = 0; // that brace must appear at/after this column
+                bool inBlockComment = false;
+
                 foreach (var m in source.Lines.Select((line, i) => (line, i)))
                 {
-                    var classMatch = ClassDecl.Match(m.line);
+                    string clean = StripNonCode(m.line, ref inBlockComment);
+
+                    var classMatch = ClassDecl.Match(clean);
                     if (classMatch.Success)
-                        currentClass = classMatch.Groups[1].Value;
-
-                    if (currentClass == null || DoctorContext.IsSuppressed(m.line))
-                        continue;
-                    var trimmed = m.line.TrimStart();
-                    if (trimmed.StartsWith("//") || trimmed.StartsWith("*") || trimmed.StartsWith("///"))
-                        continue;
-
-                    var methodMatch = MethodDecl.Match(m.line);
-                    if (!methodMatch.Success)
-                        continue;
-
-                    string methodName = methodMatch.Groups[1].Value;
-                    string root = ResolveRoot(currentClass, classBase);
-
-                    if (root == null)
-                        continue; // unresolved external base — can't prove anything
-
-                    bool isMbOnly = MonoBehaviourOnly.Contains(methodName);
-                    bool flag = root switch
                     {
-                        "" => true, // no base at all — never Unity-managed
-                        "ScriptableObject" => isMbOnly, // shared methods DO fire on SO
-                        _ => false, // MonoBehaviour or another known-compliant root
-                    };
-
-                    if (flag)
-                    {
-                        string advice = root == ""
-                            ? "no base class at all — Unity never calls a lifecycle method here; drive it explicitly (e.g. an interface hook the owner calls, or an Awaitable loop)."
-                            : "a ScriptableObject never receives this MonoBehaviour-only callback — drive it with an explicit Awaitable pump loop keyed on a lifetime token instead (see WebSocketDataProvider.PumpLoopAsync).";
-                        issues.Add(new DoctorIssue(Id, DoctorSeverity.Warning,
-                            $"'{currentClass}.{methodName}()' is dead: {advice}",
-                            source.Path, m.i + 1));
+                        pendingClass = classMatch.Groups[1].Value;
+                        pendingClassMinIndex = classMatch.Index;
                     }
+
+                    string currentClass = scope.Count > 0 ? scope.Peek().name : null;
+
+                    if (currentClass != null && !DoctorContext.IsSuppressed(m.line))
+                        ClassifyMethodLine(clean, currentClass, classBase, source.Path, m.i, issues);
+
+                    UpdateScope(clean, ref depth, scope, ref pendingClass, ref pendingClassMinIndex);
                 }
             }
             return issues;
+        }
+
+        // Applies the lifecycle-method heuristic to a single (already comment/string-stripped)
+        // line, given the class it is lexically inside.
+        private void ClassifyMethodLine(string clean, string currentClass,
+            Dictionary<string, string> classBase, string path, int lineIndex, List<DoctorIssue> issues)
+        {
+            var trimmed = clean.TrimStart();
+            if (trimmed.StartsWith("//") || trimmed.StartsWith("*") || trimmed.StartsWith("///"))
+                return;
+
+            var methodMatch = MethodDecl.Match(clean);
+            if (!methodMatch.Success)
+                return;
+
+            string methodName = methodMatch.Groups[1].Value;
+            string root = ResolveRoot(currentClass, classBase);
+
+            if (root == null)
+                return; // unresolved external base — can't prove anything
+
+            bool isMbOnly = MonoBehaviourOnly.Contains(methodName);
+            bool flag = root switch
+            {
+                "" => true, // no base at all — never Unity-managed
+                "ScriptableObject" => isMbOnly, // shared methods DO fire on SO
+                _ => false, // MonoBehaviour or another known-compliant root
+            };
+
+            if (!flag)
+                return;
+
+            string advice = root == ""
+                ? "no base class at all — Unity never calls a lifecycle method here; drive it explicitly (e.g. an interface hook the owner calls, or an Awaitable loop)."
+                : "a ScriptableObject never receives this MonoBehaviour-only callback — drive it with an explicit Awaitable pump loop keyed on a lifetime token instead (see WebSocketDataProvider.PumpLoopAsync).";
+            issues.Add(new DoctorIssue(Id, DoctorSeverity.Warning,
+                $"'{currentClass}.{methodName}()' is dead: {advice}",
+                path, lineIndex + 1));
+        }
+
+        // Advances brace depth and the enclosing-class stack across one stripped line.
+        // A `class` declaration is remembered as pending and pushed only when its own
+        // opening brace is reached (a brace at/after the `class` keyword's column, or any
+        // brace on a following line) — so a namespace `{` sharing the declaration line
+        // never gets mistaken for the class body.
+        private static void UpdateScope(string clean, ref int depth,
+            Stack<(string name, int openDepth)> scope, ref string pendingClass, ref int pendingClassMinIndex)
+        {
+            for (int col = 0; col < clean.Length; col++)
+            {
+                char c = clean[col];
+                if (c == '{')
+                {
+                    depth++;
+                    if (pendingClass != null && col >= pendingClassMinIndex)
+                    {
+                        scope.Push((pendingClass, depth));
+                        pendingClass = null;
+                    }
+                }
+                else if (c == '}')
+                {
+                    if (scope.Count > 0 && scope.Peek().openDepth == depth)
+                        scope.Pop();
+                    if (depth > 0)
+                        depth--;
+                }
+            }
+
+            // A class whose brace is on a later line: any brace there opens it.
+            if (pendingClass != null)
+                pendingClassMinIndex = 0;
+        }
+
+        // Blanks out comment and string/char-literal content so brace/keyword scanning
+        // sees only code. Tracks `/* */` block-comment state across lines. Verbatim/
+        // interpolated strings are handled approximately (whole literal body blanked),
+        // which is enough to keep braces inside strings from skewing the depth count.
+        private static string StripNonCode(string line, ref bool inBlockComment)
+        {
+            var sb = new System.Text.StringBuilder(line.Length);
+            int i = 0;
+            while (i < line.Length)
+            {
+                if (inBlockComment)
+                {
+                    int end = line.IndexOf("*/", i, StringComparison.Ordinal);
+                    if (end < 0) return sb.ToString();
+                    inBlockComment = false;
+                    i = end + 2;
+                    continue;
+                }
+
+                char c = line[i];
+                if (c == '/' && i + 1 < line.Length && line[i + 1] == '/')
+                    break; // line comment — rest is non-code
+                if (c == '/' && i + 1 < line.Length && line[i + 1] == '*')
+                {
+                    inBlockComment = true;
+                    i += 2;
+                    continue;
+                }
+                if (c == '"')
+                {
+                    i++;
+                    while (i < line.Length)
+                    {
+                        if (line[i] == '\\') { i += 2; continue; }
+                        if (line[i] == '"') { i++; break; }
+                        i++;
+                    }
+                    sb.Append(' '); // placeholder so token boundaries survive
+                    continue;
+                }
+                if (c == '\'')
+                {
+                    i++;
+                    while (i < line.Length)
+                    {
+                        if (line[i] == '\\') { i += 2; continue; }
+                        if (line[i] == '\'') { i++; break; }
+                        i++;
+                    }
+                    sb.Append(' ');
+                    continue;
+                }
+
+                sb.Append(c);
+                i++;
+            }
+            return sb.ToString();
         }
 
         // Walks the base-class chain built from scanned sources only. Returns "" for no

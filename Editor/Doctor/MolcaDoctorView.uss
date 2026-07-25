@@ -159,6 +159,75 @@
     text-overflow: ellipsis;
 }
 
+/* ---- Run Log (live per-check trace) ---- */
+
+/*
+ * Bounded, internally-scrolling trace. A fixed max-height keeps a long run from pushing the findings
+ * list out of reach; the view auto-scrolls this to its newest row as checks complete.
+ */
+.molca-doctor__log {
+    max-height: 200px;
+    border-width: 1px;
+    border-color: var(--molca-border-soft);
+    border-radius: 3px;
+    background-color: var(--molca-card-header);
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 6px;
+    padding-right: 6px;
+}
+
+.molca-doctor__log-note {
+    color: var(--molca-muted);
+    font-size: 10px;
+    -unity-font-style: italic;
+    padding-top: 3px;
+    padding-bottom: 3px;
+}
+
+.molca-doctor__log-row {
+    flex-direction: row;
+    align-items: flex-start;
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+.molca-doctor__log-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 4px;
+    margin-top: 3px;
+    margin-right: 7px;
+    flex-shrink: 0;
+    background-color: var(--molca-status-grey);
+}
+
+/* A check in flight: accented so the eye tracks what is currently running. */
+.molca-doctor__log-dot--running {
+    background-color: var(--molca-accent);
+}
+
+.molca-doctor__log-body {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.molca-doctor__log-head {
+    color: var(--molca-text);
+    font-size: 10px;
+    -unity-font-style: bold;
+    white-space: normal;
+}
+
+.molca-doctor__log-detail {
+    color: var(--molca-muted);
+    font-size: 9px;
+    white-space: normal;
+    -unity-text-overflow-position: end;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
 /* ---- Scroll + results ---- */
 
 /* Single vertical scroll shared by the checks panel and the findings list. */

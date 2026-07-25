@@ -29,6 +29,10 @@ namespace Molca.Telemetry
         [Tooltip("Absolute URL the HTTP batch sink POSTs to. Required when the HTTP sink is enabled.")]
         [SerializeField] private string _httpEndpointUrl = "";
 
+        [Tooltip("Report framework usage to the Molca control plane. Active only in licensed player " +
+                 "builds stamped with a build token; never in the editor.")]
+        [SerializeField] private bool _enableControlPlaneSink = true;
+
         [Header("Batching")]
         [Tooltip("Flush after this many tracked events accumulate.")]
         [Min(1)]
@@ -52,6 +56,12 @@ namespace Molca.Telemetry
 
         /// <summary>Endpoint URL for the HTTP batch sink.</summary>
         public string HttpEndpointUrl => _httpEndpointUrl;
+
+        /// <summary>
+        /// Whether stamped licensed builds report framework usage to the Molca control plane.
+        /// Inert in the editor and in any build without a signed build token.
+        /// </summary>
+        public bool EnableControlPlaneSink => _enableControlPlaneSink;
 
         /// <summary>Flush threshold by event count.</summary>
         public int BatchSize => Mathf.Max(1, _batchSize);

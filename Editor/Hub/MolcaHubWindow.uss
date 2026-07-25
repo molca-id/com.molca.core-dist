@@ -19,9 +19,9 @@
 .molca-hub-workspace-toolbar {
     flex-shrink: 0;
     flex-direction: row;
-    align-items: center;
-    padding-top: 5px;
-    padding-bottom: 5px;
+    align-items: stretch;
+    padding-top: 0;
+    padding-bottom: 0;
     padding-left: 8px;
     padding-right: 8px;
     background-color: var(--hub-card-header);
@@ -29,23 +29,89 @@
     border-bottom-color: var(--hub-border);
 }
 
+/*
+ * Workspace tab: an [icon] [label] row with a bottom accent underline. The underline is a dedicated
+ * child element (.molca-hub-workspace-tab__underline), NOT a button border — Unity's built-in Button
+ * repaints its own border box on :focus/:active, which erased a border-based underline the instant a
+ * tab was clicked and took focus. A child element is immune to that. Tabs stretch full toolbar height
+ * so the underline can sit flush on the header's bottom seam.
+ */
 .molca-hub-workspace-tab {
+    flex-direction: row;
+    align-items: center;
     margin-left: 0;
-    margin-right: 2px;
-    padding-top: 5px;
-    padding-bottom: 5px;
-    padding-left: 13px;
-    padding-right: 13px;
+    margin-right: 0;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    padding-left: 12px;
+    padding-right: 12px;
     border-width: 0;
-    border-radius: 3px;
+    border-radius: 0;
     background-color: rgba(0, 0, 0, 0);
-    color: var(--hub-text);
-    font-size: 11px;
+    color: var(--hub-muted);
+    font-size: 12px;
+    transition-property: color, background-color;
+    transition-duration: 0.1s;
 }
 
-.molca-hub-workspace-tab--active {
+.molca-hub-workspace-tab:hover {
+    color: var(--hub-heading);
+    background-color: var(--hub-control);
+}
+
+/* No explicit color: `color` is an inherited USS property, so the label picks up the tab's muted /
+   hover / active color automatically. (Setting `color: inherit` is invalid in Unity USS — it
+   spams "read value of type Color while reading a value of type Keyword" and leaves the label
+   unpainted.) */
+.molca-hub-workspace-tab__label {
+    font-size: 12px;
+}
+
+.molca-hub-workspace-tab__icon {
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+/*
+ * Bottom accent underline. Absolutely positioned along the tab's bottom edge (out of flow, so it
+ * never shifts the icon/label row) and overlapping the toolbar's 1px bottom border. Transparent at
+ * rest; a faint hint on hover; the full accent color when the tab is the active workspace.
+ */
+.molca-hub-workspace-tab__underline {
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 1px;
+    background-color: rgba(0, 0, 0, 0);
+    transition-property: background-color;
+    transition-duration: 0.1s;
+}
+
+.molca-hub-workspace-tab:hover .molca-hub-workspace-tab__underline {
+    background-color: var(--hub-border-soft);
+}
+
+/* Active tab: brighter label + a solid accent underline. Declared for the parent's active class so
+   the descendant underline wins regardless of the button's own :hover/:focus/:active pseudo-state. */
+.molca-hub-workspace-tab--active .molca-hub-workspace-tab__label {
+    color: var(--hub-heading);
+}
+
+.molca-hub-workspace-tab--active .molca-hub-workspace-tab__underline {
     background-color: var(--hub-primary);
-    color: white;
+}
+
+/* Thin vertical divider between adjacent tabs for clearer separation. */
+.molca-hub-tab-divider {
+    width: 1px;
+    margin-top: 8px;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+    background-color: var(--hub-border-soft);
 }
 
 .molca-hub-spacer {
@@ -73,6 +139,176 @@
 .molca-hub-workspace-host {
     flex-grow: 1;
     min-height: 0;
+}
+
+/* ---- Bottom activity rail ---- */
+
+/*
+ * Slim strip pinned below the body/host (last child of the flex-column root). Fixed height, never grows;
+ * the view toggles its own display to None when no provider has anything to show.
+ */
+.molca-hub-activity-rail {
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: center;
+    min-height: 26px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 8px;
+    padding-right: 8px;
+    background-color: var(--hub-card-header);
+    border-top-width: 1px;
+    border-top-color: var(--hub-border);
+}
+
+.molca-hub-activity-rail__chips {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* Developer-license pill, right-anchored to the far end of the rail (margin-left: auto). */
+.molca-hub-activity-rail__license {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: auto;
+    padding-left: 10px;
+}
+
+.molca-hub-activity-rail__license:hover .molca-hub-activity-rail__license-label {
+    color: var(--hub-accent);
+}
+
+.molca-hub-activity-rail__license-label {
+    color: var(--hub-muted);
+    font-size: 10px;
+    -unity-font-style: bold;
+    flex-shrink: 0;
+}
+
+/* Dedicated license status dot: base + color modifiers live in this one sheet so the color wins by
+   source order (no cross-stylesheet specificity tie with the activity-chip dot's grey base). */
+.molca-hub-activity-rail__license-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 4px;
+    margin-right: 6px;
+    flex-shrink: 0;
+    background-color: var(--molca-status-grey);
+}
+
+.molca-hub-activity-rail__license-dot--ok {
+    background-color: var(--molca-status-green);
+}
+
+.molca-hub-activity-rail__license-dot--warn {
+    background-color: var(--molca-status-warn);
+}
+
+.molca-hub-activity-rail__license-dot--error {
+    background-color: var(--molca-status-error);
+}
+
+.molca-hub-activity-rail__license-dot--idle {
+    background-color: var(--molca-status-grey);
+}
+
+.molca-hub-activity-chip {
+    /* position: relative so the absolute progress track anchors to the chip. */
+    position: relative;
+    flex-direction: row;
+    align-items: center;
+    height: 20px;
+    max-width: 200px;
+    margin-right: 6px;
+    padding-left: 8px;
+    padding-right: 6px;
+    border-width: 1px;
+    border-color: var(--hub-border);
+    border-radius: 3px;
+    background-color: var(--hub-control);
+    overflow: hidden;
+}
+
+.molca-hub-activity-chip__body {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.molca-hub-activity-chip__body--clickable:hover .molca-hub-activity-chip__label {
+    color: var(--hub-accent);
+}
+
+.molca-hub-activity-chip__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 4px;
+    margin-right: 6px;
+    flex-shrink: 0;
+    background-color: var(--molca-status-grey);
+}
+
+/* Running: accent so the eye tracks the in-flight process. */
+.molca-hub-activity-chip__dot--running {
+    background-color: var(--hub-accent);
+}
+
+.molca-hub-activity-chip__label {
+    color: var(--hub-text);
+    font-size: 10px;
+    -unity-font-style: bold;
+    flex-shrink: 0;
+}
+
+/* Status truncates with an ellipsis so a long check id / message never stretches the chip past its cap. */
+.molca-hub-activity-chip__status {
+    color: var(--hub-muted);
+    font-size: 10px;
+    margin-left: 6px;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    -unity-text-overflow-position: end;
+}
+
+.molca-hub-activity-chip__dismiss {
+    margin-left: 6px;
+    margin-right: 0;
+    padding: 0;
+    width: 15px;
+    height: 15px;
+    border-width: 0;
+    border-radius: 2px;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--hub-muted);
+    font-size: 10px;
+    flex-shrink: 0;
+}
+
+.molca-hub-activity-chip__dismiss:hover {
+    background-color: var(--hub-panel);
+    color: var(--hub-text);
+}
+
+/* Determinate progress: a hairline track along the chip's bottom edge with an accent fill. */
+.molca-hub-activity-chip__track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background-color: var(--hub-border);
+}
+
+.molca-hub-activity-chip__fill {
+    height: 2px;
+    background-color: var(--hub-accent);
 }
 
 .molca-hub-rail {
@@ -1618,4 +1854,173 @@
 .molca-hub-rail-node--category > .molca-hub-rail-node__label {
     -unity-font-style: bold;
     color: var(--hub-heading);
+}
+
+/* ---- About section ---- */
+
+.molca-hub-about-header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.molca-hub-about-logo {
+    width: 36px;
+    height: 36px;
+    border-radius: 7px;
+    border-width: 1px;
+    border-color: var(--hub-border);
+    background-color: var(--hub-input);
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+}
+
+.molca-hub-about-logo__image {
+    width: 24px;
+    height: 24px;
+}
+
+.molca-hub-about-logo__mark {
+    color: var(--hub-accent);
+    -unity-font-style: bold;
+    font-size: 24px;
+    -unity-text-align: middle-center;
+}
+
+.molca-hub-about-title-stack {
+    flex-grow: 1;
+}
+
+.molca-hub-about-title {
+    color: var(--hub-heading);
+    -unity-font-style: bold;
+    font-size: 17px;
+}
+
+.molca-hub-about-subtitle {
+    color: var(--hub-muted);
+    font-size: 11px;
+}
+
+.molca-hub-about-value {
+    flex-grow: 1;
+    min-width: 0;
+    color: var(--hub-text);
+    font-size: 11px;
+    white-space: normal;
+}
+
+.molca-hub-about-section .molca-hub-field-label {
+    width: 184px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.molca-hub-about-package-row > .molca-hub-field-label {
+    width: 224px;
+}
+
+.molca-hub-about-link-row {
+    min-width: 0;
+    overflow: hidden;
+}
+
+.molca-hub-about-link {
+    flex-grow: 1;
+    flex-shrink: 1;
+    flex-basis: 0;
+    width: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.molca-hub-about-link > .molca-link-button {
+    flex-shrink: 1;
+    flex-basis: 0;
+    width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.molca-hub-about-link > .molca-mini-button {
+    flex-shrink: 0;
+    margin-left: 8px;
+}
+
+.molca-hub-about-section--compact .molca-hub-field-row {
+    flex-direction: column;
+    align-items: stretch;
+    margin-bottom: 12px;
+}
+
+.molca-hub-about-section--compact .molca-hub-field-row > .molca-hub-field-label {
+    width: auto;
+    margin-bottom: 3px;
+}
+
+.molca-hub-about-section--compact .molca-hub-about-value {
+    padding-left: 8px;
+}
+
+.molca-hub-about-section--compact .molca-hub-about-link {
+    padding-left: 2px;
+}
+
+.molca-hub-about-update-body {
+    margin-top: 6px;
+}
+
+.molca-hub-about-release {
+    margin-top: 6px;
+    margin-bottom: 6px;
+}
+
+.molca-hub-about-highlight {
+    color: var(--hub-text);
+    font-size: 11px;
+    white-space: normal;
+    margin-bottom: 2px;
+}
+
+.molca-hub-about-notes {
+    color: var(--hub-muted);
+    font-size: 11px;
+    white-space: normal;
+    margin-top: 6px;
+    padding: 6px;
+    border-left-width: 2px;
+    border-left-color: var(--hub-border);
+    background-color: var(--hub-input);
+}
+
+.molca-hub-about-eol {
+    color: var(--hub-status-warn);
+    font-size: 11px;
+    white-space: normal;
+    margin-bottom: 6px;
+}
+
+.molca-hub-about-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    margin-bottom: 4px;
+}
+
+.molca-hub-about-actions > .molca-button {
+    margin-right: 6px;
+}
+
+.molca-hub-about-options {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top-width: 1px;
+    border-top-color: var(--hub-border-soft);
+}
+
+.molca-hub-about-toggle {
+    font-size: 11px;
 }

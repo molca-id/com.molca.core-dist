@@ -167,10 +167,17 @@ namespace Molca.Networking.Data
         }
         
         /// <summary>
-        /// Adds a processor to the chain
+        /// Adds a processor to the chain. Edit-time authoring only: the chain is a
+        /// serialized field on a config <see cref="ScriptableObject"/>, so a runtime
+        /// mutation would persist in the editor and silently diverge in a built player.
         /// </summary>
         public void AddProcessor(JsonPreProcessor processor)
         {
+            if (Application.isPlaying)
+            {
+                Debug.LogError($"[CompositeProcessor] '{name}': AddProcessor is an edit-time authoring operation; runtime mutation of the serialized processor chain is not allowed. Ignored.");
+                return;
+            }
             if (processor != null && !_processors.Contains(processor))
             {
                 _processors.Add(processor);
@@ -179,10 +186,16 @@ namespace Molca.Networking.Data
         }
         
         /// <summary>
-        /// Removes a processor from the chain
+        /// Removes a processor from the chain. Edit-time authoring only (see
+        /// <see cref="AddProcessor"/>).
         /// </summary>
         public void RemoveProcessor(JsonPreProcessor processor)
         {
+            if (Application.isPlaying)
+            {
+                Debug.LogError($"[CompositeProcessor] '{name}': RemoveProcessor is an edit-time authoring operation; runtime mutation of the serialized processor chain is not allowed. Ignored.");
+                return;
+            }
             if (_processors.Remove(processor))
             {
                 LogMessage($"Removed processor: {processor.GetType().Name}");
@@ -190,10 +203,16 @@ namespace Molca.Networking.Data
         }
         
         /// <summary>
-        /// Clears all processors from the chain
+        /// Clears all processors from the chain. Edit-time authoring only (see
+        /// <see cref="AddProcessor"/>).
         /// </summary>
         public void ClearProcessors()
         {
+            if (Application.isPlaying)
+            {
+                Debug.LogError($"[CompositeProcessor] '{name}': ClearProcessors is an edit-time authoring operation; runtime mutation of the serialized processor chain is not allowed. Ignored.");
+                return;
+            }
             _processors.Clear();
             LogMessage("Cleared all processors from chain");
         }

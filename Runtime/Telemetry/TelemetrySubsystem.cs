@@ -60,7 +60,15 @@ namespace Molca.Telemetry
             // Periodic flush loop, cancelled on Teardown via ShutdownToken.
             _ = FlushLoopAsync(ShutdownToken);
 
-            Track("telemetry.session_started");
+            // These property names are the ones the control plane promotes to first-class columns, so a
+            // session is attributable to a framework version and platform without parsing the bag.
+            var stamp = Molca.Licensing.LicenseStamp.Current;
+            Track("telemetry.session_started", new Dictionary<string, object>
+            {
+                { "platform", Application.platform.ToString() },
+                { "appVersion", Application.version },
+                { "coreVersion", stamp?.coreVersion ?? string.Empty },
+            });
             Debug.Log($"[TelemetrySubsystem] Telemetry active (session {_sessionId}, {_sinks.Count} sink(s)).");
 
             await TelemetryAwaitables.Completed;
@@ -80,6 +88,18 @@ namespace Molca.Telemetry
                     Debug.LogWarning("[TelemetrySubsystem] HTTP sink enabled but no endpoint URL configured; skipping it.");
                 else
                     _sinks.Add(new HttpBatchTelemetrySink(_settings.HttpEndpointUrl));
+            }
+
+            // Molca's own usage reporting. Self-disables outside a stamped, licensed player build, so it
+            // costs nothing in the editor and never activates in an unlicensed build.
+            if (_settings.EnableControlPlaneSink)
+            {
+                var stamp = Molca.Licensing.LicenseStamp.Current;
+                if (stamp != null && !string.IsNullOrEmpty(stamp.buildToken))
+                {
+                    var sink = new ControlPlaneTelemetrySink(stamp.serverBaseUrl, stamp);
+                    if (sink.IsActive) _sinks.Add(sink);
+                }
             }
         }
 

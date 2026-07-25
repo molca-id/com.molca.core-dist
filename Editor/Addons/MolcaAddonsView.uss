@@ -1,0 +1,94 @@
+/* Scoped styles for the Add-ons Hub views (Browse / Installed). Layout + add-on-specific bits only;
+   cards, buttons, search, and status dots come from MolcaEditorComponents.uss. Colors reference design
+   tokens (--molca-*) exclusively, per EDITOR_DESIGN_LANGUAGE.md / DesignLanguageCheck. */
+
+.molca-addons-view {
+    flex-grow: 1;
+    padding: 14px;
+}
+
+.molca-addons-header {
+    flex-direction: row;
+    align-items: flex-start;
+    margin-bottom: 10px;
+}
+
+.molca-addons-title-stack {
+    flex-grow: 1;
+    margin-right: 12px;
+}
+
+.molca-addons-title {
+    font-size: 15px;
+    -unity-font-style: bold;
+    color: var(--molca-heading);
+    margin-bottom: 2px;
+}
+
+.molca-addons-subtitle {
+    color: var(--molca-muted);
+    white-space: normal;
+}
+
+.molca-addons-header-actions {
+    flex-direction: row;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.molca-addons-status {
+    color: var(--molca-muted);
+    white-space: normal;
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+.molca-addons-list {
+    flex-grow: 1;
+}
+
+.molca-addons-row {
+    flex-direction: row;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.molca-addons-icon {
+    width: 32px;
+    height: 32px;
+    margin-right: 10px;
+    margin-top: 6px;
+    flex-shrink: 0;
+}
+
+.molca-addons-card {
+    flex-grow: 1;
+}
+
+.molca-addons-description {
+    white-space: normal;
+    color: var(--molca-text);
+    margin-bottom: 2px;
+}
+
+.molca-addons-details {
+    margin-top: 6px;
+}
+
+.molca-addons-detail-row {
+    flex-direction: row;
+    align-items: flex-start;
+    margin-top: 2px;
+}
+
+.molca-addons-detail-label {
+    width: 110px;
+    flex-shrink: 0;
+    color: var(--molca-muted);
+}
+
+.molca-addons-detail-value {
+    flex-grow: 1;
+    white-space: normal;
+    color: var(--molca-text);
+}

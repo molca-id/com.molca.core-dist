@@ -6,7 +6,7 @@ order: 950
 
 # Core MCP Tools
 
-`CoreMcpToolProvider` owns the `molca` namespace: the introspection, sequence/content/settings authoring, networking, localization, knowledge-graph, ClickUp, and Figma tools that are specific to Molca Core. General-purpose Unity-editor actions live in [`UnityMcpToolProvider`](UNITY_MCP_TOOLS.md).
+`CoreMcpToolProvider` owns the `molca` namespace: the introspection, sequence/content/settings authoring, networking, localization, knowledge-graph, and ClickUp tools that are specific to Molca Core. General-purpose Unity-editor actions live in [`UnityMcpToolProvider`](UNITY_MCP_TOOLS.md). The Figma tools (`molca_figma_*`) moved to the `com.molca.addon.figma` add-on's own `FigmaMcpToolProvider`, owning the `molca.figma` namespace — see `server/addons/com.molca.addon.figma`.
 
 ## Provider Layout
 
@@ -30,7 +30,6 @@ Tools are discovered by convention from the `Create*Tool()` factories across the
 - `CoreMcpToolProvider.ToolSchema.cs` / `.ListTools.cs`: the tiered-exposure meta-tools — `molca_tool_schema` (fetch a tool's input schema on demand) and `molca_list_tools` (expand a family to names + summaries). See [MCP_FORK_PROVIDERS.md](MCP_FORK_PROVIDERS.md) → "How the in-editor assistant exposes tools".
 - `CoreMcpToolProvider.Doctor.cs` / `.Actions.cs`: Molca Doctor checks and Doctor-fix.
 - `CoreMcpToolProvider.AskUser.cs`: interactive ask-user prompt.
-- `CoreMcpToolProvider.Figma.cs`: Figma file/frame listing and UI Toolkit scaffolding.
 - `CoreMcpToolProvider.ClickUp.cs`: ClickUp integration status, task/workspace listing, task creation, and status changes.
 
 ## Read-Only Tools
@@ -95,12 +94,10 @@ Documentation:
 - `molca_docs_read`: return a guide's full Markdown body by id (front-matter stripped).
 - `molca_docs_search`: case-insensitive substring search over guide titles and bodies, returning matches with a snippet.
 
-Source / Doctor / Figma / ClickUp:
+Source / Doctor / ClickUp:
 
 - `molca_read_source`: read a text/source file inside the project by path with optional line-range pagination.
 - `molca_doctor`: run Molca Doctor convention checks.
-- `molca_figma_list_files`: Figma files for the configured team or a given project.
-- `molca_figma_list_frames`: frames in a Figma file.
 - `molca_clickup_status`: ClickUp connection, target, and token state.
 - `molca_clickup_list_tasks`: tasks from the configured target folder/list.
 - `molca_clickup_list_workspaces`: workspaces available to the stored token.
@@ -158,7 +155,6 @@ Edit-mode irreversible actions:
 - `molca_create_mcp_tool`
 - `molca_trigger_build`
 - `molca_kg_build`
-- `molca_figma_build_frame`, `molca_figma_build_panel`
 - `molca_clickup_set_task_status`, `molca_clickup_create_task`
 - `molca_undo_last_action`
 
@@ -167,12 +163,11 @@ Edit-mode irreversible actions:
 - Use read tools before action tools to resolve targets: sequence type/field reads before sequence edits, `molca_refids` before Ref Id fixes, settings reads before `molca_settings_set_fields`, networking reads before request edits, and localization coverage before localization edits.
 - Sequence, settings, localization text/language-list, and most content-config edits route through Unity Undo.
 - Doctor/validation fixes that touch scene files are snapshotted for `molca_undo_last_action`.
-- Play-mode control, content lifecycle, codegen, ClickUp writes, builds, deploys, and graph/Figma generation are irreversible.
+- Play-mode control, content lifecycle, codegen, ClickUp writes, builds, deploys, and graph generation are irreversible.
 - Codegen tools write `.cs` files; new types are unavailable until after a domain reload.
 - `molca_trigger_build` runs a Doctor gate first and refuses to build on blocking findings.
 - Networking and request reads redact/mask sensitive headers and values.
 - Knowledge-graph query tools require a built graph; check `molca_kg_status` and build with `molca_kg_build` first.
-- Figma tools require a configured Figma integration.
 - ClickUp tools require a configured ClickUp integration.
 - Action tools must remain allowlisted in `Assets/_Molca/Editor/MCP Settings.asset`.
 
