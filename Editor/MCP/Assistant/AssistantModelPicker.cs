@@ -27,6 +27,7 @@ namespace Molca.Editor.Mcp.Assistant
     {
         private static readonly (LlmProviderKind Kind, string Label)[] Providers =
         {
+            (LlmProviderKind.MolcaFree, "Molca Free"),
             (LlmProviderKind.OpenAI, "OpenAI / Compatible"),
             (LlmProviderKind.Anthropic, "Anthropic"),
             (LlmProviderKind.Local, "Local (Ollama)")
@@ -207,7 +208,8 @@ namespace Molca.Editor.Mcp.Assistant
             _discoveryCts = new CancellationTokenSource();
             var ct = _discoveryCts.Token;
 
-            if (_settings.Provider == LlmProviderKind.Local && forceRefresh)
+            if ((_settings.Provider == LlmProviderKind.Local
+                 || _settings.Provider == LlmProviderKind.MolcaFree) && forceRefresh)
                 SetHint("Detecting…", warn: false);
 
             var result = await AssistantModelCatalog.DiscoverAsync(_settings, forceRefresh, ct);
@@ -221,7 +223,12 @@ namespace Molca.Editor.Mcp.Assistant
         {
             var menu = new GenericMenu();
             var current = ResolvedModel();
-            if (models == null || models.Count == 0)
+            if (_settings.Provider == LlmProviderKind.MolcaFree
+                && (models == null || models.Count == 0))
+            {
+                menu.AddDisabledItem(new GUIContent("No free model currently available"));
+            }
+            else if (models == null || models.Count == 0)
             {
                 menu.AddDisabledItem(new GUIContent(_settings.Provider == LlmProviderKind.Local
                     ? "No models discovered — type a tag"
@@ -253,7 +260,10 @@ namespace Molca.Editor.Mcp.Assistant
             // A live Misconfigured state (missing cloud key) takes precedence over the discovery message.
             if (WarnIfMisconfigured()) return;
 
-            var warn = result != null && _settings.Provider == LlmProviderKind.Local && !result.Reachable;
+            var warn = result != null
+                && (_settings.Provider == LlmProviderKind.Local
+                    || _settings.Provider == LlmProviderKind.MolcaFree)
+                && !result.Reachable;
             SetHint(result?.Message ?? string.Empty, warn);
         }
 
@@ -263,7 +273,9 @@ namespace Molca.Editor.Mcp.Assistant
             var status = _settings.GetStatus(out var message);
             var misconfigured = status == AssistantConfigStatus.Misconfigured;
             if (misconfigured)
-                SetHint(message + " Set the key in the Molca Hub settings.", warn: true);
+                SetHint(message + (_settings.Provider == LlmProviderKind.MolcaFree
+                    ? " Open the Molca license panel to authenticate."
+                    : " Set the key in the Molca Hub settings."), warn: true);
             return misconfigured;
         }
 
@@ -278,9 +290,16 @@ namespace Molca.Editor.Mcp.Assistant
 
         private void SyncProviderDependentUi()
         {
-            // Detect is only meaningful for a discoverable local endpoint.
-            _detectButton.style.display =
-                _settings.Provider == LlmProviderKind.Local ? DisplayStyle.Flex : DisplayStyle.None;
+            var isMolcaFree = _settings.Provider == LlmProviderKind.MolcaFree;
+            var discoverable = _settings.Provider == LlmProviderKind.Local || isMolcaFree;
+            _detectButton.style.display = discoverable ? DisplayStyle.Flex : DisplayStyle.None;
+            _detectButton.text = isMolcaFree ? "Check" : "Detect";
+            _detectButton.tooltip = isMolcaFree
+                ? "Check which zero-price model the Molca server can currently route to"
+                : "Ping the local runtime and list its pulled models";
+            _modelField.SetEnabled(!isMolcaFree);
+            _modelMenuButton.style.display = isMolcaFree ? DisplayStyle.None : DisplayStyle.Flex;
+            _reasoningField.style.display = isMolcaFree ? DisplayStyle.None : DisplayStyle.Flex;
         }
 
         private string ResolvedModel()

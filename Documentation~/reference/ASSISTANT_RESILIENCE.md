@@ -12,6 +12,11 @@ describes what it does on its own and the three settings you can tune (Hub → A
 
 ## What it handles for you
 
+**Turns continue when you leave the Assistant tab.** Switching to another Molca Hub workspace, docking
+the Hub, or rebuilding the editor layout disconnects only the visible chat screen. The active turn keeps
+running in the editor-domain chat runtime. When you return, the Assistant reconnects to the same session
+and live transcript. Use **Stop** when you intentionally want to cancel the active turn.
+
 **Transient network failures are retried.** A rate-limit (HTTP 429), a temporary server error (5xx), or
 a dropped connection/timeout is retried automatically with increasing backoff before the turn gives up.
 A `Retry-After` hint from the server is respected. Errors that retrying can't fix — a bad API key or an

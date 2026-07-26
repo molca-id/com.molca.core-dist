@@ -15,7 +15,7 @@ Ollama tags.
 
 A compact row: **provider dropdown · editable model field · `▾` model menu · Detect (Local only) · hint**.
 
-- **Provider dropdown** — OpenAI / Compatible, Anthropic, or Local (Ollama). Switching defaults the model
+- **Provider dropdown** — Molca Free, OpenAI / Compatible, Anthropic, or Local (Ollama). Switching defaults the model
   field to that provider's default; pick or type another immediately.
 - **Model field** — free text. Type any model id (a pulled Ollama tag, a cloud model name, a fine-tune).
   Persists on Enter/blur.
@@ -30,6 +30,11 @@ A compact row: **provider dropdown · editable model field · `▾` model menu �
   endpoint is down or has no models pulled, the list is empty and the hint tells you what to do
   (`ollama serve`, `ollama pull …`) — never a silent failure. Results are briefly cached per (provider,
   base URL); **Detect** forces a refresh.
+- **Molca Free** — uses the existing machine-bound Molca developer entitlement to query the control plane's
+  OpenAI-compatible route. The client exposes only the stable `molca/free` alias; the server selects a
+  currently available, tool-capable, zero-price model and keeps its OpenRouter key private. The model and
+  endpoint fields are locked so consumer projects cannot redirect the entitlement. **Check** forces a live
+  availability refresh. Free-provider rate limits, retention, and training policies may apply.
 - **Cloud (OpenAI / DeepSeek / Anthropic)** — a curated, extensible known-model list
   (`AssistantModelCatalog.CuratedModelsFor`), plus the always-present free-text field for anything
   unlisted. No network call, no single hardcoded model.
@@ -50,7 +55,8 @@ without a live server.
   in-flight history; it applies on the next turn.
 - **No new secrets path.** API keys stay in `AssistantApiAuth` (EditorPrefs / env var). The picker never
   surfaces, enters, or stores a key — a keyless cloud provider simply shows **Misconfigured** with a
-  pointer to the Hub key row. A local runtime is keyless and never flagged for a missing key.
+  pointer to the Hub key row. A local runtime is keyless and never flagged for a missing key. Molca Free
+  requires a valid Molca sign-in, not a user-supplied OpenRouter key.
 
 ## Extending the curated cloud list
 

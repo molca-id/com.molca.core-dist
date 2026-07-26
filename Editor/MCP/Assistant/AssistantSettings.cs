@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Molca.Editor.Licensing;
 using UnityEditor;
 using UnityEngine;
 
@@ -451,6 +452,7 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>The default model id for a provider.</summary>
         public static string DefaultModelFor(LlmProviderKind p) => p switch
         {
+            LlmProviderKind.MolcaFree => "molca/free",
             LlmProviderKind.Anthropic => "claude-opus-4-8",
             LlmProviderKind.OpenAI => "gpt-4o-mini",
             LlmProviderKind.Local => "gemma4:e4b",
@@ -463,9 +465,15 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>The default base URL for the Local provider (a stock Ollama OpenAI-compatible endpoint).</summary>
         public const string DefaultLocalBaseUrl = "http://localhost:11434/v1";
 
+        /// <summary>The entitlement-authenticated OpenAI-compatible assistant route on the Molca server.</summary>
+        public static string MolcaFreeBaseUrl =>
+            DevLicenseConfig.ServerBaseUrl.TrimEnd('/') + "/assistant/v1";
+
         /// <summary>The default base URL for a base-URL-driven provider.</summary>
         public static string DefaultBaseUrlFor(LlmProviderKind p) =>
-            p == LlmProviderKind.Local ? DefaultLocalBaseUrl : DefaultOpenAiBaseUrl;
+            p == LlmProviderKind.Local ? DefaultLocalBaseUrl
+                : p == LlmProviderKind.MolcaFree ? MolcaFreeBaseUrl
+                : DefaultOpenAiBaseUrl;
 
         /// <summary>True if the selected provider is driven by a configurable OpenAI-compatible base URL.</summary>
         public bool UsesBaseUrl =>
@@ -500,13 +508,16 @@ namespace Molca.Editor.Mcp.Assistant
         }
 
         /// <summary>The resolved OpenAI-compatible base URL (configured value, or the provider default if blank).</summary>
-        public string BaseUrl => string.IsNullOrWhiteSpace(baseUrl) ? DefaultBaseUrlFor(provider) : baseUrl.Trim();
+        public string BaseUrl => provider == LlmProviderKind.MolcaFree
+            ? MolcaFreeBaseUrl
+            : string.IsNullOrWhiteSpace(baseUrl) ? DefaultBaseUrlFor(provider) : baseUrl.Trim();
 
         /// <summary>True if the selected provider has an implementation in this release.</summary>
         public bool IsProviderImplemented =>
             provider == LlmProviderKind.Anthropic
             || provider == LlmProviderKind.OpenAI
-            || provider == LlmProviderKind.Local;
+            || provider == LlmProviderKind.Local
+            || provider == LlmProviderKind.MolcaFree;
 
         /// <summary>
         /// Reports the configuration status for the settings UI and validator (Sprint 16.7): missing key
@@ -524,6 +535,18 @@ namespace Molca.Editor.Mcp.Assistant
             {
                 message = $"Provider '{provider}' is not implemented in this release.";
                 return AssistantConfigStatus.Misconfigured;
+            }
+            if (provider == LlmProviderKind.MolcaFree)
+            {
+                var token = DevEntitlementStore.LoadEffective();
+                if (DevEntitlementVerifier.Evaluate(
+                        token, SystemInfo.deviceUniqueIdentifier, out _) != DevLicenseStatus.Valid)
+                {
+                    message = "Sign in to Molca to use the free assistant.";
+                    return AssistantConfigStatus.Misconfigured;
+                }
+                message = $"Ready ({Model}, routed by Molca).";
+                return AssistantConfigStatus.Configured;
             }
             // Local runtimes (Ollama) are keyless by default, so a missing key is not a misconfiguration.
             if (provider != LlmProviderKind.Local && !AssistantApiAuth.HasKey(provider))
@@ -552,8 +575,18 @@ namespace Molca.Editor.Mcp.Assistant
                 LlmProviderKind.OpenAI => new OpenAiCompatibleLlmProvider(BaseUrl, key, LlmProviderKind.OpenAI, requireApiKey: true, maxAttempts: attempts),
                 // Local (Ollama): same OpenAI wire format, optional key (the header is omitted when blank).
                 LlmProviderKind.Local => new OpenAiCompatibleLlmProvider(BaseUrl, key, LlmProviderKind.Local, requireApiKey: false, maxAttempts: attempts),
+                LlmProviderKind.MolcaFree => new OpenAiCompatibleLlmProvider(
+                    MolcaFreeBaseUrl,
+                    DevEntitlementStore.LoadEffective(),
+                    LlmProviderKind.MolcaFree,
+                    requireApiKey: true,
+                    maxAttempts: attempts,
+                    additionalHeaders: new Dictionary<string, string>
+                    {
+                        ["X-Molca-Machine-Id"] = SystemInfo.deviceUniqueIdentifier
+                    }),
                 _ => throw new NotImplementedException(
-                    $"LLM provider '{provider}' is not implemented in this release. Use Anthropic, OpenAI, or Local.")
+                    $"LLM provider '{provider}' is not implemented in this release.")
             };
         }
 

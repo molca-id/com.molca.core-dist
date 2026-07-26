@@ -40,6 +40,9 @@ namespace Molca.Editor.Doctor
                 ["Audio"] = "AUDIO",
                 ["ColorID"] = "COLOR_ID",
                 ["ContentPackage"] = "CONTENT_PACKAGES",
+                // Diagnostics (the vendor-neutral sink facade) is documented alongside telemetry —
+                // TELEMETRY.md is the "Telemetry & Diagnostics" guide, not a telemetry-only guide.
+                ["Diagnostics"] = "TELEMETRY",
                 ["Events"] = "EVENTS",
                 ["Licensing"] = "LICENSING",
                 ["Localization"] = "LOCALIZATION",

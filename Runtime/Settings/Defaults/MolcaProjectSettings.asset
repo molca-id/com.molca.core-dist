@@ -17,5 +17,8 @@ MonoBehaviour:
   companyName: Molca
   projectName: Molca Project
   projectLogo: {fileID: 21300000, guid: 2a4591ff7f2a915479f5541b0953a016, type: 3}
-  projectId: 
+  projectId:
+  projectCode:
+  projectBinding:
+  projectBindingVersion: 0
   bootstrapExtensions: []

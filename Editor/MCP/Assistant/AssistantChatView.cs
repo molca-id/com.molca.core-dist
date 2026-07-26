@@ -9,8 +9,8 @@ using UnityEngine.UIElements;
 namespace Molca.Editor.Mcp.Assistant
 {
     /// <summary>
-    /// Reusable in-editor assistant chat panel as a <see cref="VisualElement"/>. Owns the controller, the
-    /// transcript/composer/asset-picker collaborators, and the prompt bar. Hosted by both the standalone
+    /// Reusable in-editor assistant chat panel as a <see cref="VisualElement"/>. Observes the shared chat
+    /// runtime and owns the transcript/composer/asset-picker collaborators and prompt bar. Hosted by the standalone
     /// <see cref="AssistantChatWindow"/> and the Molca Hub Assistant workspace (Sprint 26.10).
     /// </summary>
     /// <remarks>
@@ -18,19 +18,19 @@ namespace Molca.Editor.Mcp.Assistant
     /// Base class: <see cref="VisualElement"/>.
     /// The conversation is rendered by <see cref="AssistantTranscriptView"/>, the composer card by
     /// <see cref="AssistantComposer"/>, and the pinned-asset picker by <see cref="AssistantAssetPicker"/>.
-    /// Lifecycle (cancelling an in-flight turn, disposing the asset picker, unsubscribing the controller)
-    /// is keyed on <see cref="DetachFromPanelEvent"/> so only the visible host runs a controller — there is
-    /// never duplicate long-running controller state across the window and the Hub.
+    /// View cleanup is keyed on <see cref="DetachFromPanelEvent"/>. Detaching releases view-specific
+    /// collaborators and event subscriptions; the editor-domain runtime keeps an in-flight turn alive so
+    /// Hub workspace navigation and window layout changes do not cancel it.
     /// </remarks>
     public sealed class AssistantChatView : VisualElement
     {
         private const string AssetDir = "Packages/com.molca.core/Editor/MCP/Assistant/";
 
+        private readonly AssistantChatRuntime _runtime;
         private readonly AssistantSettings _settings;
         private readonly AssistantChatController _controller;
         private readonly AssistantAssetPicker _assetPicker = new AssistantAssetPicker();
         private readonly Action<string> _notify;
-        private CancellationTokenSource _cts;
 
         private AssistantTranscriptView _transcript;
         private AssistantComposer _composer;
@@ -50,12 +50,16 @@ namespace Molca.Editor.Mcp.Assistant
         /// <param name="notify">Optional transient-notification sink (e.g. the host window's
         /// <c>ShowNotification</c>); ignored when null.</param>
         public AssistantChatView(Action<string> notify = null)
+            : this(AssistantChatRuntime.Shared, notify)
+        {
+        }
+
+        internal AssistantChatView(AssistantChatRuntime runtime, Action<string> notify = null)
         {
             _notify = notify;
-            _cts = new CancellationTokenSource();
-
-            _settings = AssistantSettings.GetOrCreateSettings();
-            _controller = new AssistantChatController(_settings) { ActionMode = AssistantComposer.LoadActionMode() };
+            _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
+            _settings = runtime.Settings;
+            _controller = runtime.Controller;
             _controller.Changed += RefreshTranscript;
             // Plan-mode "Edit" refills the composer with the proposed plan so the user can revise (Sprint 48).
             _controller.PlanEditRequested += BeginEdit;
@@ -116,36 +120,27 @@ namespace Molca.Editor.Mcp.Assistant
                 }
             }, TrickleDown.TrickleDown);
 
-            // DetachFromPanelEvent fires on transient reparenting too (docking, layout rebuilds, domain
-            // reloads), so re-arm on re-attach rather than staying torn down — otherwise the reused view
-            // has a null _cts (NRE on Send) and a dropped Changed subscription (stale transcript).
+            // DetachFromPanelEvent fires on workspace changes and transient reparenting. Reconnect this
+            // view when it returns; the shared runtime and any in-flight turn continue independently.
             RegisterCallback<AttachToPanelEvent>(_ =>
             {
-                _cts ??= new CancellationTokenSource();
-                if (_controller != null)
-                {
-                    _controller.Changed -= RefreshTranscript;
-                    _controller.Changed += RefreshTranscript;
-                }
+                _controller.Changed -= RefreshTranscript;
+                _controller.Changed += RefreshTranscript;
+                _controller.PlanEditRequested -= BeginEdit;
+                _controller.PlanEditRequested += BeginEdit;
                 RefreshTranscript();
             });
-            RegisterCallback<DetachFromPanelEvent>(_ => Dispose());
+            RegisterCallback<DetachFromPanelEvent>(_ => DetachFromHost());
 
             RefreshTranscript();
         }
 
-        /// <summary>Cancels the in-flight turn and releases collaborators. Idempotent.</summary>
-        private void Dispose()
+        /// <summary>Releases view-only collaborators without cancelling the shared in-flight turn.</summary>
+        internal void DetachFromHost()
         {
-            _cts?.Cancel();
-            _cts?.Dispose();
-            _cts = null;
             _assetPicker.Dispose();
-            if (_controller != null)
-            {
-                _controller.Changed -= RefreshTranscript;
-                _controller.PlanEditRequested -= BeginEdit;
-            }
+            _controller.Changed -= RefreshTranscript;
+            _controller.PlanEditRequested -= BeginEdit;
         }
 
         private static T LoadAsset<T>(string fileName) where T : UnityEngine.Object =>
@@ -239,8 +234,7 @@ namespace Molca.Editor.Mcp.Assistant
         {
             var hasImages = images != null && images.Count > 0;
             if (_controller == null || _controller.IsBusy || (string.IsNullOrWhiteSpace(text) && !hasImages)) return;
-            _cts ??= new CancellationTokenSource();
-            try { await _controller.SendAsync(text, images, _cts.Token); }
+            try { await _controller.SendAsync(text, images, _runtime.TurnToken); }
             catch (OperationCanceledException) { /* Stop cancelled the turn — not an error. */ }
             catch (Exception ex) { Debug.LogException(ex); }
         }
@@ -258,16 +252,13 @@ namespace Molca.Editor.Mcp.Assistant
 
         private void StopCurrent()
         {
-            _cts?.Cancel();
-            _cts?.Dispose();
-            _cts = new CancellationTokenSource();
+            _runtime.StopCurrentTurn();
         }
 
         private async void RetryLast(string editedText = null)
         {
             if (_controller == null || _controller.IsBusy) return;
-            _cts ??= new CancellationTokenSource();
-            try { await _controller.RetryLastAsync(_cts.Token, editedText); }
+            try { await _controller.RetryLastAsync(_runtime.TurnToken, editedText); }
             catch (OperationCanceledException) { /* Stop cancelled the turn — not an error. */ }
             catch (Exception ex) { Debug.LogException(ex); }
         }

@@ -1,7 +1,7 @@
-com.molca.core@1.15.0
-Published: 2026-07-25 15:50:09Z
-Source commit: 13a731f0
-Files: 1706
+﻿com.molca.core@1.16.1
+Published: 2026-07-26 23:47:50Z
+Source commit: 99418d77
+Files: 1730
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -41,6 +41,7 @@ Documentation~/reference/NETWORKING.md
 Documentation~/reference/ONBOARDING.md
 Documentation~/reference/OVERVIEW.md
 Documentation~/reference/REFERENCE_SYSTEM.md
+Documentation~/reference/REMOTE_EDITOR.md
 Documentation~/reference/RUNTIME_MANAGER.md
 Documentation~/reference/SEQUENCE_AUTHORING.md
 Documentation~/reference/SEQUENCE_VALIDATION.md
@@ -78,6 +79,8 @@ Editor/Addons/AddonCatalogCache.cs
 Editor/Addons/AddonCatalogCache.cs.meta
 Editor/Addons/AddonCatalogClient.cs
 Editor/Addons/AddonCatalogClient.cs.meta
+Editor/Addons/AddonDependencyResolver.cs
+Editor/Addons/AddonDependencyResolver.cs.meta
 Editor/Addons/AddonDistributionConfig.cs
 Editor/Addons/AddonDistributionConfig.cs.meta
 Editor/Addons/AddonInstalledView.cs
@@ -98,8 +101,12 @@ Editor/Addons/AddonTarGzExtractor.cs
 Editor/Addons/AddonTarGzExtractor.cs.meta
 Editor/Addons/AddonTelemetry.cs
 Editor/Addons/AddonTelemetry.cs.meta
+Editor/Addons/AddonTransactionResume.cs
+Editor/Addons/AddonTransactionResume.cs.meta
 Editor/Addons/AddonViewBase.cs
 Editor/Addons/AddonViewBase.cs.meta
+Editor/Addons/ExternalPrerequisiteResolver.cs
+Editor/Addons/ExternalPrerequisiteResolver.cs.meta
 Editor/Addons/IAddonActivator.cs
 Editor/Addons/IAddonActivator.cs.meta
 Editor/Addons/InstalledAddonsAsset.cs
@@ -483,12 +490,14 @@ Editor/Icons/molca-content.png
 Editor/Icons/molca-content.png.meta
 Editor/Icons/molca-doctor.png
 Editor/Icons/molca-doctor.png.meta
+Editor/Icons/MolcaEditorIcons.cs
+Editor/Icons/MolcaEditorIcons.cs.meta
 Editor/Icons/molca-localization.png
 Editor/Icons/molca-localization.png.meta
-Editor/Icons/molca-logo-dark.png
-Editor/Icons/molca-logo-dark.png.meta
 Editor/Icons/molca-logo.png
 Editor/Icons/molca-logo.png.meta
+Editor/Icons/molca-logo-dark.png
+Editor/Icons/molca-logo-dark.png.meta
 Editor/Icons/molca-mcp.png
 Editor/Icons/molca-mcp.png.meta
 Editor/Icons/molca-networking.png
@@ -503,8 +512,6 @@ Editor/Icons/molca-utils.png
 Editor/Icons/molca-utils.png.meta
 Editor/Icons/molca-window.png
 Editor/Icons/molca-window.png.meta
-Editor/Icons/MolcaEditorIcons.cs
-Editor/Icons/MolcaEditorIcons.cs.meta
 Editor/Icons/rasterize-icons.ps1
 Editor/Icons/rasterize-icons.ps1.meta
 Editor/Icons/svg.meta
@@ -579,6 +586,8 @@ Editor/MCP/Assistant/AssistantAssetPicker.cs
 Editor/MCP/Assistant/AssistantAssetPicker.cs.meta
 Editor/MCP/Assistant/AssistantChatController.cs
 Editor/MCP/Assistant/AssistantChatController.cs.meta
+Editor/MCP/Assistant/AssistantChatRuntime.cs
+Editor/MCP/Assistant/AssistantChatRuntime.cs.meta
 Editor/MCP/Assistant/AssistantChatView.cs
 Editor/MCP/Assistant/AssistantChatView.cs.meta
 Editor/MCP/Assistant/AssistantChatWindow.cs
@@ -835,6 +844,13 @@ Editor/Onboarding/OnboardingWizardView.cs
 Editor/Onboarding/OnboardingWizardView.cs.meta
 Editor/Onboarding/OnboardingWizardWindow.cs
 Editor/Onboarding/OnboardingWizardWindow.cs.meta
+Editor/Projects.meta
+Editor/Projects/MolcaProjectApiClient.cs
+Editor/Projects/MolcaProjectApiClient.cs.meta
+Editor/Projects/ProjectBindingVerifier.cs
+Editor/Projects/ProjectBindingVerifier.cs.meta
+Editor/Projects/ProjectModels.cs
+Editor/Projects/ProjectModels.cs.meta
 Editor/ReferenceSystem.meta
 Editor/ReferenceSystem/ReferenceManagerSettingsEditor.cs
 Editor/ReferenceSystem/ReferenceManagerSettingsEditor.cs.meta
@@ -844,6 +860,11 @@ Editor/ReferenceSystem/SceneObjectReferenceDrawer.cs
 Editor/ReferenceSystem/SceneObjectReferenceDrawer.cs.meta
 Editor/ReferenceSystem/SceneObjectReferenceGenericDrawer.cs
 Editor/ReferenceSystem/SceneObjectReferenceGenericDrawer.cs.meta
+Editor/Remote.meta
+Editor/Remote/AssistantRemoteFacade.cs
+Editor/Remote/AssistantRemoteFacade.cs.meta
+Editor/Remote/MolcaRemoteEditorAgent.cs
+Editor/Remote/MolcaRemoteEditorAgent.cs.meta
 Editor/Scene.meta
 Editor/Scene/GameObjectEditingService.cs
 Editor/Scene/GameObjectEditingService.cs.meta
@@ -1266,6 +1287,9 @@ Runtime/DevPlayer/MolcaDevPlayerBridge.cs
 Runtime/DevPlayer/MolcaDevPlayerBridge.cs.meta
 Runtime/DevPlayer/MolcaDevPlayerProtocol.cs
 Runtime/DevPlayer/MolcaDevPlayerProtocol.cs.meta
+Runtime/Diagnostics.meta
+Runtime/Diagnostics/MolcaDiagnostics.cs
+Runtime/Diagnostics/MolcaDiagnostics.cs.meta
 Runtime/Events.meta
 Runtime/Events/EventConstants.cs
 Runtime/Events/EventConstants.cs.meta
@@ -1704,8 +1728,8 @@ Samples~/ContentPackageDemos/PackageManifestIntegrationDemo.cs
 Samples~/ContentPackageDemos/PackageManifestTests.cs
 Samples~/ContentPackageDemos/README.md
 Samples~/ContentPackageDemos/StateManagementDemo.cs
-Tools~/molca-mcp/package-lock.json
 Tools~/molca-mcp/package.json
+Tools~/molca-mcp/package-lock.json
 Tools~/molca-mcp/README.md
 Tools~/molca-mcp/src/index.ts
 Tools~/molca-mcp/tsconfig.json

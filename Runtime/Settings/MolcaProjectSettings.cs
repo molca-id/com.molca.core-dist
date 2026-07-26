@@ -149,10 +149,41 @@ namespace Molca
         }
 
         [SerializeField] private string projectId = "";
+        /// <summary>
+        /// Opaque control-plane identity when this Unity repository is connected to a Molca project.
+        /// An identifier alone grants no access; <see cref="ProjectBinding"/> proves an authorized binding.
+        /// </summary>
         public string ProjectId
         {
             get => projectId;
             set => projectId = value;
+        }
+
+        [SerializeField] private string projectCode = "";
+        /// <summary>Short, support-friendly control-plane code (for example <c>MOLCA-A1B2C3</c>).</summary>
+        public string ProjectCode
+        {
+            get => projectCode;
+            set => projectCode = value;
+        }
+
+        [SerializeField, TextArea(2, 5)] private string projectBinding = "";
+        /// <summary>
+        /// Signed, non-secret receipt proving an authorized owner/manager connected this repository.
+        /// Safe to commit; API access still requires the signed-in developer entitlement.
+        /// </summary>
+        public string ProjectBinding
+        {
+            get => projectBinding;
+            set => projectBinding = value;
+        }
+
+        [SerializeField] private int projectBindingVersion;
+        /// <summary>Schema version of <see cref="ProjectBinding"/>; zero when not connected.</summary>
+        public int ProjectBindingVersion
+        {
+            get => projectBindingVersion;
+            set => projectBindingVersion = value;
         }
 
         [SerializeField] private List<BootstrapExtension> bootstrapExtensions = new List<BootstrapExtension>();

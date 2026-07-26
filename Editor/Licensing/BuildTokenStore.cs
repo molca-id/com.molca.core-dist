@@ -4,30 +4,29 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Molca.Editor.Addons;
+using Molca.Editor.Projects;
 using UnityEngine;
 
 namespace Molca.Editor.Licensing
 {
     /// <summary>
-    /// Obtains and caches the signed build token baked into player builds so shipped players can report
-    /// framework usage. Cached under <c>Library/Molca/build-token.json</c> and reused until it nears
-    /// expiry, so a normal build performs no network call at all.
+    /// Obtains the signed, project-scoped build token baked into player builds so shipped players can report
+    /// framework usage. The latest response is recorded under <c>Library/Molca/build-token.json</c> for
+    /// diagnostics, but every build mints a fresh token so current access and revocation are enforced.
     /// </summary>
     /// <remarks>
     /// <para>
     /// The token authorizes appending usage events for one licensee — it is not a developer credential
-    /// and carries no machine identity. One token is reused across this project's builds, so dashboard
-    /// revocation stops reporting for the project rather than for a single artifact.
+    /// and carries no machine identity. Each successful build receives its own revocable token.
     /// </para>
     /// <para>
     /// Deliberately synchronous: <see cref="LicenseBuildGate"/> is an
     /// <c>IPreprocessBuildWithReport</c> callback with no async seam. The request is bounded by a short
-    /// timeout and every failure is soft — an offline build simply ships without runtime reporting.
+    /// timeout. Project-connected builds require a successful online authorization.
     /// </para>
     /// </remarks>
     internal static class BuildTokenStore
     {
-        private static readonly TimeSpan RenewWithin = TimeSpan.FromDays(30);
         private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
 
         [Serializable]
@@ -35,6 +34,7 @@ namespace Molca.Editor.Licensing
         {
             public string coreVersion;
             public string appVersion;
+            public string projectBinding;
         }
 
         [Serializable]
@@ -44,37 +44,50 @@ namespace Molca.Editor.Licensing
             public string buildToken;
             public string buildId;
             public string expiresAt;
+            public string projectId;
+            public string projectBindingId;
         }
 
         /// <summary>
-        /// Returns a usable build token for <paramref name="licenseeId"/>, minting one when the cache is
-        /// missing, stale, or belongs to another licensee.
+        /// Returns a freshly minted build token for the connected project.
         /// </summary>
         /// <returns>The token and its build id, or <c>(null, null)</c> when none could be obtained.</returns>
         internal static (string token, string buildId) Acquire(string licenseeId, string coreVersion, string appVersion)
         {
-            CachedToken cached = Load();
-            if (cached != null && cached.licenseeId == licenseeId && !string.IsNullOrEmpty(cached.buildToken) &&
-                DateTime.TryParse(cached.expiresAt, null, System.Globalization.DateTimeStyles.RoundtripKind, out var expires) &&
-                expires - DateTime.UtcNow > RenewWithin)
-                return (cached.buildToken, cached.buildId);
+            string projectBinding = MolcaProjectSettings.Instance?.ProjectBinding;
+            string projectId = null;
+            string projectBindingId = null;
+            if (!string.IsNullOrWhiteSpace(projectBinding))
+            {
+                var settings = MolcaProjectSettings.Instance;
+                if (!ProjectBindingVerifier.TryVerify(projectBinding, settings.ProjectId, settings.ProjectCode,
+                        licenseeId, out var bindingPayload, out var bindingError))
+                {
+                    Debug.LogWarning($"[License] Runtime usage reporting is disabled for this build: {bindingError}");
+                    return (null, null);
+                }
+                projectId = bindingPayload.projectId;
+                projectBindingId = bindingPayload.bindingId;
+            }
 
             try
             {
-                CachedToken minted = Mint(coreVersion, appVersion);
-                if (minted == null) return (cached?.buildToken, cached?.buildId); // Keep an older token over none.
+                CachedToken minted = Mint(coreVersion, appVersion, projectBinding);
+                if (minted == null) return (null, null);
                 minted.licenseeId = licenseeId;
+                minted.projectId = projectId;
+                minted.projectBindingId = projectBindingId;
                 Save(minted);
                 return (minted.buildToken, minted.buildId);
             }
             catch (Exception exception)
             {
                 Debug.LogWarning($"[License] Runtime usage reporting is disabled for this build: {exception.Message}");
-                return (cached?.buildToken, cached?.buildId);
+                return (null, null);
             }
         }
 
-        private static CachedToken Mint(string coreVersion, string appVersion)
+        private static CachedToken Mint(string coreVersion, string appVersion, string projectBinding)
         {
             string entitlement = DevEntitlementStore.LoadEffective();
             if (DevEntitlementVerifier.Evaluate(entitlement, SystemInfo.deviceUniqueIdentifier, out _) != DevLicenseStatus.Valid)
@@ -86,7 +99,12 @@ namespace Molca.Editor.Licensing
                 !AddonDistributionConfig.IsTrustedDownloadHost(uri.Host))
                 return null;
 
-            string body = JsonUtility.ToJson(new BuildTokenRequest { coreVersion = coreVersion, appVersion = appVersion });
+            string body = JsonUtility.ToJson(new BuildTokenRequest
+            {
+                coreVersion = coreVersion,
+                appVersion = appVersion,
+                projectBinding = projectBinding,
+            });
             string machineId = SystemInfo.deviceUniqueIdentifier; // Unity API: read before leaving the main thread.
             // Task.Run keeps the blocking wait off the editor's synchronization context.
             string response = Task.Run(async () =>
@@ -107,12 +125,6 @@ namespace Molca.Editor.Licensing
 
         private static string CachePath =>
             Path.Combine(Directory.GetParent(Application.dataPath)?.FullName ?? ".", "Library", "Molca", "build-token.json");
-
-        private static CachedToken Load()
-        {
-            try { return File.Exists(CachePath) ? JsonUtility.FromJson<CachedToken>(File.ReadAllText(CachePath)) : null; }
-            catch { return null; }
-        }
 
         private static void Save(CachedToken token)
         {

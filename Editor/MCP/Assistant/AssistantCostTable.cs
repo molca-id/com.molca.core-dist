@@ -45,6 +45,7 @@ namespace Molca.Editor.Mcp.Assistant
         // keys first so "opus" doesn't shadow a more specific match.
         private static readonly (string Key, Price Price)[] Table =
         {
+            ("molca/free", new Price(0.0, 0.0)),
             ("claude-opus", new Price(15.0, 75.0)),
             ("claude-sonnet", new Price(3.0, 15.0)),
             ("claude-haiku", new Price(0.80, 4.0)),

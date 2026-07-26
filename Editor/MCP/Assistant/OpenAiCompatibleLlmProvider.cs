@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using Newtonsoft.Json.Linq;
@@ -29,6 +30,7 @@ namespace Molca.Editor.Mcp.Assistant
         private readonly LlmProviderKind _kind;
         private readonly bool _requireApiKey;
         private readonly int _maxAttempts;
+        private readonly IReadOnlyDictionary<string, string> _additionalHeaders;
 
         /// <summary>
         /// Creates an OpenAI-cloud provider with a base URL (no trailing slash needed) and required API key.
@@ -47,13 +49,20 @@ namespace Molca.Editor.Mcp.Assistant
         /// <param name="kind">The provider kind this instance reports as.</param>
         /// <param name="requireApiKey">When <c>true</c>, an empty key throws at send time.</param>
         /// <param name="maxAttempts">Maximum total HTTP attempts per call including the first (Sprint 68); <c>1</c> disables retry.</param>
-        public OpenAiCompatibleLlmProvider(string baseUrl, string apiKey, LlmProviderKind kind, bool requireApiKey, int maxAttempts = 1)
+        public OpenAiCompatibleLlmProvider(
+            string baseUrl,
+            string apiKey,
+            LlmProviderKind kind,
+            bool requireApiKey,
+            int maxAttempts = 1,
+            IReadOnlyDictionary<string, string> additionalHeaders = null)
         {
             _baseUrl = (baseUrl ?? string.Empty).TrimEnd('/');
             _apiKey = apiKey;
             _kind = kind;
             _requireApiKey = requireApiKey;
             _maxAttempts = maxAttempts < 1 ? 1 : maxAttempts;
+            _additionalHeaders = additionalHeaders;
         }
 
         /// <inheritdoc/>
@@ -78,9 +87,7 @@ namespace Molca.Editor.Mcp.Assistant
             // update loop, so the turn streams and completes while Play mode is paused. The SSE callback runs
             // on the main thread.
             // Only authenticate when a key is present: local runtimes (Ollama) reject/ignore a bogus header.
-            var headers = new System.Collections.Generic.Dictionary<string, string>();
-            if (!string.IsNullOrEmpty(_apiKey))
-                headers["Authorization"] = "Bearer " + _apiKey;
+            var headers = BuildHeaders(_apiKey, _additionalHeaders);
 
             var result = await AssistantHttp.PostAsync(
                 url, headers, body, streaming,
@@ -93,6 +100,23 @@ namespace Molca.Editor.Mcp.Assistant
                 throw new Exception(ExtractError(result.Body, result.StatusCode));
 
             return streaming ? accumulator.Build() : ParseResponse(result.Body);
+        }
+
+        /// <summary>
+        /// Builds request headers without allowing an injected header bag to replace the bearer credential.
+        /// Internal so the Molca gateway's entitlement + machine binding can be tested without a live request.
+        /// </summary>
+        internal static Dictionary<string, string> BuildHeaders(
+            string apiKey, IReadOnlyDictionary<string, string> additionalHeaders)
+        {
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (additionalHeaders != null)
+                foreach (var pair in additionalHeaders)
+                    if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Value != null)
+                        headers[pair.Key] = pair.Value;
+            if (!string.IsNullOrEmpty(apiKey))
+                headers["Authorization"] = "Bearer " + apiKey;
+            return headers;
         }
 
         /// <summary>Builds the OpenAI-compatible request body; internal for streaming-options tests (Sprint 68).</summary>

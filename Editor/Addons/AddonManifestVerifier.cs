@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using UnityEngine;
@@ -98,6 +100,7 @@ namespace Molca.Editor.Addons
             { error = "Manifest artifact size exceeds the client policy."; return false; }
             if (!IsSha256(manifest.sha256))
             { error = "Manifest SHA-256 is invalid."; return false; }
+            if (!ValidDependencies(manifest, out error)) return false;
             if (!AddonSemVer.Satisfies(AddonDistributionConfig.CoreVersion(), manifest.coreVersionRange))
             { error = $"Add-on requires Core {manifest.coreVersionRange}; this project uses {AddonDistributionConfig.CoreVersion()}."; return false; }
             string runtime = AddonDistributionConfig.EditorRuntime();
@@ -112,6 +115,12 @@ namespace Molca.Editor.Addons
             {
                 if (!manifest.offline || !string.IsNullOrEmpty(manifest.downloadUrl))
                 { error = "Manifest is not an offline distribution manifest."; return false; }
+                if ((manifest.dependencies?.Length ?? 0) > 0 ||
+                    (manifest.externalPrerequisites?.Length ?? 0) > 0)
+                {
+                    error = "Dependency-bearing offline add-ons require a signed closure bundle.";
+                    return false;
+                }
             }
             else
             {
@@ -124,6 +133,46 @@ namespace Molca.Editor.Addons
             }
 
             verified = new VerifiedAddonManifest(manifest, trustedKeyId, token);
+            return true;
+        }
+
+        private static bool ValidDependencies(AddonManifest manifest, out string error)
+        {
+            error = null;
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (AddonDependency dependency in manifest.dependencies ?? Array.Empty<AddonDependency>())
+            {
+                if (string.IsNullOrWhiteSpace(dependency.id) || dependency.id == manifest.id ||
+                    !ids.Add(dependency.id) ||
+                    AddonSemVer.Compare(dependency.minimumVersion, dependency.maximumMajorExclusive) >= 0)
+                {
+                    error = "Manifest contains invalid Molca dependency metadata.";
+                    return false;
+                }
+            }
+            foreach (ExternalAddonPrerequisite prerequisite in
+                manifest.externalPrerequisites ?? Array.Empty<ExternalAddonPrerequisite>())
+            {
+                if (string.IsNullOrWhiteSpace(prerequisite.packageId) ||
+                    !ids.Add(prerequisite.packageId) ||
+                    !new[] { "builtin", "registry", "git", "local" }.Contains(prerequisite.source))
+                {
+                    error = "Manifest contains invalid external prerequisite metadata.";
+                    return false;
+                }
+                if (prerequisite.source == "git")
+                {
+                    string repository = prerequisite.spec?.Split('#')[0];
+                    if (!Uri.TryCreate(repository, UriKind.Absolute, out var uri) ||
+                        uri.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(uri.UserInfo) ||
+                        string.IsNullOrEmpty(prerequisite.resolvedCommit) ||
+                        prerequisite.resolvedCommit.Length != 40)
+                    {
+                        error = "Manifest contains an unsafe external Git prerequisite.";
+                        return false;
+                    }
+                }
+            }
             return true;
         }
 

@@ -16,15 +16,13 @@ namespace Molca.Editor.Addons
         internal const string CurrentSigningKeyId = "molca-rsa-2026-01";
 
         /// <summary>
-        /// Wire schema this client speaks. Bumped to 2 when add-on entitlements were removed and
-        /// <c>hasRuntime</c> moved from the pack to the version (a pack can gain or lose runtime code
-        /// between versions). The mismatch is deliberately fatal rather than tolerated: a v1 client
-        /// reading a v2 catalog would silently see every pack as Editor-only.
+        /// Wire schema this client speaks. Version 3 makes signed dependency metadata and project
+        /// add-on policy mandatory; older clients must not install only the root of a dependency graph.
         /// </summary>
-        internal const int CatalogSchemaVersion = 2;
+        internal const int CatalogSchemaVersion = 3;
 
         /// <summary>Schema of the signed manifest payload. Moves with the catalog schema.</summary>
-        internal const int ManifestSchemaVersion = 2;
+        internal const int ManifestSchemaVersion = 3;
         internal const long MaxDownloadBytes = 512L * 1024 * 1024;
         internal const long MaxExpandedBytes = 1024L * 1024 * 1024;
         internal const int MaxExtractedFiles = 20_000;
@@ -34,11 +32,17 @@ namespace Molca.Editor.Addons
 
         internal static string CatalogUrl(string coreVersion, string runtime, string channel) =>
             $"{DevLicenseConfig.ServerBaseUrl.TrimEnd('/')}/addons/catalog" +
-            $"?coreVersion={Uri.EscapeDataString(coreVersion)}&runtime={Uri.EscapeDataString(runtime)}&channel={Uri.EscapeDataString(channel)}";
+            $"?schema=3&coreVersion={Uri.EscapeDataString(coreVersion)}" +
+            $"&runtime={Uri.EscapeDataString(runtime)}&channel={Uri.EscapeDataString(channel)}" +
+            $"&projectBinding={Uri.EscapeDataString(MolcaProjectSettings.Instance?.ProjectBinding ?? string.Empty)}";
 
         internal static string ManifestUrl(string id, string version) =>
             $"{DevLicenseConfig.ServerBaseUrl.TrimEnd('/')}/addons/{Uri.EscapeDataString(id)}/manifest" +
-            $"?version={Uri.EscapeDataString(version)}";
+            $"?schema=3&version={Uri.EscapeDataString(version)}" +
+            $"&projectBinding={Uri.EscapeDataString(MolcaProjectSettings.Instance?.ProjectBinding ?? string.Empty)}";
+
+        internal static string ApprovalUrl(string projectId) =>
+            $"{DevLicenseConfig.ServerBaseUrl.TrimEnd('/')}/api/projects/{Uri.EscapeDataString(projectId)}/addons/approve";
 
         internal static bool IsTrustedDownloadHost(string host)
         {

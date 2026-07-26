@@ -1,5 +1,10 @@
+using System;
+using System.Collections.Generic;
 using Molca.Editor.UI.Components;
 using Molca.Editor.Icons;
+using Molca.Editor.Licensing;
+using Molca.Editor.Projects;
+using Molca.Editor.Remote;
 using Molca;
 using UnityEditor;
 using UnityEditor.UIElements;
@@ -23,6 +28,10 @@ namespace Molca.Editor.Hub.Sections
         private readonly SerializedObject _editorSettings;
         private Label _projectNameLabel;
         private Label _projectIdLabel;
+        private Label _projectConnectionLabel;
+        private Button _connectButton;
+        private Button _createButton;
+        private Button _disconnectButton;
 
         internal MolcaHubProjectSection()
         {
@@ -33,6 +42,7 @@ namespace Molca.Editor.Hub.Sections
 
             BuildHeader();
             BuildIdentityCard();
+            BuildRemoteCard();
             BuildLinksCard();
         }
 
@@ -75,6 +85,95 @@ namespace Molca.Editor.Hub.Sections
             card.Body.Add(BuildLogoRow());
         }
 
+        private void BuildRemoteCard()
+        {
+            var card = new MolcaSectionCard("Remote Editor");
+            Add(card);
+
+            var description = new Label(
+                "Connect this Editor to your private Molca dashboard session through an outbound encrypted connection. " +
+                "The local MCP token and project contents are never sent.");
+            description.AddToClassList("molca-hub-field-description");
+            card.Body.Add(description);
+
+            var row = new VisualElement();
+            row.AddToClassList("molca-hub-field-row");
+            row.Add(BuildFieldLabel("Remote access"));
+
+            var stack = new VisualElement();
+            stack.AddToClassList("molca-hub-project-id-stack");
+            row.Add(stack);
+
+            var enabled = new Toggle("Enable for my signed-in account");
+            enabled.SetValueWithoutNotify(MolcaRemoteSettings.Enabled);
+            stack.Add(enabled);
+
+            var assistant = new Toggle("Allow remote Assistant");
+            assistant.tooltip =
+                "Allows your signed-in dashboard to start and observe the shared in-Editor Assistant. " +
+                "Action approvals still require Unity.";
+            assistant.SetValueWithoutNotify(MolcaRemoteSettings.AllowAssistant);
+            assistant.SetEnabled(MolcaRemoteSettings.Enabled);
+            stack.Add(assistant);
+
+            var actions = new Toggle("Allow remote actions");
+            actions.tooltip =
+                "Allows server-confirmed, locally allowlisted action tools. Remote Assistant uses the " +
+                "current Ask, Auto, Plan, or AutoAll mode and never changes it.";
+            actions.SetValueWithoutNotify(MolcaRemoteSettings.AllowActions);
+            actions.SetEnabled(MolcaRemoteSettings.Enabled);
+            stack.Add(actions);
+
+            var status = new Label(MolcaRemoteEditorAgent.Status);
+            status.AddToClassList("molca-hub-project-connection-status");
+            stack.Add(status);
+
+            enabled.RegisterValueChangedCallback(change =>
+            {
+                MolcaRemoteSettings.Enabled = change.newValue;
+                assistant.SetEnabled(change.newValue);
+                actions.SetEnabled(change.newValue);
+                MolcaRemoteEditorAgent.ApplySettings();
+                status.text = MolcaRemoteEditorAgent.Status;
+            });
+            assistant.RegisterValueChangedCallback(change =>
+            {
+                MolcaRemoteSettings.AllowAssistant = change.newValue;
+                MolcaRemoteEditorAgent.ApplySettings();
+                status.text = MolcaRemoteEditorAgent.Status;
+            });
+            actions.RegisterValueChangedCallback(change =>
+            {
+                if (change.newValue && !EditorUtility.DisplayDialog(
+                        "Enable Remote Actions",
+                        "Remote commands and the shared Assistant may run locally allowlisted action tools. " +
+                        "If Assistant action mode is AutoAll, irreversible actions can run without another prompt. " +
+                        "Only enable this on an Editor and Molca account you trust.",
+                        "Enable", "Cancel"))
+                {
+                    actions.SetValueWithoutNotify(false);
+                    return;
+                }
+                MolcaRemoteSettings.AllowActions = change.newValue;
+                if (!change.newValue)
+                    AssistantRemoteFacade.StopForAuthorizationLoss();
+                MolcaRemoteEditorAgent.ApplySettings();
+                status.text = MolcaRemoteEditorAgent.Status;
+            });
+
+            var open = new Button(() => Application.OpenURL(
+                DevLicenseConfig.ServerBaseUrl.TrimEnd('/') + "/dashboard"))
+            {
+                text = "Open Remote dashboard",
+                tooltip = "Open the private Remote Editor session list for your signed-in Molca account."
+            };
+            open.AddToClassList("molca-hub-mini-button");
+            stack.Add(open);
+            card.Body.Add(row);
+
+            schedule.Execute(() => status.text = MolcaRemoteEditorAgent.Status).Every(1000);
+        }
+
         private VisualElement BuildPropertyRow(string label, string propertyName)
         {
             var row = new VisualElement();
@@ -98,9 +197,13 @@ namespace Molca.Editor.Hub.Sections
             row.AddToClassList("molca-hub-field-row");
             row.Add(BuildFieldLabel("Project ID / Code"));
 
+            var stack = new VisualElement();
+            stack.AddToClassList("molca-hub-project-id-stack");
+            row.Add(stack);
+
             var box = new VisualElement();
             box.AddToClassList("molca-hub-project-id-box");
-            row.Add(box);
+            stack.Add(box);
 
             _projectIdLabel = new Label(ProjectIdText());
             _projectIdLabel.AddToClassList("molca-hub-project-id-text");
@@ -117,11 +220,210 @@ namespace Molca.Editor.Hub.Sections
             copy.AddToClassList("molca-hub-mini-button");
             box.Add(copy);
 
-            var projectIdProperty = _projectSettings.FindProperty("projectId");
-            if (projectIdProperty != null)
-                row.TrackPropertyValue(projectIdProperty, _ => RefreshIdentityLabels());
+            _projectConnectionLabel = new Label(ProjectConnectionText());
+            _projectConnectionLabel.AddToClassList("molca-hub-project-connection-status");
+            stack.Add(_projectConnectionLabel);
+
+            _connectButton = new Button(ShowProjectPicker) { text = "Connect" };
+            _connectButton.tooltip = "Connect this Unity repository to an existing Molca backend project.";
+            _connectButton.AddToClassList("molca-hub-mini-button");
+            box.Add(_connectButton);
+
+            _createButton = new Button(CreateAndConnectProject) { text = "Create" };
+            _createButton.tooltip = "Create a backend project and connect this Unity repository.";
+            _createButton.AddToClassList("molca-hub-mini-button");
+            box.Add(_createButton);
+
+            _disconnectButton = new Button(DisconnectProject) { text = "Disconnect" };
+            _disconnectButton.tooltip = "Remove the local project binding. This does not delete the backend project.";
+            _disconnectButton.AddToClassList("molca-hub-mini-button");
+            box.Add(_disconnectButton);
+
+            foreach (string propertyName in new[] { "projectId", "projectCode", "projectBinding" })
+            {
+                var property = _projectSettings.FindProperty(propertyName);
+                if (property != null)
+                    row.TrackPropertyValue(property, _ => RefreshIdentityLabels());
+            }
+            RefreshConnectionControls();
 
             return row;
+        }
+
+        private async void ShowProjectPicker()
+        {
+            ProjectListResponse projectList = null;
+            SetConnectionBusy(true);
+            try
+            {
+                var result = await new MolcaProjectApiClient().ListAsync();
+                if (!result.Success)
+                {
+                    EditorUtility.DisplayDialog("Molca Project", result.Error, "OK");
+                    return;
+                }
+                projectList = result.Value;
+            }
+            catch (Exception exception) { ShowConnectionException("load projects", exception); }
+            finally { SetConnectionBusy(false); }
+
+            if (projectList == null) return;
+
+            var activeProjects = new List<MolcaBackendProject>();
+            foreach (var project in projectList.projects ?? Array.Empty<MolcaBackendProject>())
+            {
+                if (!string.Equals(project.status, "active", StringComparison.OrdinalIgnoreCase)) continue;
+                activeProjects.Add(project);
+            }
+            if (activeProjects.Count == 0)
+            {
+                EditorUtility.DisplayDialog("Molca Project",
+                    "No active projects are available to this account. Create one first.", "OK");
+                return;
+            }
+
+            // GenericMenu is tied to the IMGUI event that opened it. Since the server request
+            // completes asynchronously, a context menu opened here can vanish immediately on
+            // Windows. A utility window remains stable after the awaited request.
+            MolcaProjectPickerWindow.Open(activeProjects.ToArray(), ConnectProject);
+        }
+
+        private async void ConnectProject(MolcaBackendProject project)
+        {
+            SetConnectionBusy(true);
+            try
+            {
+                var result = await new MolcaProjectApiClient().BindAsync(project.id);
+                if (!result.Success)
+                {
+                    EditorUtility.DisplayDialog("Molca Project", result.Error, "OK");
+                    return;
+                }
+                ApplyProjectBinding(result.Value);
+            }
+            catch (Exception exception) { ShowConnectionException("connect the project", exception); }
+            finally { SetConnectionBusy(false); }
+        }
+
+        private async void CreateAndConnectProject()
+        {
+            string name = MolcaProjectSettings.Instance?.ProjectName?.Trim();
+            if (string.IsNullOrEmpty(name)) name = "Molca Project";
+            if (!EditorUtility.DisplayDialog("Create Molca Project",
+                    $"Create “{name}” in the Molca backend and connect this repository?", "Create", "Cancel"))
+                return;
+
+            SetConnectionBusy(true);
+            try
+            {
+                var client = new MolcaProjectApiClient();
+                var created = await client.CreateAsync(name);
+                if (!created.Success)
+                {
+                    EditorUtility.DisplayDialog("Molca Project", created.Error, "OK");
+                    return;
+                }
+                var binding = await client.BindAsync(created.Value.id);
+                if (!binding.Success)
+                {
+                    EditorUtility.DisplayDialog("Molca Project",
+                        $"The project was created, but could not be connected.\n\n{binding.Error}", "OK");
+                    return;
+                }
+                ApplyProjectBinding(binding.Value);
+            }
+            catch (Exception exception) { ShowConnectionException("create and connect the project", exception); }
+            finally { SetConnectionBusy(false); }
+        }
+
+        private void ApplyProjectBinding(ProjectBindingResponse response)
+        {
+            var settings = MolcaProjectSettings.Instance;
+            if (settings == null || response?.project == null) return;
+            string entitlement = DevEntitlementStore.LoadEffective();
+            DevEntitlementVerifier.Evaluate(entitlement, SystemInfo.deviceUniqueIdentifier, out var user);
+            if (!ProjectBindingVerifier.TryVerify(response.projectBinding, response.project.id,
+                    response.project.code, user?.licenseeId, out var payload, out var error) ||
+                !string.Equals(payload.bindingId, response.bindingId, StringComparison.OrdinalIgnoreCase))
+            {
+                EditorUtility.DisplayDialog("Molca Project",
+                    "The server returned a project connection that could not be verified.\n\n" +
+                    (error ?? "Binding identity mismatch."), "OK");
+                return;
+            }
+            Undo.RecordObject(settings, "Connect Molca Project");
+            settings.ProjectId = response.project.id;
+            settings.ProjectCode = response.project.code;
+            settings.ProjectName = response.project.name;
+            settings.ProjectBinding = response.projectBinding;
+            settings.ProjectBindingVersion = ProjectBindingVerifier.SchemaVersion;
+            EditorUtility.SetDirty(settings);
+            AssetDatabase.SaveAssets();
+            _projectSettings.Update();
+            RefreshIdentityLabels();
+        }
+
+        private void DisconnectProject()
+        {
+            var settings = MolcaProjectSettings.Instance;
+            if (!CanManageProjects() || settings == null || string.IsNullOrEmpty(settings.ProjectBinding)) return;
+            if (!EditorUtility.DisplayDialog("Disconnect Molca Project",
+                    "Remove this repository's project connection? Telemetry will queue and builds will be blocked " +
+                    "until it is reconnected. The backend project and its history are unchanged.",
+                    "Disconnect", "Cancel"))
+                return;
+            Undo.RecordObject(settings, "Disconnect Molca Project");
+            settings.ProjectId = string.Empty;
+            settings.ProjectCode = string.Empty;
+            settings.ProjectBinding = string.Empty;
+            settings.ProjectBindingVersion = 0;
+            EditorUtility.SetDirty(settings);
+            AssetDatabase.SaveAssets();
+            _projectSettings.Update();
+            RefreshIdentityLabels();
+        }
+
+        private void SetConnectionBusy(bool busy)
+        {
+            bool canManage = CanManageProjects();
+            if (_connectButton != null)
+                _connectButton.text = busy ? "Loading..." : "Connect";
+            _connectButton?.SetEnabled(!busy && canManage);
+            _createButton?.SetEnabled(!busy && canManage);
+            _disconnectButton?.SetEnabled(!busy && canManage &&
+                !string.IsNullOrEmpty(MolcaProjectSettings.Instance?.ProjectBinding));
+        }
+
+        private static void ShowConnectionException(string action, Exception exception)
+        {
+            Debug.LogError($"[Molca Project] Could not {action}: {exception}");
+            EditorUtility.DisplayDialog("Molca Project",
+                $"Could not {action}.\n\n{exception.Message}", "OK");
+        }
+
+        private void RefreshConnectionControls()
+        {
+            bool canManage = CanManageProjects();
+            _connectButton.SetEnabled(canManage);
+            _createButton.SetEnabled(canManage);
+            _connectButton.tooltip = canManage
+                ? "Connect this Unity repository to an existing Molca backend project."
+                : "Only Molca owners and managers can assign a backend project.";
+            _createButton.tooltip = canManage
+                ? "Create a backend project and connect this Unity repository."
+                : "Only Molca owners and managers can create a backend project.";
+            _disconnectButton.SetEnabled(canManage &&
+                !string.IsNullOrEmpty(MolcaProjectSettings.Instance?.ProjectBinding));
+        }
+
+        private static bool CanManageProjects()
+        {
+            string token = DevEntitlementStore.LoadEffective();
+            return DevEntitlementVerifier.Evaluate(token, SystemInfo.deviceUniqueIdentifier, out var payload) ==
+                   DevLicenseStatus.Valid &&
+                   (string.Equals(payload.role, "owner", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(payload.role, "admin", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(payload.role, "manager", StringComparison.OrdinalIgnoreCase));
         }
 
         private VisualElement BuildLogoRow()
@@ -261,8 +563,37 @@ namespace Molca.Editor.Hub.Sections
 
         private string ProjectIdText()
         {
-            var id = _projectSettings.FindProperty("projectId").stringValue;
-            return string.IsNullOrEmpty(id) ? "MOLCA-0001" : id;
+            string code = _projectSettings.FindProperty("projectCode")?.stringValue;
+            if (!string.IsNullOrEmpty(code)) return code;
+            string id = _projectSettings.FindProperty("projectId")?.stringValue;
+            return string.IsNullOrEmpty(id) ? "Not connected" : id;
+        }
+
+        private static string ProjectConnectionText()
+        {
+            var settings = MolcaProjectSettings.Instance;
+            if (settings == null || string.IsNullOrWhiteSpace(settings.ProjectBinding))
+            {
+                string token = DevEntitlementStore.LoadEffective();
+                bool signedIn = DevEntitlementVerifier.Evaluate(
+                    token, SystemInfo.deviceUniqueIdentifier, out var identity) == DevLicenseStatus.Valid;
+                bool canManage = signedIn &&
+                    (string.Equals(identity.role, "owner", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(identity.role, "admin", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(identity.role, "manager", StringComparison.OrdinalIgnoreCase));
+                return string.IsNullOrWhiteSpace(settings?.ProjectId)
+                    ? (canManage || !signedIn
+                        ? "Connection required — telemetry is queued and builds are blocked"
+                        : "Not connected — ask an owner or manager to assign this project")
+                    : "Incomplete connection — reconnect this backend project";
+            }
+
+            string entitlement = DevEntitlementStore.LoadEffective();
+            DevEntitlementVerifier.Evaluate(entitlement, SystemInfo.deviceUniqueIdentifier, out var user);
+            return ProjectBindingVerifier.TryVerify(settings.ProjectBinding, settings.ProjectId, settings.ProjectCode,
+                user?.licenseeId, out _, out var error)
+                ? "Connected — receipt verified; server validates current access"
+                : $"Connection invalid: {error}";
         }
 
         private void RefreshIdentityLabels()
@@ -275,6 +606,10 @@ namespace Molca.Editor.Hub.Sections
 
             if (_projectIdLabel != null)
                 _projectIdLabel.text = ProjectIdText();
+            if (_projectConnectionLabel != null)
+                _projectConnectionLabel.text = ProjectConnectionText();
+            if (_disconnectButton != null)
+                RefreshConnectionControls();
         }
 
         private static string ShortUrl(string url)
@@ -286,6 +621,52 @@ namespace Molca.Editor.Hub.Sections
                 .Replace("https://", string.Empty)
                 .Replace("http://", string.Empty)
                 .TrimEnd('/');
+        }
+    }
+
+    internal sealed class MolcaProjectPickerWindow : EditorWindow
+    {
+        private MolcaBackendProject[] _projects = Array.Empty<MolcaBackendProject>();
+        private Action<MolcaBackendProject> _onSelected;
+        private Vector2 _scroll;
+
+        internal static void Open(
+            MolcaBackendProject[] projects, Action<MolcaBackendProject> onSelected)
+        {
+            var window = CreateInstance<MolcaProjectPickerWindow>();
+            window.titleContent = new GUIContent("Connect Molca Project");
+            window._projects = projects ?? Array.Empty<MolcaBackendProject>();
+            window._onSelected = onSelected;
+            window.minSize = new Vector2(420f, 180f);
+            window.maxSize = new Vector2(640f, 520f);
+            window.ShowUtility();
+            window.Focus();
+        }
+
+        private void OnGUI()
+        {
+            EditorGUILayout.LabelField("Choose a backend project", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(
+                "This Unity repository will use the selected project for builds, add-ons, and telemetry.",
+                EditorStyles.wordWrappedMiniLabel);
+            EditorGUILayout.Space(8f);
+
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
+            foreach (var project in _projects)
+            {
+                if (project == null) continue;
+                if (!GUILayout.Button($"{project.name}  ({project.code})", GUILayout.Height(30f))) continue;
+
+                var onSelected = _onSelected;
+                Close();
+                onSelected?.Invoke(project);
+                GUIUtility.ExitGUI();
+            }
+            EditorGUILayout.EndScrollView();
+
+            EditorGUILayout.Space(6f);
+            if (GUILayout.Button("Cancel"))
+                Close();
         }
     }
 }

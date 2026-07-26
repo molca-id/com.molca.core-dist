@@ -16,6 +16,12 @@ namespace Molca.Editor.Licensing
         /// <summary>Stable licensee id (Workspace domain, or the individual email).</summary>
         public string licenseeId;
 
+        /// <summary>Control-plane user id used for current membership authorization.</summary>
+        public string userId;
+
+        /// <summary>Customer membership role hint. Server-side current membership remains authoritative.</summary>
+        public string role;
+
         /// <summary>The signed-in developer's verified email.</summary>
         public string email;
 

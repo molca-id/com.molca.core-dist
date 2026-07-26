@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -23,6 +25,84 @@ namespace Molca.Editor.Addons
 
         internal AddonInstaller(IAddonActivator activator = null) =>
             _activator = activator ?? new DomainReloadAddonActivator();
+
+        private sealed class PreparedAddon
+        {
+            public VerifiedAddonManifest Verified;
+            public string StagingDirectory;
+            public string ArchivePath;
+            public string SourceHost;
+        }
+
+        /// <summary>
+        /// Prepares every changed artifact before moving any package, then commits the dependency-first graph
+        /// with one ownership-ledger update and one Unity activation boundary.
+        /// </summary>
+        internal async Awaitable<AddonInstallResult> InstallGraphAsync(
+            AddonInstallPlan plan,
+            IReadOnlyList<VerifiedAddonManifest> manifests,
+            CancellationToken cancellationToken = default)
+        {
+            if (plan == null || manifests == null)
+                return AddonInstallResult.Fail("A resolved installation plan and signed manifests are required.");
+            var byId = manifests.ToDictionary(item => item.Manifest.id, StringComparer.Ordinal);
+            var prepared = new List<PreparedAddon>();
+            string workRoot = Path.Combine(ProjectRoot(), "Library", "Molca", "Addons");
+            string downloadDirectory = Path.Combine(workRoot, "Downloads");
+            Directory.CreateDirectory(downloadDirectory);
+            try
+            {
+                foreach (AddonInstallPlanEntry entry in plan.Ordered.Where(item => !item.AlreadyInstalled))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!byId.TryGetValue(entry.Package.id, out VerifiedAddonManifest verified))
+                        return AddonInstallResult.Fail(
+                            $"Signed manifest is missing for {entry.Package.id} {entry.Version.version}.");
+                    AddonManifest manifest = verified.Manifest;
+                    var uri = new Uri(manifest.downloadUrl);
+                    string archivePath = Path.Combine(downloadDirectory,
+                        $"{manifest.id}-{manifest.version}-{Guid.NewGuid():N}.tgz");
+                    string stagingDirectory = Path.Combine(workRoot, "Staging",
+                        $"{manifest.id}-{Guid.NewGuid():N}");
+                    var item = new PreparedAddon
+                    {
+                        Verified = verified,
+                        ArchivePath = archivePath,
+                        StagingDirectory = stagingDirectory,
+                        SourceHost = uri.Host,
+                    };
+                    prepared.Add(item);
+                    var download = await DownloadAsync(uri, archivePath, cancellationToken);
+                    if (!download.Success) return AddonInstallResult.Fail(download.Error);
+                    var fileInfo = new FileInfo(archivePath);
+                    if (!fileInfo.Exists || fileInfo.Length != manifest.sizeBytes)
+                        return VerificationFailure(manifest, uri.Host,
+                            $"Artifact size mismatch (expected {manifest.sizeBytes}, received " +
+                            $"{(fileInfo.Exists ? fileInfo.Length : 0)}).");
+                    string actualHash = Sha256(archivePath);
+                    if (!string.Equals(actualHash, manifest.sha256, StringComparison.OrdinalIgnoreCase))
+                        return VerificationFailure(manifest, uri.Host,
+                            $"Artifact SHA-256 mismatch (expected {manifest.sha256}, received {actualHash}).");
+                    AddonTarGzExtractor.Extract(archivePath, stagingDirectory, cancellationToken);
+                    if (!AddonPackageValidator.TryValidate(stagingDirectory, manifest, out string packageError))
+                        return VerificationFailure(manifest, uri.Host, packageError);
+                }
+                return CommitGraph(plan, prepared);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception exception)
+            {
+                return AddonInstallResult.Fail($"Dependency transaction failed: {exception.Message}");
+            }
+            finally
+            {
+                foreach (PreparedAddon item in prepared)
+                {
+                    TryDeleteFile(item.ArchivePath);
+                    TryDeleteDirectory(item.StagingDirectory);
+                }
+            }
+        }
 
         /// <summary>Installs or updates a previously verified manifest.</summary>
         internal async Awaitable<AddonInstallResult> InstallAsync(
@@ -129,6 +209,11 @@ namespace Molca.Editor.Addons
             var state = InstalledAddonsAsset.FindExisting();
             InstalledAddonRecord record = state?.Find(id);
             if (record == null) return AddonInstallResult.Fail("The Add-on Manager does not own this package; removal was refused.");
+            IReadOnlyList<InstalledAddonRecord> dependents = state.DependentsOf(id);
+            if (dependents.Count > 0)
+                return AddonInstallResult.Fail(
+                    $"Removal blocked: {string.Join(", ", dependents.Select(item => item.id))} " +
+                    "still depend on this package.");
 
             string target = PackagePath(id);
             if (!Directory.Exists(target)) return AddonInstallResult.Fail("The managed package directory is already missing.");
@@ -221,6 +306,157 @@ namespace Molca.Editor.Addons
                 AddonAuditLog.Record(action, "failed", manifest.id, manifest.version,
                     manifest.sha256, sourceHost, exception.Message);
                 return AddonInstallResult.Fail($"Could not activate add-on: {exception.Message}");
+            }
+        }
+
+        private AddonInstallResult CommitGraph(AddonInstallPlan plan, List<PreparedAddon> prepared)
+        {
+            string transactionId = Guid.NewGuid().ToString("N");
+            string transactionRoot = Path.Combine(ProjectRoot(), "Library", "Molca", "Addons",
+                "Transactions", transactionId);
+            string recoveryRoot = Path.Combine(transactionRoot, "Recovery");
+            Directory.CreateDirectory(transactionRoot);
+            var state = InstalledAddonsAsset.GetOrCreate();
+            List<InstalledAddonRecord> snapshot = state.Snapshot();
+            var moved = new List<(string id, string target, string backup, bool installed)>();
+            var preparedById = prepared.ToDictionary(
+                item => item.Verified.Manifest.id, StringComparer.Ordinal);
+            string journal = Path.Combine(transactionRoot, "journal.json");
+            File.WriteAllText(journal, new JObject
+            {
+                ["transactionId"] = transactionId,
+                ["status"] = "committing",
+                ["rootId"] = plan.RootId,
+                ["rootVersion"] = plan.RootVersion,
+                ["order"] = new JArray(plan.Ordered.Select(item => item.Package.id)),
+                ["startedAtUtc"] = DateTime.UtcNow.ToString("o"),
+            }.ToString());
+
+            try
+            {
+                foreach (AddonInstallPlanEntry entry in plan.Ordered)
+                {
+                    if (!preparedById.TryGetValue(entry.Package.id, out PreparedAddon item)) continue;
+                    string target = PackagePath(entry.Package.id);
+                    string backup = null;
+                    InstalledAddonRecord previous = state.Find(entry.Package.id);
+                    if (Directory.Exists(target))
+                    {
+                        if (previous == null)
+                            throw new InvalidOperationException(
+                                $"Packages/{entry.Package.id} exists but is not manager-owned.");
+                        backup = Path.Combine(recoveryRoot, entry.Package.id);
+                        Directory.CreateDirectory(Path.GetDirectoryName(backup) ?? recoveryRoot);
+                        Directory.Move(target, backup);
+                    }
+                    Directory.Move(item.StagingDirectory, target);
+                    moved.Add((entry.Package.id, target, backup, true));
+                }
+
+                var records = new List<InstalledAddonRecord>();
+                foreach (AddonInstallPlanEntry entry in plan.Ordered)
+                {
+                    InstalledAddonRecord record;
+                    if (preparedById.TryGetValue(entry.Package.id, out PreparedAddon item))
+                    {
+                        AddonManifest manifest = item.Verified.Manifest;
+                        record = new InstalledAddonRecord
+                        {
+                            id = manifest.id,
+                            name = manifest.name,
+                            version = manifest.version,
+                            sha256 = manifest.sha256.ToLowerInvariant(),
+                            publisher = manifest.publisher,
+                            sourceHost = item.SourceHost,
+                            signingKeyId = item.Verified.KeyId,
+                            installedAtUtc = DateTime.UtcNow.ToString("o"),
+                            hasRuntime = manifest.hasRuntime,
+                            contentHash = ComputeSourceHash(PackagePath(manifest.id)),
+                        };
+                    }
+                    else
+                    {
+                        record = state.Find(entry.Package.id);
+                        if (record == null)
+                            throw new InvalidOperationException(
+                                $"Installed dependency record is missing for {entry.Package.id}.");
+                    }
+                    // Records created before protocol v3 were all direct user installs.
+                    if (string.IsNullOrEmpty(record.transactionId)) record.requested = true;
+                    record.requested = record.requested || entry.Requested;
+                    record.transactionId = transactionId;
+                    IEnumerable<string> existingRequiredBy = state.DependentsOf(entry.Package.id)
+                        .Where(dependent => plan.Ordered.All(item =>
+                            item.Package.id != dependent.id))
+                        .Select(dependent => dependent.id);
+                    record.requiredBy = existingRequiredBy.Concat(plan.Ordered
+                        .Where(dependent => (dependent.Version.dependencies ?? Array.Empty<AddonDependency>())
+                            .Any(dependency => dependency.id == entry.Package.id))
+                        .Select(dependent => dependent.Package.id))
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(value => value, StringComparer.Ordinal).ToList();
+                    record.dependencies = (entry.Version.dependencies ?? Array.Empty<AddonDependency>())
+                        .Select(dependency =>
+                        {
+                            AddonInstallPlanEntry resolved = plan.Ordered.First(
+                                item => item.Package.id == dependency.id);
+                            return new InstalledAddonDependency
+                            {
+                                id = dependency.id,
+                                resolvedVersion = resolved.Version.version,
+                                minimumVersion = dependency.minimumVersion,
+                                maximumMajorExclusive = dependency.maximumMajorExclusive,
+                            };
+                        }).ToList();
+                    record.externalPrerequisites =
+                        (entry.Version.externalPrerequisites ?? Array.Empty<ExternalAddonPrerequisite>())
+                        .Select(prerequisite => new InstalledExternalPrerequisite
+                        {
+                            packageId = prerequisite.packageId,
+                            resolvedSpec = prerequisite.spec,
+                        }).ToList();
+                    records.Add(record);
+                }
+                state.UpsertMany(records);
+                File.WriteAllText(journal, new JObject
+                {
+                    ["transactionId"] = transactionId,
+                    ["status"] = "committed",
+                    ["completedAtUtc"] = DateTime.UtcNow.ToString("o"),
+                }.ToString());
+                foreach (PreparedAddon item in prepared)
+                {
+                    AddonManifest manifest = item.Verified.Manifest;
+                    AddonAuditLog.Record("dependency_install", "executed", manifest.id,
+                        manifest.version, manifest.sha256, item.SourceHost, transactionId);
+                    AddonTelemetry.Record("install", manifest.id, manifest.version);
+                }
+                _activator.Activate();
+                return AddonInstallResult.Ok(
+                    $"Installed {prepared.Count} package{(prepared.Count == 1 ? string.Empty : "s")} " +
+                    $"for {plan.RootId} {plan.RootVersion}.", recoveryRoot);
+            }
+            catch (Exception exception)
+            {
+                for (int index = moved.Count - 1; index >= 0; index--)
+                {
+                    var item = moved[index];
+                    TryDeleteDirectory(item.target);
+                    if (!string.IsNullOrEmpty(item.backup) && Directory.Exists(item.backup))
+                    {
+                        try { Directory.Move(item.backup, item.target); }
+                        catch { /* Journal and recovery bytes remain for explicit recovery. */ }
+                    }
+                }
+                state.Restore(snapshot);
+                File.WriteAllText(journal, new JObject
+                {
+                    ["transactionId"] = transactionId,
+                    ["status"] = "failed",
+                    ["error"] = exception.Message,
+                }.ToString());
+                return AddonInstallResult.Fail(
+                    $"Could not commit dependency graph: {exception.Message}. Recovery: {transactionRoot}");
             }
         }
 

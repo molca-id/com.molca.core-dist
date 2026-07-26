@@ -186,7 +186,9 @@ namespace Molca.Editor.Hub.Sections
 
             configCard.Body.Add(BuildKeyRow(settings));
 
-            var privacy = new Label("Project data (questions, tool results) leaves the editor to the configured LLM provider.");
+            var privacy = new Label(settings.Provider == LlmProviderKind.MolcaFree
+                ? "Project data is relayed through the Molca server to the selected free inference provider. Free-provider retention or training policies may apply."
+                : "Project data (questions, tool results) leaves the editor to the configured LLM provider.");
             privacy.AddToClassList("molca-hub-muted");
             configCard.Body.Add(privacy);
 
@@ -270,6 +272,16 @@ namespace Molca.Editor.Hub.Sections
         {
             var container = new VisualElement();
             var provider = settings.Provider;
+
+            if (provider == LlmProviderKind.MolcaFree)
+            {
+                var note = new Label(
+                    "No provider key is needed here. Molca uses your signed developer entitlement; the control plane keeps the shared OpenRouter key private.");
+                note.AddToClassList("molca-hub-muted");
+                note.style.whiteSpace = WhiteSpace.Normal;
+                container.Add(note);
+                return container;
+            }
 
             var isLocal = provider == LlmProviderKind.Local;
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using Molca.Editor.Licensing;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -26,6 +27,7 @@ namespace Molca.Editor.Mcp.Assistant
     {
         /// <summary>Discovery timeout; short so an unreachable local endpoint fails fast (seconds).</summary>
         private const int DiscoveryTimeoutSeconds = 4;
+        private const int RemoteDiscoveryTimeoutSeconds = 10;
 
         /// <summary>Cache lifetime for a discovery result, in seconds.</summary>
         private const double CacheSeconds = 20.0;
@@ -135,7 +137,7 @@ namespace Molca.Editor.Mcp.Assistant
             AssistantSettings settings, bool forceRefresh, CancellationToken cancellationToken)
         {
             var provider = settings.Provider;
-            if (provider != LlmProviderKind.Local)
+            if (provider != LlmProviderKind.Local && provider != LlmProviderKind.MolcaFree)
             {
                 var curated = CuratedModelsFor(provider);
                 return new ModelCatalogResult(curated, reachable: true, fromNetwork: false,
@@ -148,7 +150,9 @@ namespace Molca.Editor.Mcp.Assistant
                 EditorApplication.timeSinceStartup - cached.StampedAt < CacheSeconds)
                 return cached.Result;
 
-            var result = await DiscoverLocalAsync(baseUrl, AssistantApiAuth.GetKey(provider), cancellationToken);
+            var result = provider == LlmProviderKind.MolcaFree
+                ? await DiscoverMolcaFreeAsync(baseUrl, cancellationToken)
+                : await DiscoverLocalAsync(baseUrl, AssistantApiAuth.GetKey(provider), cancellationToken);
             Cache[cacheKey] = new CacheEntry { Result = result, StampedAt = EditorApplication.timeSinceStartup };
             return result;
         }
@@ -194,6 +198,34 @@ namespace Molca.Editor.Mcp.Assistant
 
             return new ModelCatalogResult(Array.Empty<string>(), reachable: false, fromNetwork: true,
                 $"No local runtime at {baseUrl}. Start Ollama (`ollama serve`) and pull a model, then Detect again.");
+        }
+
+        /// <summary>Checks the entitlement-authenticated Molca route and returns its stable free alias.</summary>
+        private static async Awaitable<ModelCatalogResult> DiscoverMolcaFreeAsync(
+            string baseUrl, CancellationToken cancellationToken)
+        {
+            var token = DevEntitlementStore.LoadEffective();
+            if (DevEntitlementVerifier.Evaluate(
+                    token, SystemInfo.deviceUniqueIdentifier, out _) != DevLicenseStatus.Valid)
+                return new ModelCatalogResult(Array.Empty<string>(), reachable: false, fromNetwork: true,
+                    "Sign in to Molca to check the free model route.");
+
+            var headers = new Dictionary<string, string>
+            {
+                ["Authorization"] = "Bearer " + token,
+                ["X-Molca-Machine-Id"] = SystemInfo.deviceUniqueIdentifier
+            };
+            var result = await AssistantHttp.GetAsync(
+                CombineUrl(baseUrl, "models"), headers, RemoteDiscoveryTimeoutSeconds, cancellationToken);
+            if (!result.IsSuccess)
+                return new ModelCatalogResult(Array.Empty<string>(), reachable: false, fromNetwork: true,
+                    "The Molca free route is unavailable. It may be unconfigured, rate-limited, or between free models.");
+
+            var models = ParseOpenAiModels(result.Body);
+            return new ModelCatalogResult(models, reachable: true, fromNetwork: true,
+                models.Count > 0
+                    ? "Molca Free is available — the server will choose the strongest eligible zero-price model."
+                    : "Molca Free is reachable, but no eligible model is currently available.");
         }
 
         /// <summary>

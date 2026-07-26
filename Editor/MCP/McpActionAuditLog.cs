@@ -12,6 +12,17 @@ namespace Molca.Editor.Mcp
     /// </summary>
     public static class McpActionAuditLog
     {
+        private static readonly System.Threading.AsyncLocal<string> CallerOverride =
+            new System.Threading.AsyncLocal<string>();
+
+        /// <summary>Overrides the caller label for a bounded shared-runtime operation.</summary>
+        internal static IDisposable BeginCaller(string caller)
+        {
+            var previous = CallerOverride.Value;
+            CallerOverride.Value = caller;
+            return new CallerScope(() => CallerOverride.Value = previous);
+        }
+
         private static string LogPath
         {
             get
@@ -33,6 +44,8 @@ namespace Molca.Editor.Mcp
         {
             try
             {
+                caller = string.IsNullOrWhiteSpace(CallerOverride.Value)
+                    ? caller : CallerOverride.Value;
                 var entry = new JObject
                 {
                     ["timestamp"] = DateTime.UtcNow.ToString("o"),
@@ -52,6 +65,18 @@ namespace Molca.Editor.Mcp
             {
                 // Auditing must never break the tool path; surface as a warning only.
                 Debug.LogWarning($"[Molca MCP] Failed to write action audit entry: {ex.Message}");
+            }
+        }
+
+        private sealed class CallerScope : IDisposable
+        {
+            private Action _dispose;
+            internal CallerScope(Action dispose) { _dispose = dispose; }
+            public void Dispose()
+            {
+                var dispose = _dispose;
+                _dispose = null;
+                dispose?.Invoke();
             }
         }
 

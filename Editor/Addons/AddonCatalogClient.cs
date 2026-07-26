@@ -66,6 +66,50 @@ namespace Molca.Editor.Addons
         }
 
         /// <summary>
+        /// Asks the server to resolve and approve the selected root plus its complete dependency closure.
+        /// Only current project owners/managers are authorized; the signed repository binding fixes scope.
+        /// </summary>
+        internal async Awaitable<AddonOperationResult<AddonApprovalResponse>> ApproveAsync(
+            string id, string version, string channel,
+            CancellationToken cancellationToken = default)
+        {
+            if (!TryGetEntitlement(out string token, out string entitlementError))
+                return AddonOperationResult<AddonApprovalResponse>.Fail(entitlementError);
+            var settings = MolcaProjectSettings.Instance;
+            if (settings == null || string.IsNullOrWhiteSpace(settings.ProjectId) ||
+                string.IsNullOrWhiteSpace(settings.ProjectBinding))
+                return AddonOperationResult<AddonApprovalResponse>.Fail(
+                    "Connect this repository to a Molca project before managing add-ons.");
+            var body = new AddonApprovalRequest
+            {
+                projectBinding = settings.ProjectBinding,
+                id = id,
+                version = version,
+                coreVersion = AddonDistributionConfig.CoreVersion(),
+                runtime = AddonDistributionConfig.EditorRuntime(),
+                channel = channel,
+            };
+            var response = await PostAsync(
+                AddonDistributionConfig.ApprovalUrl(settings.ProjectId),
+                JsonUtility.ToJson(body), token, cancellationToken);
+            if (!response.Success)
+                return AddonOperationResult<AddonApprovalResponse>.Fail(response.Error);
+            try
+            {
+                var approval = JsonUtility.FromJson<AddonApprovalResponse>(response.Value);
+                return approval?.selected != null
+                    ? AddonOperationResult<AddonApprovalResponse>.Ok(approval)
+                    : AddonOperationResult<AddonApprovalResponse>.Fail(
+                        "Add-on approval response was incomplete.");
+            }
+            catch (Exception exception)
+            {
+                return AddonOperationResult<AddonApprovalResponse>.Fail(
+                    $"Could not parse add-on approval: {exception.Message}");
+            }
+        }
+
+        /// <summary>
         /// Requests a build token so a player build can report runtime usage without shipping a
         /// developer credential. Returns null when offline or unlicensed; the caller treats that as
         /// "this build simply will not report", never as a build failure.
@@ -82,7 +126,12 @@ namespace Molca.Editor.Addons
                 !AddonDistributionConfig.IsTrustedDownloadHost(uri.Host))
                 return AddonOperationResult<BuildTokenResponse>.Fail("Build token URL is not on the pinned HTTPS host allowlist.");
 
-            string json = JsonUtility.ToJson(new BuildTokenRequest { coreVersion = coreVersion, appVersion = appVersion });
+            string json = JsonUtility.ToJson(new BuildTokenRequest
+            {
+                coreVersion = coreVersion,
+                appVersion = appVersion,
+                projectBinding = MolcaProjectSettings.Instance?.ProjectBinding,
+            });
             using var request = new UnityWebRequest(uri.AbsoluteUri, UnityWebRequest.kHttpVerbPOST)
             {
                 uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(json)),
@@ -120,6 +169,7 @@ namespace Molca.Editor.Addons
         {
             public string coreVersion;
             public string appVersion;
+            public string projectBinding;
         }
 
         /// <summary>Signed, revocable claim identifying the licensee a player build belongs to.</summary>
@@ -178,6 +228,41 @@ namespace Molca.Editor.Addons
                 403 => "This developer or machine is not entitled to that add-on.",
                 404 => "The requested add-on version is unavailable.",
                 _ => $"Add-on server returned HTTP {request.responseCode}: {request.error}",
+            };
+            return AddonOperationResult<string>.Fail(detail);
+        }
+
+        private static async Awaitable<AddonOperationResult<string>> PostAsync(
+            string url, string json, string entitlementToken, CancellationToken cancellationToken)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                !AddonDistributionConfig.IsTrustedDownloadHost(uri.Host))
+                return AddonOperationResult<string>.Fail(
+                    "Add-on API URL is not on the pinned HTTPS host allowlist.");
+            using var request = new UnityWebRequest(uri.AbsoluteUri, UnityWebRequest.kHttpVerbPOST)
+            {
+                uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(json)),
+                downloadHandler = new DownloadHandlerBuffer(),
+                timeout = RequestTimeoutSeconds,
+            };
+            request.SetRequestHeader("Content-Type", "application/json");
+            request.SetRequestHeader("Authorization", "Bearer " + entitlementToken);
+            request.SetRequestHeader("X-Molca-Machine-Id", SystemInfo.deviceUniqueIdentifier);
+            var operation = request.SendWebRequest();
+            while (!operation.isDone)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await Awaitable.NextFrameAsync(cancellationToken);
+            }
+            if (request.result == UnityWebRequest.Result.Success)
+                return AddonOperationResult<string>.Ok(request.downloadHandler?.text ?? string.Empty);
+            string detail = request.responseCode switch
+            {
+                401 => "Developer entitlement was rejected or expired.",
+                403 => "Only a project owner or manager can approve a new add-on closure.",
+                404 => "The connected project or requested add-on was not found.",
+                _ => $"Add-on approval returned HTTP {request.responseCode}: {request.error}",
             };
             return AddonOperationResult<string>.Fail(detail);
         }

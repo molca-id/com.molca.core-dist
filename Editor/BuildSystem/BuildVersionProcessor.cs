@@ -118,6 +118,7 @@ namespace Molca.Editor
                         branch = b.Trim();
                 }
 
+                MolcaProjectSettings project = MolcaProjectSettings.Instance;
                 var data = new MolcaBuildInfoData
                 {
                     version = versionSettings.GetVersionString(),
@@ -125,6 +126,8 @@ namespace Molca.Editor
                     commit = commit,
                     branch = branch,
                     timestampUtc = System.DateTime.UtcNow.ToString("o"),
+                    projectId = project?.ProjectId ?? string.Empty,
+                    projectCode = project?.ProjectCode ?? string.Empty,
                 };
 
                 _createdResourcesFolder = !AssetDatabase.IsValidFolder(ResourcesFolder);

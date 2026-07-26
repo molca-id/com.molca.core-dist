@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using Molca.Editor.Icons;
 using Molca.Editor.Licensing;
@@ -253,7 +254,8 @@ namespace Molca.Editor.Addons
 
         // ---- Shared install / update / remove / import flows ----------------------------------------
 
-        protected async void BeginInstall(AddonCatalogPackage pack, AddonCatalogVersion version)
+        protected async void BeginInstall(
+            AddonCatalogResponse catalog, AddonCatalogPackage pack, AddonCatalogVersion version)
         {
             if (_busy) return;
             if (!IsLicensed(out DevLicenseStatus licenseStatus))
@@ -264,52 +266,139 @@ namespace Molca.Editor.Addons
             }
             _busy = true;
             ResetCancellation();
-            Status.text = $"Verifying {pack.id} {version.version}…";
+            Status.text = $"Resolving {pack.id} {version.version}…";
             try
             {
-                var manifestResult = await Client.GetManifestAsync(pack.id, version.version, _cancellation.Token);
-                if (!manifestResult.Success)
+                if (!AddonDependencyResolver.TryResolve(catalog, pack.id, version.version,
+                    InstalledAddonsAsset.FindExisting(), out AddonInstallPlan plan,
+                    out string resolutionError))
                 {
-                    AddonAuditLog.Record("verify", "failed", pack.id, version.version, version.sha256, error: manifestResult.Error);
-                    AddonTelemetry.Record("verify_fail", pack.id, version.version, manifestResult.Error);
-                    EditorUtility.DisplayDialog("Add-on verification failed", manifestResult.Error, "OK");
-                    Status.text = manifestResult.Error;
+                    AddonAuditLog.Record("resolve", "failed", pack.id, version.version,
+                        version.sha256, error: resolutionError);
+                    EditorUtility.DisplayDialog("Add-on dependency conflict", resolutionError, "OK");
+                    Status.text = resolutionError;
                     return;
                 }
 
-                AddonManifest manifest = manifestResult.Value.Manifest;
-                var source = new Uri(manifest.downloadUrl);
-                string warning = manifest.hasRuntime
-                    ? "\n\nThis pack contains runtime code. Rebuild players before distributing them."
-                    : "\n\nThis pack is Editor-only and will not enter player builds.";
-                string notes = string.IsNullOrWhiteSpace(manifest.releaseNotes)
+                bool approvalRequired = plan.Ordered.Any(entry =>
+                    !string.Equals(entry.Package.policyStatus, "approved", StringComparison.Ordinal));
+                if (approvalRequired && !catalog.canManagePolicy)
+                {
+                    Status.text = "This add-on closure is not approved for the connected project.";
+                    EditorUtility.DisplayDialog("Project approval required",
+                        "Ask a project owner or manager to approve this add-on and its dependencies.", "OK");
+                    return;
+                }
+
+                bool hasRuntime = plan.Ordered.Any(entry => entry.Version.hasRuntime);
+                string warning = hasRuntime
+                    ? "\n\nThis closure contains runtime code. Rebuild players before distributing them."
+                    : "\n\nThis closure is Editor-only and will not enter player builds.";
+                string notes = string.IsNullOrWhiteSpace(version.releaseNotes)
                     ? string.Empty
-                    : $"\n\nWhat's new:\n{Truncate(manifest.releaseNotes, 600)}";
+                    : $"\n\nWhat's new:\n{Truncate(version.releaseNotes, 600)}";
+                string tree = string.Join("\n", plan.Ordered.Select(entry =>
+                    $"{(entry.Requested ? "Requested" : "Required ")}  {entry.Package.id} " +
+                    $"{entry.Version.version}" +
+                    $"{(entry.AlreadyInstalled ? " (already satisfied)" : string.Empty)}"));
+                string external = plan.ExternalPrerequisites.Count == 0 ? string.Empty
+                    : "\n\nExternal Unity packages:\n" + string.Join("\n",
+                        plan.ExternalPrerequisites.Select(item =>
+                            $"{item.packageId} — {item.source}: {item.spec}"));
                 string confirmation =
-                    $"Install {manifest.name} {manifest.version}?\n\n" +
-                    $"Package: {manifest.id}\nPublisher: {manifest.publisher}\nSource: {source.Host}\n" +
-                    $"SHA-256: {manifest.sha256}\nSigning key: {manifestResult.Value.KeyId}" + warning + notes +
-                    "\n\nDownloaded code runs with full Unity Editor privileges.";
-                if (!EditorUtility.DisplayDialog("Confirm signed add-on", confirmation, "Install", "Cancel"))
+                    $"Install {pack.name} {version.version}?\n\n{tree}{external}\n\n" +
+                    $"{plan.ChangedCount} Molca package change" +
+                    $"{(plan.ChangedCount == 1 ? string.Empty : "s")}." +
+                    (approvalRequired
+                        ? "\nThis also approves the complete closure for this project."
+                        : string.Empty) +
+                    warning + notes + "\n\nDownloaded code runs with full Unity Editor privileges.";
+                if (!EditorUtility.DisplayDialog(
+                    "Confirm add-on dependency plan", confirmation, "Approve and install", "Cancel"))
                 {
                     Status.text = "Installation canceled.";
                     return;
                 }
 
-                Status.text = $"Downloading and installing {manifest.id} {manifest.version}…";
-                AddonInstallResult result = await Installer.InstallAsync(manifestResult.Value, _cancellation.Token);
-                // The installed set changed, so the shared catalog view of it is stale for both tabs.
-                if (result.Success) AddonCatalogCache.Invalidate();
+                if (approvalRequired)
+                {
+                    Status.text = "Approving project add-on closure…";
+                    var approval = await Client.ApproveAsync(
+                        pack.id, version.version, Channel, _cancellation.Token);
+                    if (!approval.Success)
+                    {
+                        Status.text = approval.Error;
+                        EditorUtility.DisplayDialog("Add-on approval failed", approval.Error, "OK");
+                        return;
+                    }
+                }
+
+                AddonTransactionResume.Save(plan, Channel);
+                var manifests = new List<VerifiedAddonManifest>();
+                foreach (AddonInstallPlanEntry entry in plan.Ordered)
+                {
+                    Status.text = $"Verifying {entry.Package.id} {entry.Version.version}…";
+                    var manifestResult = await Client.GetManifestAsync(
+                        entry.Package.id, entry.Version.version, _cancellation.Token);
+                    if (!manifestResult.Success)
+                    {
+                        AddonAuditLog.Record("verify", "failed", entry.Package.id,
+                            entry.Version.version, entry.Version.sha256, error: manifestResult.Error);
+                        AddonTelemetry.Record("verify_fail", entry.Package.id,
+                            entry.Version.version, manifestResult.Error);
+                        EditorUtility.DisplayDialog(
+                            "Add-on verification failed", manifestResult.Error, "OK");
+                        Status.text = manifestResult.Error;
+                        AddonTransactionResume.Fail(manifestResult.Error);
+                        return;
+                    }
+                    if (!AddonDependencyResolver.ManifestMatches(
+                        entry.Version, manifestResult.Value.Manifest, out string metadataError))
+                    {
+                        Status.text = metadataError;
+                        EditorUtility.DisplayDialog(
+                            "Signed dependency mismatch", metadataError, "OK");
+                        AddonTransactionResume.Fail(metadataError);
+                        return;
+                    }
+                    manifests.Add(manifestResult.Value);
+                }
+
+                Status.text = "Resolving external Unity packages…";
+                var prerequisites = await ExternalPrerequisiteResolver.EnsureAsync(
+                    plan.ExternalPrerequisites, _cancellation.Token);
+                if (!prerequisites.Success)
+                {
+                    Status.text = prerequisites.Error;
+                    EditorUtility.DisplayDialog(
+                        "External prerequisite failed", prerequisites.Error, "OK");
+                    AddonTransactionResume.Fail(prerequisites.Error);
+                    return;
+                }
+
+                Status.text = $"Installing {plan.RootId} dependency closure…";
+                AddonInstallResult result = await Installer.InstallGraphAsync(
+                    plan, manifests, _cancellation.Token);
+                if (result.Success)
+                {
+                    AddonTransactionResume.Complete();
+                    AddonCatalogCache.Invalidate();
+                }
+                else AddonTransactionResume.Fail(result.Message);
                 Status.text = result.Message;
-                if (!result.Success) EditorUtility.DisplayDialog("Add-on installation failed", result.Message, "OK");
+                if (!result.Success)
+                    EditorUtility.DisplayDialog("Add-on installation failed", result.Message, "OK");
                 else if (!string.IsNullOrEmpty(result.RecoveryPath))
-                    Debug.Log($"[Molca Add-ons] Previous package retained for recovery at: {result.RecoveryPath}");
-                // A successful install triggers a deferred domain reload that recreates this view, so the card
-                // list refreshes automatically — no manual Refresh() (which would also reenter mid-flow).
+                    Debug.Log($"[Molca Add-ons] Recovery retained at: {result.RecoveryPath}");
             }
-            catch (OperationCanceledException) { Status.text = "Installation canceled."; }
+            catch (OperationCanceledException)
+            {
+                AddonTransactionResume.Fail("Installation canceled.");
+                Status.text = "Installation canceled.";
+            }
             catch (Exception exception)
             {
+                AddonTransactionResume.Fail(exception.Message);
                 Status.text = $"Installation failed: {exception.Message}";
                 Debug.LogError($"[Molca Add-ons] Installation failed: {exception}");
             }

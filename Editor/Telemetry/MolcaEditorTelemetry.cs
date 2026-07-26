@@ -41,6 +41,7 @@ namespace Molca.Editor.Telemetry
         private static readonly string SessionId = Guid.NewGuid().ToString("N");
 
         private static bool _flushing;
+        private static bool _missingBindingWarned;
 
         static MolcaEditorTelemetry()
         {
@@ -152,12 +153,25 @@ namespace Molca.Editor.Telemetry
             if (DevEntitlementVerifier.Evaluate(token, SystemInfo.deviceUniqueIdentifier, out _) != DevLicenseStatus.Valid)
                 return false; // Unlicensed editors report nothing; the spool waits for a valid sign-in.
 
+            string projectBinding = MolcaProjectSettings.Instance?.ProjectBinding;
+            if (string.IsNullOrWhiteSpace(projectBinding))
+            {
+                if (!_missingBindingWarned)
+                {
+                    Debug.LogWarning("[Molca Telemetry] Events are queued but cannot be sent until an owner or " +
+                                     "manager connects this repository in Molca Hub > Settings > Project.");
+                    _missingBindingWarned = true;
+                }
+                return false;
+            }
+            _missingBindingWarned = false;
+
             string url = DevLicenseConfig.ServerBaseUrl.TrimEnd('/') + "/telemetry/events";
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
                 !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
                 !AddonDistributionConfigTrusts(uri.Host)) return false;
 
-            string body = new JObject { ["events"] = events }.ToString(Formatting.None);
+            string body = BuildEnvelope(events, projectBinding).ToString(Formatting.None);
             using var request = new UnityWebRequest(uri.AbsoluteUri, UnityWebRequest.kHttpVerbPOST)
             {
                 uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body)),
@@ -178,7 +192,19 @@ namespace Molca.Editor.Telemetry
             // A 400 means this client produced events the server will never accept; dropping them is
             // correct, since retrying forever would wedge the queue behind a permanently bad batch.
             if (request.responseCode == 400) return true;
+            if (request.responseCode == 403 && !string.IsNullOrWhiteSpace(projectBinding))
+                Debug.LogWarning("[Molca Telemetry] The current project connection was rejected. " +
+                                 "An owner or manager should verify access in Molca Hub > Settings > Project.");
             return request.result == UnityWebRequest.Result.Success;
+        }
+
+        internal static JObject BuildEnvelope(JArray events, string projectBinding)
+        {
+            if (string.IsNullOrWhiteSpace(projectBinding))
+                throw new InvalidOperationException("project_binding_required");
+            var envelope = new JObject { ["events"] = events };
+            envelope["projectBinding"] = projectBinding;
+            return envelope;
         }
 
         private static void TryDelete(string file)

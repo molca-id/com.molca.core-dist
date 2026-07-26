@@ -64,6 +64,55 @@ To add your own, implement `ITelemetrySink` in project space; a `TelemetryEvent`
 | `BatchSize` | Events buffered before a flush is triggered. |
 | `FlushIntervalSeconds` | Periodic flush cadence. |
 
+## MolcaDiagnostics — crash/breadcrumb sinks
+
+Telemetry answers *what the app did*; diagnostics answers *what went wrong*. `MolcaDiagnostics`
+(`Runtime/Diagnostics/`, namespace `Molca`) is a static, vendor-neutral facade for forwarding
+breadcrumbs and captured exceptions to an optional customer-owned crash reporter. It is deliberately
+**not** a subsystem: framework code at any lifecycle stage — including before bootstrap — can call it,
+and with no registered sink every operation is a safe no-op.
+
+| Member | Purpose |
+|---|---|
+| `Register(IMolcaDiagnosticsSink)` | Adds a sink; returns an `IDisposable` that unregisters it. |
+| `Unregister(IMolcaDiagnosticsSink)` | Removes a sink explicitly. |
+| `AddBreadcrumb(MolcaBreadcrumb)` | Forwards a breadcrumb to every enabled sink. |
+| `CaptureException(exception, context = null)` | Forwards an explicitly captured exception (context defaults to component `"framework"`). |
+| `FlushAsync(ct)` | Awaits each enabled sink's flush; cancellation propagates, other failures do not. |
+
+A sink implements `IMolcaDiagnosticsSink` (`Name`, `IsEnabled`, `AddBreadcrumb`, `CaptureException`,
+`FlushAsync`). Register it from project space and dispose the returned handle to detach:
+
+```csharp
+// e.g. in a project subsystem's InitializeAsync
+_diagnostics = MolcaDiagnostics.Register(new SentryDiagnosticsSink());
+
+MolcaDiagnostics.AddBreadcrumb(new MolcaBreadcrumb(
+    "sequence", "step started", MolcaBreadcrumbLevel.Info,
+    new Dictionary<string, string> { ["stepId"] = step.Id }));
+
+try { await UploadAsync(ct); }
+catch (Exception exception)
+{
+    MolcaDiagnostics.CaptureException(exception,
+        new MolcaDiagnosticContext("report-upload"));
+    throw;
+}
+```
+
+Contract notes:
+
+- **Payloads are bounded at construction.** `MolcaBreadcrumb` / `MolcaDiagnosticContext` trim category
+  and component to 64 chars, messages and property values to 256, and keep at most 16 properties, so an
+  unbounded string can never reach a sink.
+- **Sinks are isolated.** Every sink call is wrapped in `try/catch`; a throwing or misbehaving sink can
+  never change application success/failure behavior or recursively log. Implementations must also avoid
+  mutating application state.
+- **Registration is thread-safe** (lock + snapshot on dispatch), so a sink can be registered or removed
+  while breadcrumbs are being added.
+- **Diagnostics is not usage telemetry.** The sanitized `TelemetrySubsystem` contract above stays
+  separate on purpose — don't route product analytics through a crash sink.
+
 ## Logging
 
 Framework logging (the `Debug.Log` write path) is separate from telemetry and is safe to call from any

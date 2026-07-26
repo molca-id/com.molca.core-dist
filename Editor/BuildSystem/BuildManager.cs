@@ -533,6 +533,8 @@ namespace Molca.Editor
                     commit = commit,
                     branch = branch,
                     timestampUtc = System.DateTime.UtcNow.ToString("o"),
+                    projectId = Molca.MolcaProjectSettings.Instance.ProjectId,
+                    projectCode = Molca.MolcaProjectSettings.Instance.ProjectCode,
                     output = buildPath,
                     totalSizeBytes = (long)report.summary.totalSize,
                     scenes = scenes,
@@ -562,6 +564,8 @@ namespace Molca.Editor
             public string commit;
             public string branch;
             public string timestampUtc;
+            public string projectId;
+            public string projectCode;
             public string output;
             public long totalSizeBytes;
             public string[] scenes;

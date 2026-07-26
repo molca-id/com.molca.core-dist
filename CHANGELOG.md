@@ -2,6 +2,56 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.16.1] - 2026-07-26
+
+### Added
+- **Molca Remote Editor** (`remoteEditor` protocol 1). A running Editor can connect to the Molca dashboard
+  over an outbound encrypted link, without exposing Unity, the local MCP listener, or the local MCP token to
+  the network. Enabled per project from **Hub → Project → Remote Editor**, private to the signed-in user, and
+  rechecked against current license, project membership, and binding state. The presence snapshot is bounded
+  (versions, edit/play mode, compilation health, project identity, scene/selection summary, console counts,
+  Assistant activity); detail is fetched through the same allowlisted read-only tool registry and main-thread
+  dispatcher as local MCP. **Allow remote Assistant** and **Allow remote actions** are separate opt-ins;
+  remote actions additionally require the server feature, session ownership with project action access, the
+  local action allowlist, an unchanged Editor/scene/selection context, and a free action lane. Remote
+  Assistant never changes the configured action mode and cannot answer local confirmations from the web. See
+  [`REMOTE_EDITOR.md`](Documentation~/reference/REMOTE_EDITOR.md).
+- **Molca Free assistant provider.** A fourth Assistant provider that reuses the machine-bound developer
+  entitlement to reach the control plane's OpenAI-compatible route. The client exposes only the stable
+  `molca/free` alias and the server picks a currently available, tool-capable, zero-price model, keeping its
+  upstream key private. Model and endpoint fields are locked so a consumer project cannot redirect the
+  entitlement; **Check** forces a live availability refresh. No user-supplied key and no new secrets path.
+
+### Changed
+- **Assistant turns survive leaving the Assistant tab.** Turn execution moved out of the chat view into an
+  editor-domain chat runtime, so switching Hub workspaces, docking the Hub, or rebuilding the editor layout
+  detaches only the visible screen — the turn keeps running and reattaches to the same session and live
+  transcript on return. The Hub and the Remote dashboard drive one shared turn; **Stop** in either cancels it.
+- `MolcaDiagnostics` is now documented in the Telemetry & Diagnostics guide (API surface, sink registration,
+  payload bounds, sink isolation, and why diagnostics stays separate from usage telemetry), and
+  `DocsCoverageCheck` maps Runtime/Diagnostics to that guide instead of leaving a user-facing runtime system
+  uncovered.
+
+### Fixed
+- The Hub project picker no longer closes while the project list is loading.
+- The Hub project-section connection test pinned the disconnected copy and only passed on an unconnected
+  project; it now accepts any state `ProjectConnectionText()` can return.
+
+## [1.16.0] - 2026-07-26
+
+### Added
+- Project-bound add-on distribution protocol 3 with signed dependency graphs, project closure approval,
+  reviewed external prerequisites, transactional graph installation, dependency-aware removal, and
+  domain-reload resume.
+- A public, bounded, vendor-neutral `MolcaDiagnostics` sink API with initial runtime-bootstrap breadcrumbs and
+  explicit handled-exception capture. Core has no dependency on Sentry or another diagnostics vendor.
+- Build provenance now stamps the non-secret Molca project ID and project code without embedding its signed
+  binding receipt.
+
+### Changed
+- Add-on catalog and manifest operations require an active project binding and protocol 3.
+- Project connection guidance now wraps below the Project ID controls instead of overflowing the Identity card.
+
 ## [1.15.0] - 2026-07-25
 
 ### Added

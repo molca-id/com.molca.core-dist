@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -18,12 +19,34 @@ namespace Molca.Editor.Addons
         public string signingKeyId;
         public string installedAtUtc;
         public bool hasRuntime;
+        public bool requested = true;
+        public string transactionId;
+        public List<string> requiredBy = new List<string>();
+        public List<InstalledAddonDependency> dependencies = new List<InstalledAddonDependency>();
+        public List<InstalledExternalPrerequisite> externalPrerequisites =
+            new List<InstalledExternalPrerequisite>();
 
         /// <summary>
         /// SHA-256 over the package's sorted <c>.cs</c> files at install time, for detecting post-install
         /// source drift. Empty on records written before this field existed (drift check skipped for those).
         /// </summary>
         public string contentHash;
+    }
+
+    [Serializable]
+    internal sealed class InstalledAddonDependency
+    {
+        public string id;
+        public string resolvedVersion;
+        public string minimumVersion;
+        public string maximumMajorExclusive;
+    }
+
+    [Serializable]
+    internal sealed class InstalledExternalPrerequisite
+    {
+        public string packageId;
+        public string resolvedSpec;
     }
 
     /// <summary>
@@ -46,6 +69,33 @@ namespace Molca.Editor.Addons
             else addons.Add(record);
             Save();
         }
+
+        internal void UpsertMany(IEnumerable<InstalledAddonRecord> records)
+        {
+            foreach (InstalledAddonRecord record in records)
+            {
+                int index = addons.FindIndex(item =>
+                    string.Equals(item.id, record.id, StringComparison.Ordinal));
+                if (index >= 0) addons[index] = record;
+                else addons.Add(record);
+            }
+            Save();
+        }
+
+        internal List<InstalledAddonRecord> Snapshot() =>
+            addons.Select(record => JsonUtility.FromJson<InstalledAddonRecord>(
+                JsonUtility.ToJson(record))).ToList();
+
+        internal void Restore(IEnumerable<InstalledAddonRecord> records)
+        {
+            addons = records?.ToList() ?? new List<InstalledAddonRecord>();
+            Save();
+        }
+
+        internal IReadOnlyList<InstalledAddonRecord> DependentsOf(string id) =>
+            addons.Where(record => record.dependencies != null &&
+                record.dependencies.Exists(dependency =>
+                    string.Equals(dependency.id, id, StringComparison.Ordinal))).ToList();
 
         internal bool Remove(string id)
         {

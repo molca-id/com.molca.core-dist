@@ -14,6 +14,9 @@ namespace Molca.Editor.Addons
 
         /// <summary>Highest channel this license may request; drives which options the UI offers.</summary>
         public string maxChannel;
+        public string projectId;
+        public string role;
+        public bool canManagePolicy;
 
         public AddonCatalogPackage[] packs;
     }
@@ -29,6 +32,8 @@ namespace Molca.Editor.Addons
         public string name;
         public string description;
         public string publisher;
+        public string policyStatus;
+        public bool requested;
         public AddonCatalogVersion[] versions;
 
         /// <summary>The newest compatible version, or null when the server offered none.</summary>
@@ -54,6 +59,28 @@ namespace Molca.Editor.Addons
         public string sha256;
         public long sizeBytes;
         public string manifestUrl;
+        public AddonDependency[] dependencies;
+        public ExternalAddonPrerequisite[] externalPrerequisites;
+    }
+
+    /// <summary>One required Molca add-on with minimum-version/same-major semantics.</summary>
+    [Serializable]
+    internal sealed class AddonDependency
+    {
+        public string id;
+        public string minimumVersion;
+        public string maximumMajorExclusive;
+    }
+
+    /// <summary>A reviewed project-owned Unity package required by an add-on.</summary>
+    [Serializable]
+    internal sealed class ExternalAddonPrerequisite
+    {
+        public string packageId;
+        public string source;
+        public string spec;
+        public string resolvedCommit;
+        public string publisher;
     }
 
     /// <summary>Wire response containing a signed manifest compact token.</summary>
@@ -90,9 +117,39 @@ namespace Molca.Editor.Addons
         public string unityVersion;
         public string releaseNotes;
         public string publishedAt;
+        public AddonDependency[] dependencies;
+        public ExternalAddonPrerequisite[] externalPrerequisites;
         public bool offline;
         public string downloadUrl;
         public string downloadExpiresAt;
+    }
+
+    [Serializable]
+    internal sealed class AddonApprovalRequest
+    {
+        public string projectBinding;
+        public string id;
+        public string version;
+        public string coreVersion;
+        public string runtime;
+        public string channel;
+    }
+
+    [Serializable]
+    internal sealed class AddonApprovalResponse
+    {
+        public AddonResolvedPackage[] selected;
+        public string[] order;
+    }
+
+    [Serializable]
+    internal sealed class AddonResolvedPackage
+    {
+        public string id;
+        public string name;
+        public string version;
+        public string channel;
+        public bool requested;
     }
 
     /// <summary>

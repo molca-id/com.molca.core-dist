@@ -11,6 +11,8 @@ namespace Molca.Editor.Mcp.Assistant
     /// compatible endpoint via a configurable base URL) is the default and the primary option;
     /// <see cref="Anthropic"/> is also implemented. <see cref="Local"/> drives a self-hosted
     /// OpenAI-compatible runtime (e.g. Ollama) over the same wire format with an optional, usually empty key.
+    /// <see cref="MolcaFree"/> uses the authenticated Molca control-plane router, so an end user needs no
+    /// provider account or API key.
     /// </summary>
     /// <remarks>
     /// Numeric order is preserved for serialization stability (do not reorder existing members).
@@ -22,7 +24,9 @@ namespace Molca.Editor.Mcp.Assistant
         /// <summary>Anthropic Claude (Messages API).</summary>
         Anthropic,
         /// <summary>A local/self-hosted OpenAI-compatible endpoint (e.g. Ollama). Keyless by default.</summary>
-        Local
+        Local,
+        /// <summary>Molca's entitlement-authenticated router for currently available zero-price models.</summary>
+        MolcaFree
     }
 
     /// <summary>

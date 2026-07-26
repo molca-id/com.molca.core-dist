@@ -6,10 +6,9 @@ using UnityEngine;
 namespace Molca.Editor.Licensing
 {
     /// <summary>
-    /// Build-time developer license gate. Before any <c>BuildPipeline.BuildPlayer</c> runs, verifies
-    /// that a valid, unexpired entitlement bound to this machine (or supplied via
-    /// <see cref="DevLicenseConfig.EntitlementEnvVar"/> for CI) is present, and aborts the build with
-    /// a <see cref="BuildFailedException"/> otherwise.
+    /// Build-time developer license and project gate. Before any <c>BuildPipeline.BuildPlayer</c> runs,
+    /// verifies a valid machine-bound entitlement, a connected backend project, and fresh server
+    /// authorization, then aborts with <see cref="BuildFailedException"/> when any requirement fails.
     /// </summary>
     /// <remarks>
     /// Unity discovers <see cref="IPreprocessBuildWithReport"/> by type, so this runs for the Build
@@ -29,7 +28,7 @@ namespace Molca.Editor.Licensing
         /// <summary>Runs early, but after the version preprocessor (<c>int.MinValue</c>) so version data is set.</summary>
         public int callbackOrder => -10000;
 
-        /// <summary>Verifies the developer entitlement and aborts the build when it is missing/invalid/expired.</summary>
+        /// <summary>Verifies developer and project authorization and aborts when either is unavailable.</summary>
         /// <param name="report">The Unity build report for the build about to run.</param>
         /// <exception cref="BuildFailedException">Thrown to abort the build when not licensed.</exception>
         public void OnPreprocessBuild(BuildReport report)
@@ -42,13 +41,36 @@ namespace Molca.Editor.Licensing
 
             if (status == DevLicenseStatus.Valid)
             {
+                if (!HasProjectConnection(MolcaProjectSettings.Instance))
+                {
+                    Telemetry.MolcaEditorTelemetry.Track("build.blocked",
+                        new System.Collections.Generic.Dictionary<string, object>
+                        {
+                            { "reason", "ProjectConnectionRequired" },
+                        });
+                    throw new BuildFailedException(
+                        "[License] Build blocked: this repository is not connected to a Molca backend project.\n" +
+                        "An owner or manager must connect it in Molca Hub > Settings > Project.");
+                }
+
                 Debug.Log($"[License] Build authorized for '{payload.licenseeId}' ({payload.email}), " +
                           $"entitlement valid until {payload.ExpiresAtUtc:u}.");
                 // Bake the licensee identity plus a signed build token into the player, so the shipped
-                // build can report framework usage without carrying this developer's credential. A
-                // failed mint is soft: the build proceeds and simply never reports.
+                // build can report framework usage without carrying this developer's credential.
+                // Full project migration requires a fresh server authorization for every build.
                 var (buildToken, buildId) = BuildTokenStore.Acquire(
                     payload.licenseeId, payload.coreVersion, Application.version);
+                if (string.IsNullOrEmpty(buildToken))
+                {
+                    Telemetry.MolcaEditorTelemetry.Track("build.blocked",
+                        new System.Collections.Generic.Dictionary<string, object>
+                        {
+                            { "reason", "ProjectAuthorizationFailed" },
+                        });
+                    throw new BuildFailedException(
+                        "[License] Build blocked: Molca could not authorize the connected project.\n" +
+                        "Verify the project connection and current membership, then retry while online.");
+                }
                 LicenseBuildStamp.Write(payload.licenseeId, payload.coreVersion, buildToken, buildId, Application.version);
 
                 Telemetry.MolcaEditorTelemetry.Track("build.authorized", new System.Collections.Generic.Dictionary<string, object>
@@ -70,6 +92,9 @@ namespace Molca.Editor.Licensing
                 "account, or set the " + DevLicenseConfig.EntitlementEnvVar + " environment variable " +
                 "with a pre-activated entitlement for CI builds.");
         }
+
+        internal static bool HasProjectConnection(MolcaProjectSettings settings) =>
+            settings != null && !string.IsNullOrWhiteSpace(settings.ProjectBinding);
 
         /// <summary>Maps a non-valid status to an actionable explanation.</summary>
         private static string Explain(DevLicenseStatus status)

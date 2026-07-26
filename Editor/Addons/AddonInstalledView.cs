@@ -111,6 +111,11 @@ namespace Molca.Editor.Addons
             model.Details.Add(("Signing key", record.signingKeyId));
             model.Details.Add(("SHA-256", record.sha256));
             model.Details.Add(("Installed", record.installedAtUtc));
+            model.Details.Add(("Installed as", record.requested ? "Requested root" :
+                $"Dependency of {string.Join(", ", record.requiredBy ?? new List<string>())}"));
+            if (record.dependencies?.Count > 0)
+                model.Details.Add(("Dependencies", string.Join(", ",
+                    record.dependencies.Select(item => $"{item.id} {item.resolvedVersion}"))));
             if (latest != null)
             {
                 model.Details.Add(("Compatibility", $"Core {latest.coreVersionRange}  ·  runtime {latest.runtime}"));
@@ -123,9 +128,10 @@ namespace Molca.Editor.Addons
                 : "matches signed content"));
 
             var buttons = new List<Button>();
-            if (updateAvailable && pack != null)
-                buttons.Add(MolcaButtons.Mini("Update", () => BeginInstall(pack, latest)));
-            buttons.Add(MolcaButtons.Mini("Remove", () => Remove(record)));
+            bool canManage = _catalog?.canManagePolicy == true;
+            if (canManage && updateAvailable && pack != null)
+                buttons.Add(MolcaButtons.Mini("Update", () => BeginInstall(_catalog, pack, latest)));
+            if (canManage) buttons.Add(MolcaButtons.Mini("Remove", () => Remove(record)));
 
             return BuildCard(model, buttons.ToArray());
         }

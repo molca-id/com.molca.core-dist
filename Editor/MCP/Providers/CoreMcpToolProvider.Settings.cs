@@ -28,7 +28,8 @@ namespace Molca.Editor.Mcp.Providers
 
         private static McpToolDefinition CreateSettingsProjectInfoTool() => new McpToolDefinition(
             name: "molca_settings_project_info",
-            description: "Reads the bootstrap MolcaProjectSettings: company/project name, project id, and the "
+            description: "Reads the bootstrap MolcaProjectSettings: company/project name, backend project "
+                       + "identity and connection state, and the "
                        + "referenced GlobalSettings and RuntimeManager prefab. Read-only.",
             inputSchemaJson: "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}",
             execute: ExecuteSettingsProjectInfo,
@@ -46,6 +47,8 @@ namespace Molca.Editor.Mcp.Providers
                 ["companyName"] = project.CompanyName,
                 ["projectName"] = project.ProjectName,
                 ["projectId"] = project.ProjectId,
+                ["projectCode"] = project.ProjectCode,
+                ["projectConnected"] = !string.IsNullOrWhiteSpace(project.ProjectBinding),
                 ["globalSettings"] = global != null ? AssetDatabase.GetAssetPath(global) : null,
                 ["runtimeManager"] = project.RuntimeManager != null
                     ? AssetDatabase.GetAssetPath(project.RuntimeManager)

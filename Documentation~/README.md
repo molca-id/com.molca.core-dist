@@ -48,6 +48,7 @@ Each guide carries YAML front-matter (`title`/`category`/`order`); the categorie
 - **Settings** — [`SETTINGS.md`](reference/SETTINGS.md).
 - **Tooling** — [`HUB.md`](reference/HUB.md), [`BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
   [`ONBOARDING.md`](reference/ONBOARDING.md), [`EDITOR_DESIGN_LANGUAGE.md`](reference/EDITOR_DESIGN_LANGUAGE.md),
+  [`REMOTE_EDITOR.md`](reference/REMOTE_EDITOR.md),
   [`DOCS_AUTHORING.md`](reference/DOCS_AUTHORING.md), [`CORE_MCP_TOOLS.md`](reference/CORE_MCP_TOOLS.md),
   [`UNITY_MCP_TOOLS.md`](reference/UNITY_MCP_TOOLS.md), [`MCP_FORK_PROVIDERS.md`](reference/MCP_FORK_PROVIDERS.md),
   [`KNOWLEDGE_GRAPH.md`](reference/KNOWLEDGE_GRAPH.md).

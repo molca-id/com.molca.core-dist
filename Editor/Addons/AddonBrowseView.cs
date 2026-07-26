@@ -84,12 +84,10 @@ namespace Molca.Editor.Addons
                 VersionText = selected != null ? $"v{selected.version}" : "no compatible version",
             };
 
-            bool updateAvailable = false;
             if (installed != null)
             {
                 if (latest != null && installed.version != latest.version)
                 {
-                    updateAvailable = true;
                     model.Status = MolcaStatusKind.Warning;
                     model.StatusText = "Update available";
                     model.VersionText = $"v{installed.version} → {latest.version}";
@@ -104,6 +102,10 @@ namespace Molca.Editor.Addons
 
             if (selected != null)
             {
+                model.Details.Add(("Project policy",
+                    string.Equals(pack.policyStatus, "approved", StringComparison.Ordinal)
+                        ? "Approved"
+                        : _catalog.canManagePolicy ? "Approval will be requested on install" : "Not approved"));
                 model.Details.Add(("Compatibility", $"Core {selected.coreVersionRange}  ·  runtime {selected.runtime}"));
                 if (!string.IsNullOrEmpty(selected.unityVersion))
                     model.Details.Add(("Unity", selected.unityVersion));
@@ -111,6 +113,14 @@ namespace Molca.Editor.Addons
                 model.Details.Add(("Published", FormatDate(selected.publishedAt)));
                 model.Details.Add(("Download size", FormatBytes(selected.sizeBytes)));
                 model.Details.Add(("SHA-256", selected.sha256));
+                if (selected.dependencies?.Length > 0)
+                    model.Details.Add(("Molca dependencies", string.Join(", ",
+                        selected.dependencies.Select(item =>
+                            $"{item.id} >= {item.minimumVersion} < {item.maximumMajorExclusive}"))));
+                if (selected.externalPrerequisites?.Length > 0)
+                    model.Details.Add(("External prerequisites", string.Join(", ",
+                        selected.externalPrerequisites.Select(item =>
+                            $"{item.packageId} ({item.source})"))));
                 if (!string.IsNullOrWhiteSpace(selected.releaseNotes))
                     model.Details.Add(("Release notes", Truncate(selected.releaseNotes.Replace("\n", " "), 400)));
             }
@@ -121,7 +131,7 @@ namespace Molca.Editor.Addons
             {
                 string label = installed == null ? "Install"
                     : AddonSemVer.Compare(selected.version, installed.version) < 0 ? "Downgrade" : "Update";
-                buttons.Add(MolcaButtons.Mini(label, () => BeginInstall(pack, selected)));
+                buttons.Add(MolcaButtons.Mini(label, () => BeginInstall(_catalog, pack, selected)));
             }
 
             VisualElement card = BuildCard(model, buttons.ToArray());

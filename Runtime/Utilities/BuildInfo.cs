@@ -19,6 +19,10 @@ namespace Molca
         public string branch;
         /// <summary>UTC build timestamp (ISO 8601).</summary>
         public string timestampUtc;
+        /// <summary>Non-secret backend project identity stamped at build time.</summary>
+        public string projectId;
+        /// <summary>Readable non-secret backend project code stamped at build time.</summary>
+        public string projectCode;
     }
 
     /// <summary>
@@ -74,6 +78,12 @@ namespace Molca
 
         /// <summary>UTC build timestamp (ISO 8601), or empty when unavailable.</summary>
         public static string TimestampUtc => Data != null ? Data.timestampUtc : string.Empty;
+
+        /// <summary>Backend project UUID, or empty when the build was not project-scoped.</summary>
+        public static string ProjectId => Data != null ? Data.projectId : string.Empty;
+
+        /// <summary>Readable backend project code, or empty when unavailable.</summary>
+        public static string ProjectCode => Data != null ? Data.projectCode : string.Empty;
 
         /// <summary>Clears the cached data so the next access reloads. Intended for editor/test use.</summary>
         public static void ClearCache()

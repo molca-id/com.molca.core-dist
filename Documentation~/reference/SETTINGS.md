@@ -31,7 +31,10 @@ Sprite logo    = settings.ProjectLogo;
 | `RuntimeManager` | `RuntimeManager` | The RuntimeManager prefab bootstrap instantiates. |
 | `CompanyName` / `ProjectName` | `string` | Product identity. |
 | `ProjectLogo` | `Sprite` | Splash/branding sprite. |
-| `ProjectId` | `string` | Stable project identifier. |
+| `ProjectId` | `string` | Opaque backend project UUID when connected. |
+| `ProjectCode` | `string` | Readable, server-issued `MOLCA-XXXXXX` support code. |
+| `ProjectBinding` | `string` | Signed, commit-safe receipt connecting this repository to the backend project. |
+| `ProjectBindingVersion` | `int` | Binding schema version; zero when not connected. |
 | `BootstrapExtensions` | `IReadOnlyList<BootstrapExtension>` | Layer-specific bootstrap hooks (see [Runtime Manager & Bootstrap](RUNTIME_MANAGER.md)). |
 
 The **live** asset lives in *consumer space* at `Assets/_Molca/Settings/MolcaProjectSettings.asset`,
@@ -39,6 +42,13 @@ never inside the read-only Core package. On first access in the editor it is see
 package's read-only default; at runtime it is loaded through **Addressables** under the key
 `MolcaProjectSettings` (WebGL uses the async `LoadAsync()` path). Editor-only fields live in a separate
 `MolcaProjectSettings.Editor.cs` partial and are not compiled into player builds.
+
+Use **Molca Hub → Settings → Project** to connect the repository. Owners and managers can select or create a
+backend project; developers and contributors see the committed connection read-only. The binding is not a
+secret or credential. Editor telemetry sends it for server-side project attribution, while runtime attribution
+comes from the build token minted at build time. Telemetry remains queued and player builds are blocked until
+the repository has a valid connection. A `ProjectId` without a valid binding is never treated as authenticated
+project identity.
 
 ## GlobalSettings
 

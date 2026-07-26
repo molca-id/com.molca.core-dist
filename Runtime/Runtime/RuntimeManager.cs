@@ -215,6 +215,8 @@ namespace Molca
             _isInitializing = true;
             SetState(BootstrapState.Initializing);
             Debug.Log("[RuntimeManager] Initializing...");
+            MolcaDiagnostics.AddBreadcrumb(new MolcaBreadcrumb(
+                "molca.bootstrap", "Runtime initialization started."));
 
             try
             {
@@ -334,6 +336,8 @@ namespace Molca
                 _isInitializing = false;
                 SetState(BootstrapState.Ready);
                 Debug.Log("[RuntimeManager] Initialization complete!");
+                MolcaDiagnostics.AddBreadcrumb(new MolcaBreadcrumb(
+                    "molca.bootstrap", "Runtime initialization completed."));
 
                 // Dispatch application initialized event
                 TypedEvents.ApplicationInitialized.Dispatch();
@@ -345,6 +349,7 @@ namespace Molca
                 // polling forever, so one catastrophic bootstrap error no longer
                 // soft-locks every waiter with zero signal.
                 SetState(BootstrapState.Failed);
+                MolcaDiagnostics.CaptureException(e, new MolcaDiagnosticContext("runtime.bootstrap"));
                 Debug.LogError($"[RuntimeManager] Failed to initialize: {e}");
                 throw;
             }
@@ -404,6 +409,9 @@ namespace Molca
                 }
 
                 Debug.Log($"[RuntimeManager] Running bootstrap extension: {ext.GetType().Name}");
+                MolcaDiagnostics.AddBreadcrumb(new MolcaBreadcrumb(
+                    "molca.bootstrap.extension", "Bootstrap extension started.",
+                    data: new Dictionary<string, string> { ["type"] = ext.GetType().Name }));
                 try
                 {
                     var awaitable = ext.OnBootstrap(projectSettings);
@@ -414,6 +422,9 @@ namespace Molca
                     // A failing extension should not prevent the rest of bootstrap from
                     // proceeding — log and continue. Individual extensions own their own
                     // failure semantics.
+                    MolcaDiagnostics.CaptureException(e, new MolcaDiagnosticContext(
+                        "runtime.bootstrap.extension",
+                        new Dictionary<string, string> { ["type"] = ext.GetType().Name }));
                     Debug.LogError($"[RuntimeManager] BootstrapExtension {ext.GetType().Name} threw: {e}");
                 }
             }

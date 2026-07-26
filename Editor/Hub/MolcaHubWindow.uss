@@ -597,8 +597,13 @@
     min-width: 0;
 }
 
-.molca-hub-project-id-box {
+.molca-hub-project-id-stack {
     flex-grow: 1;
+    min-width: 0;
+}
+
+.molca-hub-project-id-box {
+    min-width: 0;
     min-height: 22px;
     flex-direction: row;
     align-items: center;
@@ -612,8 +617,20 @@
 
 .molca-hub-project-id-text {
     flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
     color: var(--hub-muted);
     font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.molca-hub-project-connection-status {
+    margin-top: 4px;
+    color: var(--hub-muted);
+    font-size: 10px;
+    white-space: normal;
 }
 
 .molca-hub-logo-picker {
