@@ -2,6 +2,20 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.16.2] - 2026-07-27
+
+### Fixed
+- The package's `documentationUrl` and `changelogUrl` pointed at a repository that is neither the dev
+  repository's actual name nor public, so the Package Manager's **Documentation** and **Changelog** links and
+  the Hub About **Changelog** row all failed for consumers. Both now point at the public
+  `com.molca.core-dist` repository the package is installed from.
+- The install snippets in the documentation index and **Getting Started** named the wrong organization, used
+  the dev repository's `?path=` sub-folder form that the flat distribution repository does not take, and
+  pinned `1.0.0`. They now give the distribution repository's bare Git URL at the current tag.
+- Hub toggle checkboxes now line up on one x. Unity lays a labelled `Toggle` out as caption-then-checkbox, so
+  a stack of toggles with different caption lengths — About → Updates and Project → Remote Editor especially —
+  showed a ragged checkbox column. Label-less toggles are unaffected.
+
 ## [1.16.1] - 2026-07-26
 
 ### Added

@@ -1,12 +1,12 @@
 {
   "name": "com.molca.core",
-  "version": "1.16.1",
+  "version": "1.16.2",
   "displayName": "Molca",
   "description": "General-purpose Unity application framework. Provides RuntimeManager, DI, EventDispatcher, Networking, Sequence, Settings, Modals, Audio, and related systems.",
   "unity": "6000.0",
   "unityRelease": "0f1",
-  "documentationUrl": "https://github.com/molca-id/framework-unity",
-  "changelogUrl": "https://github.com/molca-id/framework-unity/blob/main/Packages/com.molca.core/CHANGELOG.md",
+  "documentationUrl": "https://github.com/molca-id/com.molca.core-dist/blob/main/Documentation~/README.md",
+  "changelogUrl": "https://github.com/molca-id/com.molca.core-dist/blob/main/CHANGELOG.md",
   "keywords": [
     "molca",
     "framework",

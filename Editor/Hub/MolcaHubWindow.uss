@@ -597,6 +597,57 @@
     min-width: 0;
 }
 
+/*
+ * Toggles.
+ *
+ * Unity lays a labelled Toggle out as [caption][checkbox], so the checkbox lands wherever that
+ * toggle's caption text happens to end. Stacked toggles ("Enable for my signed-in account" above
+ * "Allow remote Assistant") therefore show a ragged checkbox column. Reversing the row puts the
+ * checkbox first — one x for every toggle in a stack, whatever the caption length — and lets the
+ * caption flow after it.
+ *
+ * Label-less toggles (the trailing checkbox in .molca-hub-bv-toggle-row, card header toggles, the
+ * MCP allowlist rows) have no label child, so reversing their single-child row is a no-op.
+ *
+ * Toggle margins are deliberately left alone here: .molca-hub-card-header-toggle and
+ * .molca-hub-tasks-controls Toggle tune their own spacing, and this selector would outrank them.
+ */
+.molca-hub-root Toggle {
+    flex-direction: row-reverse;
+    align-items: center;
+    min-height: 18px;
+}
+
+/* The caption absorbs the row's free space, which is what pins the checkbox to the leading edge. */
+.molca-hub-root Toggle > .unity-base-field__label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-left: 4px;
+    margin-right: 0;
+    color: var(--hub-label);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/*
+ * The input defaults to flex-grow: 1; left as-is it would split the free space with the caption and
+ * drag the checkbox back toward the middle of the row.
+ */
+.molca-hub-root Toggle > .unity-base-field__input {
+    flex-grow: 0;
+    flex-shrink: 0;
+}
+
+/* Stacked caption toggles now read as a checkbox column, so give the column an even rhythm. */
+.molca-hub-about-options > Toggle,
+.molca-hub-project-id-stack > Toggle {
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
 .molca-hub-project-id-stack {
     flex-grow: 1;
     min-width: 0;

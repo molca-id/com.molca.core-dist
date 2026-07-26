@@ -14,10 +14,10 @@ you've skimmed the [Overview](OVERVIEW.md) for the layer model.
 Add Core via the Unity Package Manager using a Git URL (**Add package from git URL…**):
 
 ```
-https://github.com/molca/framework-unity.git?path=Packages/com.molca.core#1.0.0
+https://github.com/molca-id/com.molca.core-dist.git#1.16.2
 ```
 
-Replace `1.0.0` with the tag or branch you want. To also use the shared SDK layer, add
+Replace `1.16.2` with the version tag you want. To also use the shared SDK layer, add
 `com.molca.sdk` the same way (it declares `com.molca.core` as a dependency). Everything under
 `Packages/com.molca.*` is **read-only** — you extend it from your own `Assets/` folder, never by
 editing the package.

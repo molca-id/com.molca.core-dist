@@ -7,16 +7,16 @@ General-purpose Unity application framework.
 Add via Unity Package Manager using a Git URL:
 
 ```
-https://github.com/molca/framework-unity.git?path=Packages/com.molca.core#1.0.0
+https://github.com/molca-id/com.molca.core-dist.git#1.16.2
 ```
 
 Or SSH:
 
 ```
-ssh://git@github.com/molca/framework-unity.git?path=Packages/com.molca.core#1.0.0
+ssh://git@github.com/molca-id/com.molca.core-dist.git#1.16.2
 ```
 
-Replace `1.0.0` with a tag or branch name.
+Replace `1.16.2` with the version tag you want.
 
 ## Requirements
 
