@@ -154,9 +154,19 @@ namespace Molca.Editor.Remote
     [InitializeOnLoad]
     internal static class MolcaRemoteEditorAgent
     {
+        /// <summary>How long a burst of activity changes is allowed to settle before a snapshot is built.</summary>
+        private const int SnapshotDebounceMs = 750;
+
+        /// <summary>Minimum wall-clock gap between two change-driven snapshots.</summary>
+        private static readonly TimeSpan SnapshotFloor = TimeSpan.FromSeconds(2);
+
         private static CancellationTokenSource _lifetime;
         private static Task _runTask;
         private static readonly string ProcessNonce = Guid.NewGuid().ToString("N");
+
+        // Set by the heartbeat so a snapshot goes out even when nothing changed — a session that has been
+        // quiet for a minute should still be provably current, not merely assumed so.
+        private static int _forceSnapshot;
 
         internal static string Status { get; private set; } = "Disabled";
         internal static string SessionId { get; private set; } = string.Empty;
@@ -194,8 +204,12 @@ namespace Molca.Editor.Remote
             _runTask = null;
             SessionId = string.Empty;
             Status = MolcaRemoteSettings.Enabled ? "Disconnected" : "Disabled";
+            RemoteCompanionFacade.Stop();
             if (!MolcaRemoteSettings.Enabled)
+            {
                 AssistantRemoteFacade.StopForAuthorizationLoss();
+                RemoteAutomationCommands.CancelForAuthorizationLoss();
+            }
         }
 
         private static async Task RunLoopAsync(CancellationToken cancellationToken)
@@ -277,13 +291,25 @@ namespace Molca.Editor.Remote
             long sequence = 0;
             await SendLockedAsync(socket, sendLock, MolcaRemoteProtocol.Envelope(
                 "agent.hello", session.sessionId, Interlocked.Increment(ref sequence), new JObject()), cancellationToken);
+
+            // The companion's activity providers are stateful observers, so they are created once per
+            // session on the main thread and disposed in the finally below — a provider that watches a
+            // static source leaks otherwise.
+            McpMainThreadDispatcher.Invoke(() => { RemoteCompanionFacade.Start(); return true; });
+            Interlocked.Exchange(ref _forceSnapshot, 0);
+
+            var firstSnapshot = CollectCompanionState();
             await SendLockedAsync(socket, sendLock, MolcaRemoteProtocol.Envelope(
                 "state.snapshot", session.sessionId, Interlocked.Increment(ref sequence),
-                MolcaRemoteProtocol.CollectState()), cancellationToken);
+                JObject.Parse(firstSnapshot)), cancellationToken);
+
             Func<long> nextSequence = () => Interlocked.Increment(ref sequence);
+            using var snapshotWake = new SemaphoreSlim(0, 1);
             Action assistantChanged = () => SendAssistantStateInBackground(
                 socket, sendLock, session.sessionId, nextSequence, cancellationToken);
+            Action companionChanged = () => Signal(snapshotWake);
             AssistantRemoteFacade.Changed += assistantChanged;
+            RemoteCompanionFacade.Changed += companionChanged;
             try
             {
                 await SendLockedAsync(socket, sendLock, MolcaRemoteProtocol.Envelope(
@@ -291,6 +317,9 @@ namespace Molca.Editor.Remote
                     AssistantRemoteFacade.Snapshot(), Guid.NewGuid().ToString("N")), cancellationToken);
                 var receiveTask = ReceiveLoopAsync(
                     socket, session.sessionId, sendLock, nextSequence, cancellationToken);
+                var snapshotTask = SnapshotLoopAsync(
+                    socket, sendLock, session.sessionId, nextSequence, snapshotWake,
+                    firstSnapshot, cancellationToken);
                 var heartbeat = Math.Max(5, session.heartbeatSeconds);
                 var rotateAt = DateTime.TryParse(
                     session.tokenExpiresAt, null,
@@ -309,10 +338,91 @@ namespace Molca.Editor.Remote
                     await SendLockedAsync(socket, sendLock, MolcaRemoteProtocol.Envelope(
                         "agent.heartbeat", session.sessionId, nextSequence(),
                         new JObject()), cancellationToken);
+                    Interlocked.Exchange(ref _forceSnapshot, 1);
+                    Signal(snapshotWake);
                 }
+                // The snapshot loop parks on the wake handle, which no closed socket will ever release.
+                // Nudge it once so it observes the closed state and unwinds instead of hanging the session.
+                Signal(snapshotWake);
                 await receiveTask;
+                await snapshotTask;
             }
-            finally { AssistantRemoteFacade.Changed -= assistantChanged; }
+            finally
+            {
+                AssistantRemoteFacade.Changed -= assistantChanged;
+                RemoteCompanionFacade.Changed -= companionChanged;
+                McpMainThreadDispatcher.Invoke(() =>
+                {
+                    // A remote-initiated run that nobody can still watch or stop from the browser must not
+                    // keep mutating the project, so socket loss cancels it just as authorization loss does.
+                    RemoteAutomationCommands.CancelForAuthorizationLoss();
+                    RemoteCompanionFacade.Stop();
+                    return true;
+                });
+            }
+        }
+
+        /// <summary>
+        /// Sends <c>state.snapshot</c> on change rather than on a timer: a 750 ms debounce so a burst of
+        /// activity updates becomes one message, a 2 s floor so a chatty run cannot saturate the socket, and
+        /// a byte-identical drop so a provider that re-reports the same state costs nothing. The heartbeat
+        /// forces one through regardless, so a quiet session is provably current.
+        /// </summary>
+        private static async Task SnapshotLoopAsync(
+            ClientWebSocket socket, SemaphoreSlim sendLock, string sessionId, Func<long> nextSequence,
+            SemaphoreSlim wake, string seedPayload, CancellationToken cancellationToken)
+        {
+            var lastPayload = seedPayload;
+            var lastSentAt = DateTime.UtcNow;
+            try
+            {
+                while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+                {
+                    await wake.WaitAsync(cancellationToken);
+                    await Task.Delay(SnapshotDebounceMs, cancellationToken);
+
+                    var sinceLast = DateTime.UtcNow - lastSentAt;
+                    if (sinceLast < SnapshotFloor)
+                        await Task.Delay(SnapshotFloor - sinceLast, cancellationToken);
+                    if (socket.State != WebSocketState.Open) return;
+
+                    var forced = Interlocked.Exchange(ref _forceSnapshot, 0) == 1;
+                    var payload = CollectCompanionState();
+                    // A change that nets out to the same projection is not a change worth a message —
+                    // battery and mobile data are the constraint this rule exists for.
+                    if (!forced && payload == lastPayload) continue;
+
+                    lastPayload = payload;
+                    lastSentAt = DateTime.UtcNow;
+                    await SendLockedAsync(socket, sendLock, MolcaRemoteProtocol.Envelope(
+                        "state.snapshot", sessionId, nextSequence(),
+                        JObject.Parse(payload)), cancellationToken);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (ObjectDisposedException) { } // the session's wake handle was torn down first
+        }
+
+        /// <summary>
+        /// Builds the full snapshot payload on the main thread — base state plus the companion's activity
+        /// and automation blocks — and returns it as compact JSON so the caller can compare two snapshots
+        /// byte-for-byte without walking two object graphs.
+        /// </summary>
+        private static string CollectCompanionState() => McpMainThreadDispatcher.Invoke(() =>
+        {
+            var state = MolcaRemoteProtocol.CollectState();
+            foreach (var block in RemoteCompanionFacade.StateBlocks())
+                state[block.Key] = block.Value;
+            return state.ToString(Formatting.None);
+        });
+
+        // SemaphoreSlim(0, 1) is a coalescing edge signal: a release while one is already pending is the
+        // same request, so the full-semaphore throw is the expected case, not an error.
+        private static void Signal(SemaphoreSlim wake)
+        {
+            try { wake.Release(); }
+            catch (SemaphoreFullException) { }
+            catch (ObjectDisposedException) { }
         }
 
         private static async Task ReceiveLoopAsync(
@@ -357,6 +467,7 @@ namespace Molca.Editor.Remote
                         McpMainThreadDispatcher.Invoke(() =>
                         {
                             AssistantRemoteFacade.StopForAuthorizationLoss();
+                            RemoteAutomationCommands.CancelForAuthorizationLoss();
                             return true;
                         });
                     }
@@ -380,6 +491,8 @@ namespace Molca.Editor.Remote
         {
             if (payload.Value<string>("type")?.StartsWith("assistant.", StringComparison.Ordinal) == true)
                 return McpMainThreadDispatcher.Invoke(() => AssistantRemoteFacade.Execute(payload));
+            if (payload.Value<string>("type")?.StartsWith("automation.", StringComparison.Ordinal) == true)
+                return McpMainThreadDispatcher.Invoke(() => RemoteAutomationCommands.Execute(payload));
             var commandType = payload.Value<string>("type");
             var requestedAction = commandType == "tool.action";
             if (commandType != "tool.invoke" && !requestedAction)

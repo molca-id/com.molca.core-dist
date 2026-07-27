@@ -58,6 +58,20 @@ namespace Molca.Editor.Hub
         /// <summary>Sort order among chips (ascending; ties broken by <see cref="Id"/>).</summary>
         public int Order { get; }
 
+        /// <summary>
+        /// Whether this chip may be projected into a Molca Remote session snapshot. Defaults to
+        /// <c>false</c>: <see cref="Status"/> is author-controlled free text, and a chip from a provider
+        /// Molca does not own must not leave the machine until someone has reviewed what that text can
+        /// contain. Core's own providers opt in; third-party and integration providers do not.
+        /// </summary>
+        /// <remarks>
+        /// This is a source-trust decision, not a user preference — the user's consent to remote
+        /// observation is the decision to enable Molca Remote for the project. <see cref="OnClick"/> and
+        /// <see cref="OnDismiss"/> are never serialized regardless of this flag, and
+        /// <see cref="WorkspaceId"/> travels only as a labelling hint, never as an invocation target.
+        /// </remarks>
+        public bool RemoteSafe { get; }
+
         /// <summary>Creates an activity chip descriptor.</summary>
         /// <param name="id">Stable unique id.</param>
         /// <param name="label">Short bold label.</param>
@@ -68,11 +82,16 @@ namespace Molca.Editor.Hub
         /// <param name="onClick">Custom click handler; overrides <paramref name="workspaceId"/>.</param>
         /// <param name="onDismiss">Optional dismiss handler; shows an ✕ when set.</param>
         /// <param name="order">Sort order among chips.</param>
+        /// <param name="remoteSafe">
+        /// Whether the chip may be projected to a Molca Remote session. Defaults to <c>false</c>; see
+        /// <see cref="RemoteSafe"/> for why the default is closed.
+        /// </param>
         public MolcaHubActivity(
             string id, string label, string status,
             MolcaHubActivityState state = MolcaHubActivityState.Running,
             float? progress = null, string workspaceId = null,
-            Action onClick = null, Action onDismiss = null, int order = 0)
+            Action onClick = null, Action onDismiss = null, int order = 0,
+            bool remoteSafe = false)
         {
             Id = id;
             Label = label;
@@ -83,6 +102,7 @@ namespace Molca.Editor.Hub
             OnClick = onClick;
             OnDismiss = onDismiss;
             Order = order;
+            RemoteSafe = remoteSafe;
         }
     }
 

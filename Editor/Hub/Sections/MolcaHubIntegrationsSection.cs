@@ -25,6 +25,8 @@ namespace Molca.Editor.Hub.Sections
     /// notification provider (not only an integration provider). <see cref="BuildAddRow"/> discovers
     /// <see cref="IntegrationProvider"/> subtypes that are not yet registered (Sprint 29) so
     /// <c>+ Add integration</c> creates a real provider asset; it disables when all known types are added.
+    /// A registry slot with no provider renders as a <b>Missing provider</b> repair card whose only action removes
+    /// the slot — the section is the one place a broken entry can be cleared.
     /// </para>
     /// </remarks>
     internal sealed class MolcaHubIntegrationsSection : VisualElement
@@ -70,14 +72,31 @@ namespace Molca.Editor.Hub.Sections
             Add(BuildAddRow());
         }
 
-        /// <summary>Renders one launcher card per registered integration provider.</summary>
+        /// <summary>Renders one launcher card per registry slot, including repair cards for broken slots.</summary>
+        /// <remarks>
+        /// Iterates the serialized <c>providers</c> array rather than <see cref="IntegrationSettings.Providers"/>
+        /// (which skips nulls) so a slot whose asset was deleted or never assigned still gets a card. Otherwise the
+        /// entry is invisible in the Hub while <see cref="IntegrationAssetValidator"/> logs an error for it on every
+        /// domain reload, with no way to clear it short of hand-editing the settings asset.
+        /// </remarks>
         private void BuildProviderCards()
         {
             var settings = IntegrationSettings.FindSettings();
             if (settings == null) return;
 
-            foreach (var provider in settings.Providers)
+            var so = new SerializedObject(settings);
+            var list = so.FindProperty("providers");
+            if (list == null) return;
+
+            for (var i = 0; i < list.arraySize; i++)
             {
+                var provider = list.GetArrayElementAtIndex(i).objectReferenceValue as IntegrationProvider;
+                if (provider == null)
+                {
+                    Add(BuildMissingProviderCard(i));
+                    continue;
+                }
+
                 var captured = provider;
                 var card = BuildProviderCard(
                     provider.Glyph, provider.GlyphColor, provider.DisplayName, provider.Description,
@@ -98,6 +117,55 @@ namespace Molca.Editor.Hub.Sections
                 if (dot != null && label != null)
                     _statusBindings.Add((captured, dot, label));
             }
+        }
+
+        /// <summary>Renders a repair card for registry slot <paramref name="index"/>, whose provider is missing.</summary>
+        /// <param name="index">Index of the broken slot in the serialized <c>providers</c> array.</param>
+        /// <returns>A card whose only action removes the slot from the registry.</returns>
+        private VisualElement BuildMissingProviderCard(int index)
+        {
+            var card = BuildProviderCard(
+                "!", "rgb(196, 76, 76)", "Missing provider", $"Slot {index} points at a deleted or unassigned asset.",
+                connected: false,
+                statusText: "Broken entry",
+                actionText: "Remove",
+                action: () => RemoveProviderAt(index),
+                actionTooltip: "Remove this empty slot from the integration registry.",
+                statusModifierClass: "molca-hub-status-dot--error");
+            card.AddToClassList("molca-hub-integration-card--broken");
+            return card;
+        }
+
+        /// <summary>Deletes registry slot <paramref name="index"/> and re-renders the section.</summary>
+        /// <remarks>
+        /// Edits through <see cref="SerializedObject"/> so the change undoes, dirties, and persists like an
+        /// inspector edit — matching <see cref="CreateAndRegister"/>. Re-checks the slot before deleting: the card
+        /// captured its index at build time, and the registry can change from an inspector in the meantime.
+        /// </remarks>
+        private void RemoveProviderAt(int index)
+        {
+            var settings = IntegrationSettings.FindSettings();
+            if (settings == null) return;
+
+            var so = new SerializedObject(settings);
+            var list = so.FindProperty("providers");
+            if (list == null || index < 0 || index >= list.arraySize) { Rebuild(); return; }
+
+            if (list.GetArrayElementAtIndex(index).objectReferenceValue is IntegrationProvider)
+            {
+                // The slot was filled after this card was built — never delete a live provider by accident.
+                Rebuild();
+                return;
+            }
+
+            var before = list.arraySize;
+            list.DeleteArrayElementAtIndex(index);
+            // On object-reference arrays the first delete only clears the element; a second call removes the slot.
+            if (list.arraySize == before) list.DeleteArrayElementAtIndex(index);
+
+            so.ApplyModifiedProperties();
+            AssetDatabase.SaveAssets();
+            Rebuild();
         }
 
         // A provider reads as "configured" when it has a stored credential (persists across domain reloads)
@@ -135,7 +203,8 @@ namespace Molca.Editor.Hub.Sections
 
         private VisualElement BuildProviderCard(
             string glyph, string glyphColor, string name, string description,
-            bool connected, string statusText, string actionText, Action action, string actionTooltip)
+            bool connected, string statusText, string actionText, Action action, string actionTooltip,
+            string statusModifierClass = null)
         {
             var card = new VisualElement();
             card.AddToClassList("molca-hub-integration-card");
@@ -167,7 +236,7 @@ namespace Molca.Editor.Hub.Sections
 
             var dot = new VisualElement();
             dot.AddToClassList("molca-hub-status-dot");
-            dot.AddToClassList(connected ? "molca-hub-status-dot--ok" : "molca-hub-status-dot--idle");
+            dot.AddToClassList(statusModifierClass ?? (connected ? "molca-hub-status-dot--ok" : "molca-hub-status-dot--idle"));
             statusWrap.Add(dot);
 
             var statusLabel = new Label(statusText);

@@ -46,7 +46,9 @@ namespace Molca.Editor.About
                     _dismissedVersion = latest;
                     NotifyChanged();
                 },
-                order: 100);
+                order: 100,
+                // Core-authored caption: two package version strings from the Molca release feed.
+                remoteSafe: true);
         }
     }
 }

@@ -104,4 +104,4 @@ apply/mine engine.
 ## See also
 
 - [Editor Design Language](EDITOR_DESIGN_LANGUAGE.md)
-- [Figma to uGUI](FIGMA_TO_UGUI.md)
+- [UI Intent Spec → uGUI](UI_INTENT_SPEC.md)

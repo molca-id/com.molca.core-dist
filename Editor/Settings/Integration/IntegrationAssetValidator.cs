@@ -42,7 +42,9 @@ namespace Molca.Settings.Integration
                 var provider = list.GetArrayElementAtIndex(i).objectReferenceValue as IntegrationProvider;
                 if (provider == null)
                 {
-                    Debug.LogError($"[Molca Integration] Provider list entry {i} is null in '{settings.name}'.");
+                    Debug.LogError(
+                        $"[Molca Integration] Provider list entry {i} is null in '{settings.name}'. " +
+                        "Remove it from Molca Hub → Integrations.");
                     continue;
                 }
 

@@ -2,6 +2,55 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.17.0] - 2026-07-27
+
+### Added
+- **Molca Remote is installable.** The dashboard ships a manifest, its own icon set, and a service worker
+  scoped to `/dashboard/`, so it installs as a standalone app. A session is now four tabs — Overview,
+  Workflows, Runs, Assistant — laid out as a bottom tab bar with safe-area insets on a phone and as a rail
+  inside the session card on a desktop; no capability moves between the two. Only the app shell and its
+  static assets are ever cached: Editor state is network-only, so an installed app that has lost its
+  session shows sign-in rather than a stale view of the project.
+- **Run automation from Molca Remote.** An authorized session can read the command catalog, preview a
+  plan, start a run, follow it, cancel it, and revert it — through six new `automation.*` remote command
+  types. Every one goes through the kernel's own policy, mode, confirmation, verification, and audit
+  seams; `MolcaTransport.Remote` is recorded in the automation audit log. Under the **Observe** profile
+  every action refuses remotely, with the policy's own message shown in the dashboard.
+  - **Accept-fast.** A remote command row expires 60 s after creation, which bounds delivery and
+    acceptance, not the work. `automation.invoke` returns as soon as the run is accepted and the run
+    proceeds in an owned task the Editor's update loop drives, reporting through the activity and
+    automation state blocks. A `molca.build` that runs for minutes is therefore not a protocol problem.
+  - **Refusals that say why.** A headless Editor refuses `automation.batch_mode_refused` — a detached run
+    would silently stall because fire-and-forget `Awaitable` chains do not advance without an update loop.
+    A second concurrent remote run refuses `automation.run_in_flight` rather than queueing invisibly. A
+    request authorized against a catalog the Editor no longer holds refuses `automation.catalog_stale`.
+  - Actions additionally need **Allow remote actions** and a place on the remote action allowlist, which
+    is a separate list from automation's — being on one never implies the other.
+- **Molca Remote sees what the Editor is doing.** A remote session's `state.snapshot` now carries the Hub's
+  activity rail and the automation kernel's live state, so a connected dashboard shows a Doctor scan
+  advancing, an automation run's progress and step, the active policy profile, and recent run history
+  instead of a static presence card. Additive within `remoteEditor` protocol 1 — an older control plane
+  drops the new fields and stays connected.
+- **`MolcaHubActivity.RemoteSafe`** (public API addition, default `false`). Only chips whose provider opts in
+  are eligible to leave the Editor, because a chip's `Status` is author-controlled free text. Core opts in
+  Doctor, automation runs, and the framework-update chip; a chip whose caption embeds a third-party
+  command's own progress message does not opt in, and an add-on's activity provider exports nothing until
+  someone reviews what its captions can contain. `OnClick` and `OnDismiss` are never serialized, and
+  `WorkspaceId` travels only as a labelling hint.
+- **`MolcaTransport.Remote`** so a run started from a remote session is distinguishable from one started at
+  the keyboard in audit and policy. Remote authorization is additive to automation policy — it never raises
+  the active profile, extends its allowlist, or implies confirmation.
+
+### Changed
+- Remote `state.snapshot` is change-driven and coalesced rather than sent once at connect: a 750 ms debounce,
+  a 2 s floor, byte-identical payloads dropped, and one forced send per heartbeat. Observation has no local
+  toggle — enabling Molca Remote for the project enables it, because a remote session that cannot say what
+  the Editor is doing is the problem the feature exists to solve. Control keeps its own opt-ins.
+- A command's own progress message is projected remotely only for the commands Core ships. A third-party
+  command's run still reports status, progress, and step; its prose stays on the machine.
+- `state.delta` is removed from the `remoteEditor` v1 message list. It was declared and never implemented by
+  either peer, so no conforming peer could have sent or relied on it.
+
 ## [1.16.2] - 2026-07-27
 
 ### Fixed

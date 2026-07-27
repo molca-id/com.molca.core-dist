@@ -173,6 +173,38 @@ public sealed class AcmePolicyProvider : MolcaAutomationPolicyProvider
 
 `molca-status` reports the active `policySource` so you can confirm which policy is in force.
 
+## What is visible over Molca Remote
+
+A connected [Molca Remote](REMOTE_EDITOR.md) session observes the kernel: the active profile and its
+source, a digest of the command catalog, the active runs with their status/progress/step, and a bounded
+recent-run history with duration, diagnostic count, verification verdict, and whether a revert is
+registered. Observation needs no extra opt-in beyond enabling Remote for the project.
+
+Two things do not travel. A command's `InputSchemaJson` never leaves the Editor — the remote surface
+receives only a derived `none`/`simple`/`advanced` argument tier. And a run's own progress *message* is
+projected only for the commands Core ships; a third-party command's run reports status, progress, and step
+but keeps its prose local, because Core cannot review text it does not author.
+
+A remote session can also *run* commands — preview, invoke, cancel, and revert — but only through this
+kernel. Remote is **additive to** the policy on this page, never a substitute for it.
+`MolcaTransport.Remote` records that a run came from a browser session, and a remote caller passes the
+control plane's gates, then the Editor's remote opt-in and remote action allowlist, and only then arrives
+here. Remote can never raise the active profile, extend the action allowlist, or mark a command confirmed
+on the user's behalf — under **Observe**, a remote action is refused exactly as a local one is, and a
+command absent from the action allowlist refuses even if the *remote* allowlist happens to name it.
+
+Two remote-only restrictions exist because of how runs are driven:
+
+- **A headless Editor refuses to host a remote run.** Fire-and-forget `Awaitable` chains do not advance
+  without an update loop — the finding that removed `Kernel.StartRun` in favour of await-in-request — so a
+  detached run in batch mode would silently stall rather than fail. Headless automation uses the CLI entry
+  points, which await in-request.
+- **One remote-initiated run at a time.** The coordinator already serializes mutating runs, but a remote
+  queue with no visible owner is worse than an explicit refusal: the caller cannot see why nothing is
+  happening.
+
+See [Molca Remote Editor](REMOTE_EDITOR.md) for the accept-fast run model and the full refusal table.
+
 ## Safety notes
 
 - Config only — **never store credentials** on the policy asset or a provider; read them from the

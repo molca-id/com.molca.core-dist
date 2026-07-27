@@ -1665,6 +1665,10 @@
     margin-bottom: 9px;
 }
 
+.molca-hub-integration-card--broken {
+    border-color: var(--hub-status-error);
+}
+
 .molca-hub-integration-icon {
     width: 30px;
     height: 30px;

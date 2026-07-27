@@ -178,6 +178,6 @@ See [Doctor Checks](DOCTOR_CHECKS.md).
 
 - [Molca UI Tokens](UI_TOKENS.md)
 - [Modals](MODALS.md)
-- [Figma to uGUI](FIGMA_TO_UGUI.md)
+- [UI Intent Spec → uGUI](UI_INTENT_SPEC.md)
 - [Settings](SETTINGS.md)
 - [Doctor Checks](DOCTOR_CHECKS.md)

@@ -272,4 +272,4 @@ Before finishing an editor UI refactor:
 ## See also
 
 - [UI Tokens](UI_TOKENS.md)
-- [Figma to uGUI](FIGMA_TO_UGUI.md)
+- [UI Intent Spec → uGUI](UI_INTENT_SPEC.md)

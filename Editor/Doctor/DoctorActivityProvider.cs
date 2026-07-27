@@ -84,7 +84,9 @@ namespace Molca.Editor.Doctor
                 status: status,
                 state: MolcaHubActivityState.Running,
                 progress: progress,
-                workspaceId: DoctorWorkspaceId);
+                workspaceId: DoctorWorkspaceId,
+                // Core-authored caption: a check count and a Molca check id, both bounded.
+                remoteSafe: true);
         }
 
         private MolcaHubActivity ResultChip(DoctorRunSession session)
@@ -123,7 +125,9 @@ namespace Molca.Editor.Doctor
                 status: status,
                 state: state,
                 workspaceId: DoctorWorkspaceId,
-                onDismiss: () => { _resultDismissed = true; NotifyChanged(); });
+                onDismiss: () => { _resultDismissed = true; NotifyChanged(); },
+                // Core-authored caption: issue counts only, never an issue message.
+                remoteSafe: true);
         }
     }
 }

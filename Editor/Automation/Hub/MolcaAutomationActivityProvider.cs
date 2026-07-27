@@ -61,7 +61,8 @@ namespace Molca.Editor.Automation.Hub
             foreach (var run in kernel.RunStore.ActiveRuns())
             {
                 var progress = run.Progress;
-                var status = progress.HasValue && !string.IsNullOrEmpty(progress.Value.Message)
+                var hasMessage = progress.HasValue && !string.IsNullOrEmpty(progress.Value.Message);
+                var status = hasMessage
                     ? $"{Wire(run.Status)} · {progress.Value.Message}"
                     : Wire(run.Status);
 
@@ -75,7 +76,12 @@ namespace Molca.Editor.Automation.Hub
                     status: $"{status} · {run.Transport}",
                     state: MolcaHubActivityState.Running,
                     progress: fraction,
-                    workspaceId: "automation");
+                    workspaceId: "automation",
+                    // The caption embeds the command's own progress message, which is only reviewed text
+                    // for Core-shipped commands. A third-party command's run still surfaces remotely
+                    // through the automation state block (status, progress, step) — just not through a
+                    // chip caption carrying its free text (§8.6).
+                    remoteSafe: !hasMessage || BuiltIn.CoreShippedCommands.IsTrusted(run.CommandId));
             }
         }
 

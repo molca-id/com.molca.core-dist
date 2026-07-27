@@ -23,7 +23,15 @@ namespace Molca.Editor.Automation
         Batch,
 
         /// <summary>Called directly in-process (tests, internal callers).</summary>
-        Direct
+        Direct,
+
+        /// <summary>
+        /// Molca Remote — an authorized browser session driving this Editor through the remote agent.
+        /// Distinguished from <see cref="Hub"/> so audit and policy can tell a remote caller apart from a
+        /// developer sitting in front of the Editor. Remote authorization is additive to automation policy:
+        /// this transport never raises the active profile, extends its allowlist, or implies confirmation.
+        /// </summary>
+        Remote
     }
 
     /// <summary>

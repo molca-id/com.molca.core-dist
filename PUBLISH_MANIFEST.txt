@@ -1,7 +1,7 @@
-﻿com.molca.core@1.16.2
-Published: 2026-07-27 05:36:21Z
-Source commit: bb92bd89
-Files: 1730
+﻿com.molca.core@1.17.0
+Published: 2026-07-27 11:57:17Z
+Source commit: ab1177bd
+Files: 1736
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -29,7 +29,6 @@ Documentation~/reference/DOCS_AUTHORING.md
 Documentation~/reference/DOCTOR_CHECKS.md
 Documentation~/reference/EDITOR_DESIGN_LANGUAGE.md
 Documentation~/reference/EVENTS.md
-Documentation~/reference/FIGMA_TO_UGUI.md
 Documentation~/reference/GETTING_STARTED.md
 Documentation~/reference/HUB.md
 Documentation~/reference/KNOWLEDGE_GRAPH.md
@@ -49,6 +48,7 @@ Documentation~/reference/SEQUENCES.md
 Documentation~/reference/SETTINGS.md
 Documentation~/reference/SUBSYSTEMS.md
 Documentation~/reference/TELEMETRY.md
+Documentation~/reference/UI_INTENT_SPEC.md
 Documentation~/reference/UI_TOKENS.md
 Documentation~/reference/UNITY_MCP_TOOLS.md
 Documentation~/reference/UTILITIES.md
@@ -865,6 +865,12 @@ Editor/Remote/AssistantRemoteFacade.cs
 Editor/Remote/AssistantRemoteFacade.cs.meta
 Editor/Remote/MolcaRemoteEditorAgent.cs
 Editor/Remote/MolcaRemoteEditorAgent.cs.meta
+Editor/Remote/RemoteAutomationCommands.cs
+Editor/Remote/RemoteAutomationCommands.cs.meta
+Editor/Remote/RemoteAutomationProjection.cs
+Editor/Remote/RemoteAutomationProjection.cs.meta
+Editor/Remote/RemoteCompanionFacade.cs
+Editor/Remote/RemoteCompanionFacade.cs.meta
 Editor/Scene.meta
 Editor/Scene/GameObjectEditingService.cs
 Editor/Scene/GameObjectEditingService.cs.meta

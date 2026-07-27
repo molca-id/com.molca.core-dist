@@ -84,6 +84,32 @@ internal sealed class MyWorkspaceProvider : MolcaHubWorkspaceProvider
 Workspaces can be hidden per-project (`MolcaHubWorkspaceRegistry.SetHidden(id, hidden)`); the Settings
 tab is the anchored home and is always present.
 
+## Bottom activity rail
+
+The rail along the bottom of the window shows one chip per ongoing process or piece of live context, so a
+long Doctor scan or an automation run stays visible from any tab. Contribute chips by subclassing
+`MolcaHubActivityProvider` — discovered via `TypeCache`, so no Core edit and no registration call. A
+provider is a *stateful observer*: observe your source in the constructor, call `NotifyChanged()` when your
+chips change, return the current set from `GetActivities()`, and unsubscribe in `Dispose()`.
+
+```csharp
+internal sealed class MyActivityProvider : MolcaHubActivityProvider
+{
+    public override IEnumerable<MolcaHubActivity> GetActivities() => new[]
+    {
+        new MolcaHubActivity("my-export", "Export", "3/8 · textures",
+            MolcaHubActivityState.Running, progress: 0.375f, workspaceId: "my-tool",
+            remoteSafe: true), // opt in only if the caption is safe to leave the machine
+    };
+}
+```
+
+`remoteSafe` defaults to `false`, so a chip is not projected into a
+[Molca Remote](REMOTE_EDITOR.md) session unless its provider opts in. The status caption is
+author-controlled free text and Core cannot review what a third-party provider routes into it; set the flag
+once you have confirmed your captions carry no customer names, ticket bodies, file paths, or credentials.
+`OnClick` and `OnDismiss` are never serialized either way, so a projected chip is not remotely actionable.
+
 ## See also
 
 - [Authoring Hub Docs](DOCS_AUTHORING.md)

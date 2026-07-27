@@ -6,7 +6,7 @@ order: 950
 
 # Core MCP Tools
 
-`CoreMcpToolProvider` owns the `molca` namespace: the introspection, sequence/content/settings authoring, networking, localization, knowledge-graph, and ClickUp tools that are specific to Molca Core. General-purpose Unity-editor actions live in [`UnityMcpToolProvider`](UNITY_MCP_TOOLS.md). The Figma tools (`molca_figma_*`) moved to the `com.molca.addon.figma` add-on's own `FigmaMcpToolProvider`, owning the `molca.figma` namespace — see `server/addons/com.molca.addon.figma`.
+`CoreMcpToolProvider` owns the `molca` namespace: the introspection, sequence/content/settings authoring, networking, localization, knowledge-graph, and ClickUp tools that are specific to Molca Core. General-purpose Unity-editor actions live in [`UnityMcpToolProvider`](UNITY_MCP_TOOLS.md). The Figma tools (`molca_figma_*`) moved to the `com.molca.integration.figma` add-on's own `FigmaMcpToolProvider`, owning the `molca.figma` namespace — see [Figma → UI Intent Spec](FIGMA_TO_UI_SPEC.md).
 
 ## Provider Layout
 

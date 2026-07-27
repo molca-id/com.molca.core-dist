@@ -42,7 +42,7 @@ Each guide carries YAML front-matter (`title`/`category`/`order`); the categorie
 - **Data & Networking** — [`NETWORKING.md`](reference/NETWORKING.md),
   [`DATA_PROVIDERS.md`](reference/DATA_PROVIDERS.md).
 - **UI & Presentation** — [`MODALS.md`](reference/MODALS.md), [`COLOR_ID.md`](reference/COLOR_ID.md),
-  [`UI_TOKENS.md`](reference/UI_TOKENS.md), [`FIGMA_TO_UGUI.md`](reference/FIGMA_TO_UGUI.md).
+  [`UI_TOKENS.md`](reference/UI_TOKENS.md), [`UI_INTENT_SPEC.md`](reference/UI_INTENT_SPEC.md).
 - **Content & Assets** — [`CONTENT_PACKAGES.md`](reference/CONTENT_PACKAGES.md).
 - **Localization & Audio** — [`LOCALIZATION.md`](reference/LOCALIZATION.md), [`AUDIO.md`](reference/AUDIO.md).
 - **Settings** — [`SETTINGS.md`](reference/SETTINGS.md).
