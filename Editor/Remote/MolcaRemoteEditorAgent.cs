@@ -104,8 +104,11 @@ namespace Molca.Editor.Remote
                 ["editor"] = new JObject
                 {
                     ["unityVersion"] = Application.unityVersion,
-                    ["coreVersion"] = UnityEditor.PackageManager.PackageInfo
-                        .FindForAssembly(typeof(MolcaRemoteEditorAgent).Assembly)?.version ?? string.Empty,
+                    // Via the guarded shared helper, never a raw PackageInfo lookup: the Package Manager
+                    // throws "can only be called from the main thread" during a scene load or domain
+                    // reload even when the caller *is* the main thread, and a snapshot is built every few
+                    // seconds, so it will eventually land in one of those windows.
+                    ["coreVersion"] = Addons.AddonDistributionConfig.CoreVersion(),
                     ["mode"] = EditorApplication.isPlaying ? "play" : "edit",
                     ["paused"] = EditorApplication.isPaused,
                     ["compiling"] = EditorApplication.isCompiling,
@@ -354,8 +357,7 @@ namespace Molca.Editor.Remote
                 inputs.MachineId = machineId;
                 inputs.ProjectBinding = project.ProjectBinding;
                 inputs.InstallationId = MolcaRemoteSettings.InstallationId;
-                inputs.CoreVersion = UnityEditor.PackageManager.PackageInfo
-                    .FindForAssembly(typeof(MolcaRemoteEditorAgent).Assembly)?.version ?? string.Empty;
+                inputs.CoreVersion = Addons.AddonDistributionConfig.CoreVersion();
                 inputs.UnityVersion = Application.unityVersion;
                 inputs.AllowAssistant = MolcaRemoteSettings.AllowAssistant;
                 inputs.AllowActions = MolcaRemoteSettings.AllowActions;
@@ -414,10 +416,20 @@ namespace Molca.Editor.Remote
             McpMainThreadDispatcher.Invoke(() => { RemoteCompanionFacade.Start(); return true; });
             Interlocked.Exchange(ref _forceSnapshot, 0);
 
-            var firstSnapshot = CollectCompanionState();
-            await SendLockedAsync(socket, sendLock, MolcaRemoteProtocol.Envelope(
-                "state.snapshot", session.sessionId, Interlocked.Increment(ref sequence),
-                JObject.Parse(firstSnapshot)), cancellationToken);
+            // Reading the editor can fail transiently (domain reload, scene load, a busy frame). Connecting
+            // is the worst moment to treat that as fatal — enabling Remote and opening a scene at the same
+            // time would otherwise loop through connect/disconnect. Send what we have; if we have nothing,
+            // arm the forced send so the first heartbeat carries a real snapshot.
+            string firstSnapshot = null;
+            try { firstSnapshot = CollectCompanionState(); }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                Interlocked.Exchange(ref _forceSnapshot, 1);
+            }
+            if (firstSnapshot != null)
+                await SendLockedAsync(socket, sendLock, MolcaRemoteProtocol.Envelope(
+                    "state.snapshot", session.sessionId, Interlocked.Increment(ref sequence),
+                    JObject.Parse(firstSnapshot)), cancellationToken);
 
             Func<long> nextSequence = () => Interlocked.Increment(ref sequence);
             using var snapshotWake = new SemaphoreSlim(0, 1);
@@ -438,7 +450,9 @@ namespace Molca.Editor.Remote
                     socket, session.sessionId, sendLock, nextSequence, cancellationToken);
                 var snapshotTask = SnapshotLoopAsync(
                     socket, sendLock, session.sessionId, nextSequence, snapshotWake,
-                    firstSnapshot, cancellationToken);
+                    // An empty seed when the first read failed, so the next successful snapshot always
+                    // differs from it and is sent rather than dropped as a duplicate.
+                    firstSnapshot ?? string.Empty, cancellationToken);
                 var heartbeat = Math.Max(5, session.heartbeatSeconds);
                 var rotateAt = DateTime.TryParse(
                     session.tokenExpiresAt, null,
@@ -470,14 +484,26 @@ namespace Molca.Editor.Remote
             {
                 AssistantRemoteFacade.Changed -= assistantChanged;
                 RemoteCompanionFacade.Changed -= companionChanged;
-                McpMainThreadDispatcher.Invoke(() =>
+                // Teardown must never throw out of this finally. Marshalling can fail for reasons that
+                // have nothing to do with the session — the editor may be mid-domain-reload, or busy
+                // enough to miss the dispatcher's window — and an exception here would replace the real
+                // reason the socket closed with a misleading one, or escape as an unhandled fault.
+                try
                 {
-                    // A remote-initiated run that nobody can still watch or stop from the browser must not
-                    // keep mutating the project, so socket loss cancels it just as authorization loss does.
-                    RemoteAutomationCommands.CancelForAuthorizationLoss();
-                    RemoteCompanionFacade.Stop();
-                    return true;
-                });
+                    McpMainThreadDispatcher.Invoke(() =>
+                    {
+                        // A remote-initiated run that nobody can still watch or stop from the browser must
+                        // not keep mutating the project, so socket loss cancels it just as authorization
+                        // loss does.
+                        RemoteAutomationCommands.CancelForAuthorizationLoss();
+                        RemoteCompanionFacade.Stop();
+                        return true;
+                    });
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogWarning($"[Molca Remote] Session teardown was incomplete: {exception.Message}");
+                }
             }
         }
 
@@ -506,7 +532,17 @@ namespace Molca.Editor.Remote
                     if (socket.State != WebSocketState.Open) return;
 
                     var forced = Interlocked.Exchange(ref _forceSnapshot, 0) == 1;
-                    var payload = CollectCompanionState();
+                    string payload;
+                    try { payload = CollectCompanionState(); }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        // Building a snapshot reads the editor, and the editor is not always readable: a
+                        // domain reload, a scene load, or a busy frame can make a main-thread API refuse.
+                        // That is a reason to skip one snapshot, not to drop a working session — the next
+                        // change or heartbeat will produce a current one.
+                        Interlocked.Exchange(ref _forceSnapshot, forced ? 1 : 0);
+                        continue;
+                    }
                     // A change that nets out to the same projection is not a change worth a message —
                     // battery and mobile data are the constraint this rule exists for.
                     if (!forced && payload == lastPayload) continue;

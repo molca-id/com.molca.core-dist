@@ -2,6 +2,17 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.17.2] - 2026-07-27
+
+### Fixed
+- **A busy Editor no longer drops a working Remote session.** Building a snapshot reads the editor, and the
+  editor is not always readable: during a domain reload or a scene load the Package Manager refuses with
+  "can only be called from the main thread" *even on the main thread*, and the dispatcher faithfully
+  rethrew that onto the socket thread, where it read as a connection failure and tore the session down. The
+  snapshot's Core-version lookup now goes through the same guarded helper the rest of Core uses, a snapshot
+  that cannot be built is skipped rather than fatal, the connect-time snapshot is best-effort, and session
+  teardown can no longer throw over the real reason a socket closed.
+
 ## [1.17.1] - 2026-07-27
 
 ### Fixed
