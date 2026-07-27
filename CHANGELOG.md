@@ -2,6 +2,27 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.17.1] - 2026-07-27
+
+### Fixed
+- **A Molca Remote connection that cannot be established no longer stalls the Editor.** Three faults
+  compounded. The retry loop was started from the main thread, so Unity's synchronization context was
+  captured and every `await` in it — the HTTP request, the socket receive, the backoff delay — resumed on
+  the main thread; it now runs on the thread pool. Each attempt also read Editor state directly from that
+  loop's thread, including `MolcaProjectSettings.Instance`, which calls `AssetDatabase.LoadAssetAtPath` and
+  can move an asset on its legacy-migration path; those reads are now gathered once per attempt through the
+  main-thread dispatcher. Worst of all, this was heaviest in exactly the failing case: with no settings
+  asset present nothing caches, so every retry re-ran the asset lookup and the migration probe.
+- **Toggling Remote no longer leaves connection loops running.** Stopping disposed the cancellation source
+  the running loop was still awaiting, so its parked delay threw `ObjectDisposedException` — not
+  `OperationCanceledException` — which fell through to the generic handler and retried immediately, while
+  the cleared task handle let a second loop start. Each toggle could add another loop. Loops are now
+  retired by generation, and each owns its own token source.
+- A failing connection reports each distinct reason once instead of logging a warning on every attempt, and
+  the Hub status line now says how long the backoff is, so a polite retry is distinguishable from a hot loop.
+- Also marshals the initial Assistant snapshot read off the socket thread onto the main thread — the same
+  class of defect, in the connected path rather than the retry loop.
+
 ## [1.17.0] - 2026-07-27
 
 ### Added

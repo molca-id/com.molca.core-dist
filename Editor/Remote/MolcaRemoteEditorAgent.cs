@@ -164,6 +164,16 @@ namespace Molca.Editor.Remote
         private static Task _runTask;
         private static readonly string ProcessNonce = Guid.NewGuid().ToString("N");
 
+        // Retires superseded connection loops. Incremented by both Stop and EnsureStarted, so a loop that
+        // is still unwinding after a settings change exits instead of competing with its replacement —
+        // previously each toggle could leave another loop running, and N loops retrying at once is what
+        // turned a polite backoff into a stall.
+        private static int _generation;
+
+        // The last status actually logged, so a failing connection reports each distinct reason once
+        // instead of a warning per attempt. A console line every couple of seconds is its own outage.
+        private static string _loggedStatus = string.Empty;
+
         // Set by the heartbeat so a snapshot goes out even when nothing changed — a session that has been
         // quiet for a minute should still be provably current, not merely assumed so.
         private static int _forceSnapshot;
@@ -176,6 +186,24 @@ namespace Molca.Editor.Remote
             EditorApplication.delayCall += EnsureStarted;
             AssemblyReloadEvents.beforeAssemblyReload += Stop;
             EditorApplication.quitting += Stop;
+        }
+
+        /// <summary>
+        /// Publishes a status for the Hub label, logging only when the underlying reason changes. The Hub
+        /// polls <see cref="Status"/> once a second, so this is the only place a connection problem needs
+        /// to be announced — repeating it per attempt spams the console and, through Molca's log manager,
+        /// appends to the log file on every retry.
+        /// </summary>
+        private static void SetStatus(string status, bool loggable = true)
+        {
+            Status = status;
+            if (!loggable) return;
+            // Compare the reason without the "retrying in Ns" suffix, which changes on every backoff step.
+            var reason = status.Split('·')[0].TrimEnd();
+            if (reason == _loggedStatus) return;
+            _loggedStatus = reason;
+            if (reason is "Connecting" or "Connected" or "Disconnected" or "Disabled") return;
+            Debug.LogWarning($"[Molca Remote] {reason}");
         }
 
         internal static void ApplySettings()
@@ -191,19 +219,28 @@ namespace Molca.Editor.Remote
                 Status = "Disabled";
                 return;
             }
-            if (_runTask != null && !_runTask.IsCompleted) return;
-            _lifetime = new CancellationTokenSource();
-            _runTask = RunLoopAsync(_lifetime.Token);
+
+            var lifetime = new CancellationTokenSource();
+            _lifetime = lifetime;
+            // Started on the thread pool, not on the calling main thread. Unity installs a
+            // SynchronizationContext on the main thread, so a Task begun there captures it and *every*
+            // await in the chain — the HTTP send, the socket receive, the retry delay — resumes on the
+            // main thread. That is what made a failing connection feel like an editor stall rather than a
+            // quiet background retry. Inside Task.Run there is no captured context, so continuations stay
+            // on the pool and the main thread is touched only where this file asks for it explicitly.
+            _runTask = Task.Run(() => RunGenerationAsync(++_generation, lifetime));
         }
 
         private static void Stop()
         {
-            try { _lifetime?.Cancel(); } catch { }
-            _lifetime?.Dispose();
+            // Bumping the generation retires any loop that is still unwinding, so it cannot log, retry, or
+            // resurrect a session after this point — and a new loop can start immediately without waiting
+            // for the old one to notice its cancellation.
+            _generation++;
+            try { _lifetime?.Cancel(); } catch (ObjectDisposedException) { }
             _lifetime = null;
-            _runTask = null;
             SessionId = string.Empty;
-            Status = MolcaRemoteSettings.Enabled ? "Disconnected" : "Disabled";
+            SetStatus(MolcaRemoteSettings.Enabled ? "Disconnected" : "Disabled");
             RemoteCompanionFacade.Stop();
             if (!MolcaRemoteSettings.Enabled)
             {
@@ -212,17 +249,36 @@ namespace Molca.Editor.Remote
             }
         }
 
-        private static async Task RunLoopAsync(CancellationToken cancellationToken)
+        /// <summary>
+        /// Owns one generation's token source so <see cref="Stop"/> never disposes a source a running loop
+        /// is still awaiting. Disposing it there used to make the parked <see cref="Task.Delay"/> throw
+        /// <see cref="ObjectDisposedException"/> — which is not <see cref="OperationCanceledException"/>, so
+        /// it fell into the generic handler, logged, and retried at once instead of exiting.
+        /// </summary>
+        private static async Task RunGenerationAsync(int generation, CancellationTokenSource lifetime)
+        {
+            try { await RunLoopAsync(generation, lifetime.Token); }
+            catch (OperationCanceledException) { }
+            catch (Exception exception)
+            {
+                Debug.LogWarning($"[Molca Remote] Connection loop stopped: {exception.Message}");
+            }
+            finally { lifetime.Dispose(); }
+        }
+
+        private static async Task RunLoopAsync(int generation, CancellationToken cancellationToken)
         {
             var delaySeconds = 2;
-            while (!cancellationToken.IsCancellationRequested)
+            while (!cancellationToken.IsCancellationRequested && generation == _generation)
             {
+                var reason = "Disconnected";
                 try
                 {
-                    Status = "Connecting";
+                    SetStatus("Connecting");
                     var session = await ConnectSessionAsync(cancellationToken);
+                    if (generation != _generation) return;
                     SessionId = session.sessionId;
-                    Status = "Connected";
+                    SetStatus("Connected");
                     await RunSocketAsync(session, cancellationToken);
                     delaySeconds = 2;
                 }
@@ -232,41 +288,101 @@ namespace Molca.Editor.Remote
                 }
                 catch (Exception exception)
                 {
-                    Status = UserFacingStatus(exception);
-                    Debug.LogWarning($"[Molca Remote] {Status}");
+                    reason = UserFacingStatus(exception);
+                    SetStatus(reason);
                 }
 
+                if (generation != _generation) return;
+                // Say how long the wait is, so the Hub label distinguishes a polite backoff from a hot
+                // loop. Built from the local reason, never by reading Status back — that would append a
+                // second suffix to a status that already carries one.
+                if (delaySeconds >= 5) SetStatus($"{reason} · retrying in {delaySeconds}s", loggable: false);
                 await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellationToken);
                 delaySeconds = Math.Min(60, delaySeconds * 2);
             }
         }
 
+        /// <summary>
+        /// Everything one connect attempt needs from Unity, read once on the main thread. Immutable and
+        /// plain, so the connect path below can run entirely on the thread pool.
+        /// </summary>
+        private sealed class RemoteConnectInputs
+        {
+            internal string Refusal;
+            internal string Entitlement;
+            internal string MachineId;
+            internal string ProjectBinding;
+            internal string InstallationId;
+            internal string CoreVersion;
+            internal string UnityVersion;
+            internal bool AllowAssistant;
+            internal bool AllowActions;
+        }
+
+        /// <summary>
+        /// Reads the Editor-owned connect inputs on the main thread.
+        /// </summary>
+        /// <remarks>
+        /// Every value here comes from a main-thread-only API — <c>EditorUserSettings</c>,
+        /// <c>SystemInfo.deviceUniqueIdentifier</c>, <c>EditorPrefs</c>, <c>PackageInfo.FindForAssembly</c>,
+        /// and above all <c>MolcaProjectSettings.Instance</c>, which calls
+        /// <c>AssetDatabase.LoadAssetAtPath</c> and can even move an asset on its legacy-migration path.
+        /// Reading them from the retry loop's thread was the direct cause of the editor stalling on a
+        /// failing connection, and it was worst in exactly the failing case: when the settings asset is
+        /// absent, nothing caches, so every attempt re-ran the AssetDatabase lookup and the migration probe.
+        /// </remarks>
+        private static RemoteConnectInputs GatherConnectInputs() =>
+            McpMainThreadDispatcher.Invoke(() =>
+            {
+                var inputs = new RemoteConnectInputs();
+                var entitlement = DevEntitlementStore.LoadEffective();
+                var machineId = SystemInfo.deviceUniqueIdentifier;
+                if (DevEntitlementVerifier.Evaluate(entitlement, machineId, out _) != DevLicenseStatus.Valid)
+                {
+                    inputs.Refusal = "Sign in required";
+                    return inputs;
+                }
+
+                var project = global::Molca.MolcaProjectSettings.Instance;
+                if (project == null || string.IsNullOrWhiteSpace(project.ProjectBinding))
+                {
+                    inputs.Refusal = "Project binding required";
+                    return inputs;
+                }
+
+                inputs.Entitlement = entitlement;
+                inputs.MachineId = machineId;
+                inputs.ProjectBinding = project.ProjectBinding;
+                inputs.InstallationId = MolcaRemoteSettings.InstallationId;
+                inputs.CoreVersion = UnityEditor.PackageManager.PackageInfo
+                    .FindForAssembly(typeof(MolcaRemoteEditorAgent).Assembly)?.version ?? string.Empty;
+                inputs.UnityVersion = Application.unityVersion;
+                inputs.AllowAssistant = MolcaRemoteSettings.AllowAssistant;
+                inputs.AllowActions = MolcaRemoteSettings.AllowActions;
+                return inputs;
+            });
+
         private static async Task<MolcaRemoteConnectResponse> ConnectSessionAsync(CancellationToken cancellationToken)
         {
-            var entitlement = DevEntitlementStore.LoadEffective();
-            if (DevEntitlementVerifier.Evaluate(
-                entitlement, SystemInfo.deviceUniqueIdentifier, out _) != DevLicenseStatus.Valid)
-                throw new InvalidOperationException("Sign in required");
-            var project = global::Molca.MolcaProjectSettings.Instance;
-            if (project == null || string.IsNullOrWhiteSpace(project.ProjectBinding))
-                throw new InvalidOperationException("Project binding required");
+            var inputs = GatherConnectInputs();
+            if (inputs.Refusal != null) throw new InvalidOperationException(inputs.Refusal);
+            var entitlement = inputs.Entitlement;
 
             var body = new JObject
             {
-                ["projectBinding"] = project.ProjectBinding,
-                ["installationId"] = MolcaRemoteSettings.InstallationId,
+                ["projectBinding"] = inputs.ProjectBinding,
+                ["installationId"] = inputs.InstallationId,
                 ["processNonce"] = ProcessNonce,
                 ["protocolVersion"] = MolcaRemoteProtocol.Version,
-                ["coreVersion"] = UnityEditor.PackageManager.PackageInfo
-                    .FindForAssembly(typeof(MolcaRemoteEditorAgent).Assembly)?.version ?? string.Empty,
-                ["unityVersion"] = Application.unityVersion,
+                ["coreVersion"] = inputs.CoreVersion,
+                ["unityVersion"] = inputs.UnityVersion,
                 ["displayName"] = $"{Environment.MachineName} · Unity",
-                ["capabilityDigest"] = $"assistant:{MolcaRemoteSettings.AllowAssistant};actions:{MolcaRemoteSettings.AllowActions}"
+                ["capabilityDigest"] = $"assistant:{inputs.AllowAssistant};actions:{inputs.AllowActions}"
             };
             using var request = new HttpRequestMessage(
                 HttpMethod.Post, DevLicenseConfig.ServerBaseUrl.TrimEnd('/') + "/remote/editor/connect");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", entitlement);
-            request.Headers.Add("X-Molca-Machine-Id", SystemInfo.deviceUniqueIdentifier);
+            request.Headers.Add("X-Molca-Machine-Id", inputs.MachineId);
             request.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
             using var response = await client.SendAsync(request, cancellationToken);
@@ -312,9 +428,12 @@ namespace Molca.Editor.Remote
             RemoteCompanionFacade.Changed += companionChanged;
             try
             {
+                // Marshalled: this runs on the socket's thread, and the Assistant snapshot reads the shared
+                // in-Editor chat runtime. The Changed-driven path below is already on the main thread.
+                var assistantState = McpMainThreadDispatcher.Invoke(AssistantRemoteFacade.Snapshot);
                 await SendLockedAsync(socket, sendLock, MolcaRemoteProtocol.Envelope(
                     "assistant.turn.state", session.sessionId, nextSequence(),
-                    AssistantRemoteFacade.Snapshot(), Guid.NewGuid().ToString("N")), cancellationToken);
+                    assistantState, Guid.NewGuid().ToString("N")), cancellationToken);
                 var receiveTask = ReceiveLoopAsync(
                     socket, session.sessionId, sendLock, nextSequence, cancellationToken);
                 var snapshotTask = SnapshotLoopAsync(
