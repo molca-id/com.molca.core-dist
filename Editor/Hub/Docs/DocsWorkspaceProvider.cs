@@ -25,7 +25,11 @@ namespace Molca.Editor.Hub.Docs
                 createContent: () => new DocsWorkspaceView(),
                 isAvailable: () => MolcaDocsRegistry.GetDocs().Count > 0,
                 rightAnchored: true,
-                icon: "TextAsset Icon")
+                icon: "TextAsset Icon",
+                group: MolcaHubWorkspaceGroups.Reference,
+                // Reading docs is a stateful activity: caching keeps the scroll position and the selected
+                // doc across a trip to another tab, which is the whole point of a reference browser.
+                cacheContent: true)
         };
     }
 }

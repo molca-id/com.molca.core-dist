@@ -4,8 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using Molca.Sequence;
-using Molca.Sequence.Auxiliary;
 using Molca.Settings;
 using UnityEditor;
 using UnityEngine;
@@ -78,14 +76,49 @@ namespace Molca.Editor.KnowledgeGraph
             count += WriteTypeSection(sb, "RuntimeSubsystems", TypeCache.GetTypesDerivedFrom<RuntimeSubsystem>(),
                 describeSubsystem: true);
             count += WriteTypeSection(sb, "Settings Modules", TypeCache.GetTypesDerivedFrom<SettingModule>());
-            count += WriteTypeSection(sb, "Sequence Steps", TypeCache.GetTypesDerivedFrom<Step>());
-            count += WriteTypeSection(sb, "Step Auxiliaries", TypeCache.GetTypesDerivedFrom<StepAuxiliary>());
+            count += InvokeContributors(sb);
 
             File.WriteAllText(path, sb.ToString());
             return count;
         }
 
-        private static int WriteTypeSection(StringBuilder sb, string heading,
+        /// <summary>
+        /// Discovers every <see cref="IKnowledgeGraphContributor"/> implementor via <c>TypeCache</c> and
+        /// lets each append its own type sections (fork/add-on extension point, mirrors
+        /// <see cref="FrameworkGraph.IFrameworkGraphContributor"/>). Test assemblies are skipped so test
+        /// fixtures can't pollute the corpus; each contributor is wrapped in try/catch so one faulting
+        /// contributor cannot break the export.
+        /// </summary>
+        private static int InvokeContributors(StringBuilder sb)
+        {
+            int count = 0;
+            foreach (var type in TypeCache.GetTypesDerivedFrom<IKnowledgeGraphContributor>())
+            {
+                if (type == null || type.IsAbstract || type.IsInterface) continue;
+                if (IsTestAssembly(type)) continue;
+                if (type.GetConstructor(Type.EmptyTypes) == null) continue;
+
+                try
+                {
+                    var contributor = (IKnowledgeGraphContributor)Activator.CreateInstance(type);
+                    count += contributor.Contribute(sb);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[Molca KnowledgeGraph] Contributor '{type.Name}' failed: {ex.Message}");
+                }
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Appends a markdown section listing <paramref name="types"/> under <paramref name="heading"/> —
+        /// one entry per concrete, non-test type with its full name, defining assembly, base type,
+        /// <c>[DependsOn]</c> edges (when <paramref name="describeSubsystem"/>), and asset-menu wiring.
+        /// Exposed so an <see cref="IKnowledgeGraphContributor"/> can format its own sections identically
+        /// to Core's built-in ones.
+        /// </summary>
+        public static int WriteTypeSection(StringBuilder sb, string heading,
             IEnumerable<Type> types, bool describeSubsystem = false)
         {
             // Concrete, project-relevant types only; skip abstracts and test scaffolding (test fixtures

@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Molca.ReferenceSystem;
-using Molca.Sequence;
 using UnityEditor;
 using UnityEngine;
 
@@ -12,8 +11,9 @@ namespace Molca.Editor.FrameworkGraph
 {
     /// <summary>
     /// Pure, read-only builder that assembles a <see cref="FrameworkGraphSnapshot"/> from the framework's
-    /// existing introspection sources — RuntimeManager (subsystems/services), the ReferenceSystem, and
-    /// loaded SequenceControllers. GUI-free so the same snapshot serves the editor window and the
+    /// existing introspection sources — RuntimeManager (subsystems/services) and the ReferenceSystem —
+    /// plus whatever <see cref="IFrameworkGraphContributor"/>s are installed (e.g. <c>com.molca.sequence</c>
+    /// contributes the Sequence layer). GUI-free so the same snapshot serves the editor window and the
     /// <c>molca_framework_graph</c> MCP export.
     /// </summary>
     /// <remarks>
@@ -32,7 +32,6 @@ namespace Molca.Editor.FrameworkGraph
             BuildSubsystemLayer(snapshot);
             BuildServiceLayer(snapshot);
             BuildReferenceLayer(snapshot);
-            BuildSequenceLayer(snapshot);
             InvokeContributors(snapshot);
 
             return snapshot;
@@ -95,8 +94,6 @@ namespace Molca.Editor.FrameworkGraph
         private static string SubsystemId(System.Type t) => "subsystem:" + (t.FullName ?? t.Name);
         private static string ServiceId(System.Type t) => "service:" + (t?.FullName ?? t?.Name ?? "?");
         private static string ReferenceId(string refId) => "ref:" + refId;
-        private static string SequenceId(string refId, string name) => "seq:" + (string.IsNullOrEmpty(refId) ? name : refId);
-        private static string StepId(string refId, int fallback) => "step:" + (string.IsNullOrEmpty(refId) ? "#" + fallback : refId);
 
         // --- subsystem layer (Play only) -------------------------------------------------------------
 
@@ -314,111 +311,5 @@ namespace Molca.Editor.FrameworkGraph
             return result;
         }
 
-        // --- sequence layer (Edit + Play) ------------------------------------------------------------
-
-        private static void BuildSequenceLayer(FrameworkGraphSnapshot snapshot)
-        {
-            var controllers = UnityEngine.Object.FindObjectsByType<SequenceController>(
-                FindObjectsInactive.Include, FindObjectsSortMode.None);
-
-            foreach (var controller in controllers)
-            {
-                if (controller == null) continue;
-
-                string controllerId;
-                try { controllerId = SequenceId(controller.RefId, controller.name); }
-                catch { continue; }
-
-                snapshot.AddNode(new FrameworkGraphNode(controllerId, controller.name, FrameworkNodeCategory.Sequence)
-                {
-                    Subtitle = string.IsNullOrEmpty(controller.RefId) ? null : controller.RefId,
-                }.With("refId", controller.RefId));
-
-                // Steps: a node each, parent → child = StepFlow (matches the sequence graph editor's
-                // edges-as-execution-flow semantics). The controller is the implicit root.
-                Step[] steps;
-                try { steps = controller.GetComponentsInChildren<Step>(true); }
-                catch { continue; }
-
-                int i = 0;
-                var stepNodeByStep = new Dictionary<Step, string>();
-                foreach (var step in steps)
-                {
-                    if (step == null) continue;
-                    string sid;
-                    try { sid = StepId(step.RefId, i++); }
-                    catch { continue; }
-                    stepNodeByStep[step] = sid;
-
-                    snapshot.AddNode(new FrameworkGraphNode(sid, step.name, FrameworkNodeCategory.Step)
-                    {
-                        Subtitle = step.GetType().Name,
-                    }.With("refId", step.RefId).With("type", step.GetType().Name));
-                }
-
-                foreach (var pair in stepNodeByStep)
-                {
-                    var step = pair.Key;
-                    var sid = pair.Value;
-                    Step parentStep = null;
-                    try
-                    {
-                        var parentTransform = step.transform.parent;
-                        if (parentTransform != null)
-                            parentStep = parentTransform.GetComponentInParent<Step>(true);
-                    }
-                    catch { /* leave parentStep null → root */ }
-
-                    var parentId = parentStep != null && stepNodeByStep.TryGetValue(parentStep, out var pid)
-                        ? pid
-                        : controllerId;
-                    snapshot.AddEdge(new FrameworkGraphEdge(parentId, sid, FrameworkEdgeKind.StepFlow));
-                }
-
-                ApplyValidationFindings(snapshot, controller, controllerId, stepNodeByStep);
-            }
-        }
-
-        /// <summary>
-        /// Runs <see cref="SequenceValidator"/> over a controller (Sprint 22.6) and folds its findings
-        /// into node badges: a step-scoped finding raises its step node's severity; a controller-scoped
-        /// finding raises the controller node. Each affected node accumulates the finding messages under
-        /// a <c>findings</c> property so the detail panel and MCP export can show the evidence.
-        /// </summary>
-        private static void ApplyValidationFindings(
-            FrameworkGraphSnapshot snapshot, SequenceController controller, string controllerId,
-            Dictionary<Step, string> stepNodeByStep)
-        {
-            List<SequenceFinding> findings;
-            try { findings = SequenceValidator.Validate(controller); }
-            catch { return; }
-            if (findings == null) return;
-
-            foreach (var f in findings)
-            {
-                if (f == null) continue;
-                var nodeId = f.Step != null && stepNodeByStep.TryGetValue(f.Step, out var sid)
-                    ? sid
-                    : controllerId;
-                var node = snapshot.FindNode(nodeId);
-                if (node == null) continue;
-
-                var severity = MapSeverity(f.Severity);
-                if (severity > node.Severity) node.Severity = severity;
-
-                // Accumulate messages (one node can carry several findings).
-                node.Properties.TryGetValue("findings", out var existing);
-                node.Properties["findings"] = string.IsNullOrEmpty(existing)
-                    ? f.Message
-                    : existing + " | " + f.Message;
-            }
-        }
-
-        private static FrameworkGraphSeverity MapSeverity(SequenceFindingSeverity severity) => severity switch
-        {
-            SequenceFindingSeverity.Error => FrameworkGraphSeverity.Error,
-            SequenceFindingSeverity.Warning => FrameworkGraphSeverity.Warning,
-            _ => FrameworkGraphSeverity.Info,
-        };
     }
 }

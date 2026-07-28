@@ -10,10 +10,10 @@ namespace Molca.Editor
     /// <summary>
     /// Coerces string/structured tokens into a <see cref="SerializedProperty"/> by its property type, and
     /// reads a property's current value back into the same string form. A general-purpose, framework-agnostic
-    /// serialized-property helper (it depends on nothing in the sequence system), so any editor tooling in
-    /// the <c>Molca.Editor</c> assembly that reads or writes serialized fields by name — inspectors, the
-    /// step field/auxiliary services, the CSV importer, MCP authoring tools — can share one neutral,
-    /// testable, JSON-free path.
+    /// serialized-property helper (it depends on nothing in the sequence system), so any editor tooling that
+    /// reads or writes serialized fields by name — inspectors, the CSV importer, MCP authoring tools, and
+    /// the <c>com.molca.sequence</c> add-on's step field/auxiliary services in their own assembly — can
+    /// share one neutral, testable, JSON-free path.
     /// </summary>
     /// <remarks>
     /// Extracted from <c>StepFieldEditingService</c> to <c>Editor/Serialization/</c> (Sprint 25 follow-up)
@@ -21,7 +21,7 @@ namespace Molca.Editor
     /// <see cref="TrySet(SerializedProperty,string,out string)"/>: a scalar read round-trips back through the
     /// string setter.
     /// </remarks>
-    internal static class SerializedFieldCoercion
+    public static class SerializedFieldCoercion
     {
         /// <summary>
         /// Writes a structured <see cref="FieldNode"/> into <paramref name="property"/>, recursing into
@@ -34,7 +34,7 @@ namespace Molca.Editor
         /// <param name="node">The structured value to write.</param>
         /// <param name="error">Set to a human-readable reason (with the failing member/element path) on failure.</param>
         /// <returns><c>true</c> if the value was written.</returns>
-        internal static bool TrySet(SerializedProperty property, FieldNode node, out string error)
+        public static bool TrySet(SerializedProperty property, FieldNode node, out string error)
         {
             error = null;
             if (node == null) { error = "null value"; return false; }
@@ -242,7 +242,7 @@ namespace Molca.Editor
         /// rendered as <c>{ name: value; … }</c> and arrays as <c>[a, b, …]</c> for inspection — those
         /// composite forms are informational, not guaranteed to round-trip through the string setter.
         /// </summary>
-        internal static string ReadValue(SerializedProperty property)
+        public static string ReadValue(SerializedProperty property)
         {
             if (property == null) return string.Empty;
 

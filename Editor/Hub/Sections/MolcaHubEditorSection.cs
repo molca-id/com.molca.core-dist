@@ -28,6 +28,7 @@ namespace Molca.Editor.Hub.Sections
         private readonly List<(NotificationProvider provider, VisualElement dot, Label status)> _notificationStatusBindings = new();
 
         private MolcaSectionCard _areaPickerCard;
+        private VisualElement _workspaceTabsHost;
         private VisualElement _notificationsHost;
         private IVisualElementScheduledItem _notificationRefreshPoll;
         private string _notificationProviderSignature;
@@ -38,7 +39,10 @@ namespace Molca.Editor.Hub.Sections
 
             _editorSettings = new SerializedObject(MolcaEditorSettings.Instance);
 
+            _workspaceTabsHost = new VisualElement();
+            Add(_workspaceTabsHost);
             BuildWorkspaceTabsCard();
+
             BuildAreaPickerCard();
 
             _notificationsHost = new VisualElement();
@@ -46,11 +50,15 @@ namespace Molca.Editor.Hub.Sections
             BuildNotificationsCard();
 
             RegisterCallback<AttachToPanelEvent>(_ =>
-                _notificationRefreshPoll = schedule.Execute(RefreshNotificationsIfChanged).Every(500));
+            {
+                _notificationRefreshPoll = schedule.Execute(RefreshNotificationsIfChanged).Every(500);
+                MolcaHubWorkspaceRegistry.PinsChanged += RebuildWorkspaceTabsCard;
+            });
             RegisterCallback<DetachFromPanelEvent>(_ =>
             {
                 _notificationRefreshPoll?.Pause();
                 _notificationRefreshPoll = null;
+                MolcaHubWorkspaceRegistry.PinsChanged -= RebuildWorkspaceTabsCard;
             });
         }
 
@@ -58,22 +66,37 @@ namespace Molca.Editor.Hub.Sections
         // Workspace Tabs
         // -------------------------------------------------------------------
 
+        /// <summary>Rebuilds the card in place — used when the pinned set changes underneath it.</summary>
+        private void RebuildWorkspaceTabsCard()
+        {
+            if (_workspaceTabsHost == null) return;
+            _workspaceTabsHost.Clear();
+            BuildWorkspaceTabsCard();
+        }
+
         private void BuildWorkspaceTabsCard()
         {
             var items = MolcaHubWorkspaceRegistry.GetConfigurableWorkspaces();
             var hidden = new HashSet<string>(MolcaHubWorkspaceRegistry.HiddenIds());
+            var pinned = new HashSet<string>(MolcaHubWorkspaceRegistry.PinnedIds());
 
             var visibleCount = 1; // Settings is anchored and always visible.
+            var pinnedCount = 0;
             foreach (var item in items)
-                if (!hidden.Contains(item.Id))
-                    visibleCount++;
+            {
+                if (hidden.Contains(item.Id)) continue;
+                visibleCount++;
+                if (pinned.Contains(item.Id)) pinnedCount++;
+            }
 
             var card = new MolcaSectionCard("Workspace Tabs", "Settings is always visible",
-                MolcaStatusKind.Ok, $"{visibleCount} visible");
-            card.SetHelp("Choose which non-Settings Hub workspaces appear in the top toolbar for this project.");
-            Add(card);
+                MolcaStatusKind.Ok, $"{visibleCount} visible · {pinnedCount} pinned");
+            card.SetHelp("Choose which non-Settings Hub workspaces appear in the top toolbar for this project. " +
+                         "Pinning keeps a tab in the toolbar when the window is too narrow to show them all — " +
+                         "unpinned tabs move into the toolbar's overflow menu instead of being dropped.");
+            _workspaceTabsHost.Add(card);
 
-            var settingsRow = BuildWorkspaceVisibilityRow("settings", "Settings", true, null);
+            var settingsRow = BuildWorkspaceRow("settings", "Settings", true, null, true, null);
             card.Body.Add(settingsRow);
 
             if (items.Count == 0)
@@ -86,17 +109,26 @@ namespace Molca.Editor.Hub.Sections
 
             foreach (var item in items)
             {
-                var toggle = BuildWorkspaceVisibilityRow(
-                    item.Id,
-                    string.IsNullOrEmpty(item.Label) ? item.Id : item.Label,
-                    !hidden.Contains(item.Id),
-                    show => MolcaHubWorkspaceRegistry.SetHidden(item.Id, !show));
-                card.Body.Add(toggle);
+                var id = item.Id;
+                var row = BuildWorkspaceRow(
+                    id,
+                    string.IsNullOrEmpty(item.Label) ? id : item.Label,
+                    !hidden.Contains(id),
+                    show => MolcaHubWorkspaceRegistry.SetHidden(id, !show),
+                    pinned.Contains(id),
+                    pin => MolcaHubWorkspaceRegistry.SetPinned(id, pin));
+                card.Body.Add(row);
             }
         }
 
-        private static VisualElement BuildWorkspaceVisibilityRow(
-            string id, string label, bool visible, System.Action<bool> changed)
+        /// <summary>
+        /// Builds one workspace row: name/id, a pin toggle, and a visibility toggle. A <c>null</c> change
+        /// callback renders its toggle disabled — that is how the anchored Settings row shows that it is
+        /// always visible and always effectively pinned.
+        /// </summary>
+        private static VisualElement BuildWorkspaceRow(
+            string id, string label, bool visible, System.Action<bool> visibilityChanged,
+            bool pinned, System.Action<bool> pinChanged)
         {
             var row = new VisualElement();
             row.AddToClassList("molca-hub-provider-row");
@@ -113,11 +145,18 @@ namespace Molca.Editor.Hub.Sections
             status.AddToClassList("molca-hub-provider-row__status");
             stack.Add(status);
 
+            var pin = new Toggle("Pin") { name = "workspace-pin-" + id, value = pinned, tooltip = "Keep this workspace in the toolbar when space runs out." };
+            pin.AddToClassList("molca-hub-card-header-toggle");
+            pin.SetEnabled(pinChanged != null);
+            if (pinChanged != null)
+                pin.RegisterValueChangedCallback(evt => pinChanged(evt.newValue));
+            row.Add(pin);
+
             var toggle = new Toggle { name = "workspace-visibility-" + id, value = visible, tooltip = "Show this workspace in the Hub toolbar." };
             toggle.AddToClassList("molca-hub-card-header-toggle");
-            toggle.SetEnabled(changed != null);
-            if (changed != null)
-                toggle.RegisterValueChangedCallback(evt => changed(evt.newValue));
+            toggle.SetEnabled(visibilityChanged != null);
+            if (visibilityChanged != null)
+                toggle.RegisterValueChangedCallback(evt => visibilityChanged(evt.newValue));
             row.Add(toggle);
 
             return row;

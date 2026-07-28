@@ -43,12 +43,15 @@ namespace Molca.Editor.Automation.BuiltIn
         {
             var settings = MolcaEditorSettings.Instance;
             var version = settings != null ? settings.VersionSettings : null;
-            var core = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(Molca.RuntimeManager).Assembly);
+            // Through the guarded helper: the Package Manager refuses with "can only be called from the
+            // main thread" during a domain reload or scene load even on the main thread, and a preflight
+            // step must report "unknown" rather than fail the whole workflow over a version string.
+            var core = Addons.AddonDistributionConfig.CoreVersion();
 
             var data = new JObject
             {
                 ["projectVersion"] = version != null ? version.GetVersionString() : null,
-                ["coreVersion"] = core != null ? core.version : "unknown",
+                ["coreVersion"] = !string.IsNullOrEmpty(core) ? core : "unknown",
                 ["editorVersion"] = Application.unityVersion
             };
             return Completed(MolcaStepResult.Pass(data));

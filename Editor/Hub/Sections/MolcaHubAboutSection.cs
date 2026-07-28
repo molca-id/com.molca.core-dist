@@ -321,11 +321,13 @@ namespace Molca.Editor.Hub.Sections
             var actions = new VisualElement();
             actions.AddToClassList("molca-hub-about-actions");
 
-            // The install source decides the primary affordance. Only a registry install can be mutated from
-            // here; every other source is told exactly what to do instead of being given a dead button.
+            // The install source decides the primary affordance. Only an install the Package Manager owns
+            // can be mutated from here; every other source is told exactly what to do instead of being
+            // given a dead button.
             switch (state.UpgradePath)
             {
                 case FrameworkUpgradePath.PackageManager:
+                case FrameworkUpgradePath.GitPackageManager:
                     actions.Add(MolcaButtons.Primary($"Update to {state.Target.version}", ApplyUpgrade));
                     actions.Add(MolcaButtons.Toolbar("Open Package Manager",
                         () => EditorApplication.ExecuteMenuItem("Window/Package Manager")));

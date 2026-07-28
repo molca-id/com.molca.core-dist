@@ -23,9 +23,13 @@ namespace Molca.Editor.Hub
         public const string SettingsId = "settings";
 
         private const string HiddenKey = "Molca.Hub.HiddenWorkspaces";
+        private const string PinnedKey = "Molca.Hub.PinnedWorkspaces";
 
         /// <summary>Raised when workspace visibility is changed through <see cref="SetHidden"/>.</summary>
         public static event Action VisibilityChanged;
+
+        /// <summary>Raised when the pinned set is changed through <see cref="SetPinned"/>.</summary>
+        public static event Action PinsChanged;
 
         /// <summary>
         /// Discovers all provider-contributed workspaces, applies hide config + availability, drops the
@@ -78,7 +82,8 @@ namespace Molca.Editor.Hub
         /// <summary>
         /// Pure resolution step (filter + dedup + sort), exposed for testing. Drops items that are hidden,
         /// use the reserved <see cref="SettingsId"/>, are unavailable, or have an empty id; keeps the first
-        /// of each duplicate id; orders by <see cref="MolcaHubWorkspaceItem.Order"/> then id ordinally.
+        /// of each duplicate id; orders by group rank, then <see cref="MolcaHubWorkspaceItem.Order"/>, then
+        /// id ordinally (see <see cref="CompareItems"/>).
         /// </summary>
         /// <param name="raw">The raw contributed items.</param>
         /// <param name="hiddenIds">Ids the consumer has hidden.</param>
@@ -100,9 +105,33 @@ namespace Molca.Editor.Hub
                 result.Add(item);
             }
 
-            result.Sort((a, b) =>
-                a.Order != b.Order ? a.Order.CompareTo(b.Order) : string.CompareOrdinal(a.Id, b.Id));
+            result.Sort(CompareItems);
             return result;
+        }
+
+        /// <summary>
+        /// Sort comparison for workspace tabs: group rank first (see <see cref="MolcaHubWorkspaceGroups.Rank"/>),
+        /// then <see cref="MolcaHubWorkspaceItem.Order"/> within the group, then id ordinally. Groups Core does
+        /// not declare all share the last rank, so they are separated from each other by group id before order
+        /// is considered — otherwise two unrelated fork groups would interleave.
+        /// </summary>
+        /// <param name="a">The first item.</param>
+        /// <param name="b">The second item.</param>
+        /// <returns>A negative value when <paramref name="a"/> sorts first, positive when <paramref name="b"/> does.</returns>
+        internal static int CompareItems(MolcaHubWorkspaceItem a, MolcaHubWorkspaceItem b)
+        {
+            var rankA = MolcaHubWorkspaceGroups.Rank(a.Group);
+            var rankB = MolcaHubWorkspaceGroups.Rank(b.Group);
+            if (rankA != rankB) return rankA.CompareTo(rankB);
+
+            if (rankA == MolcaHubWorkspaceGroups.DeclaredOrder.Count)
+            {
+                var groupCompare = string.CompareOrdinal(
+                    MolcaHubWorkspaceGroups.Normalize(a.Group), MolcaHubWorkspaceGroups.Normalize(b.Group));
+                if (groupCompare != 0) return groupCompare;
+            }
+
+            return a.Order != b.Order ? a.Order.CompareTo(b.Order) : string.CompareOrdinal(a.Id, b.Id);
         }
 
         private static bool IsAvailable(MolcaHubWorkspaceItem item)
@@ -135,6 +164,36 @@ namespace Molca.Editor.Hub
             if (!changed) return;
             MolcaEditorPrefs.SetString(HiddenKey, string.Join(",", set));
             VisibilityChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// The set of workspace ids the user has pinned in this project. A pinned tab keeps its toolbar slot
+        /// when the strip has to move tabs into the overflow menu.
+        /// </summary>
+        /// <returns>The pinned ids; empty by default, so an unconfigured project's toolbar is unchanged.</returns>
+        public static IReadOnlyCollection<string> PinnedIds()
+        {
+            var raw = MolcaEditorPrefs.GetString(PinnedKey, string.Empty);
+            return string.IsNullOrEmpty(raw)
+                ? Array.Empty<string>()
+                : raw.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
+        }
+
+        /// <summary>
+        /// Pins or unpins a workspace tab by id (persisted per project). The anchored
+        /// <see cref="SettingsId"/> tab is ignored — it never overflows, so it is always effectively pinned.
+        /// Pinning does not un-hide a tab: hidden still wins.
+        /// </summary>
+        /// <param name="id">The workspace id to toggle.</param>
+        /// <param name="pinned"><c>true</c> to pin the tab, <c>false</c> to unpin it.</param>
+        public static void SetPinned(string id, bool pinned)
+        {
+            if (string.IsNullOrEmpty(id) || id == SettingsId) return;
+            var set = new HashSet<string>(PinnedIds(), StringComparer.Ordinal);
+            bool changed = pinned ? set.Add(id) : set.Remove(id);
+            if (!changed) return;
+            MolcaEditorPrefs.SetString(PinnedKey, string.Join(",", set));
+            PinsChanged?.Invoke();
         }
     }
 }

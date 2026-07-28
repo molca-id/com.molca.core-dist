@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using Molca;
-using Molca.Sequence;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
@@ -10,8 +9,9 @@ namespace Molca.Editor.Automation.BuiltIn
     /// <summary>
     /// The Runtime Smoke workflow (§11.2): a read-only observation of a <em>live</em> Molca runtime that
     /// confirms <see cref="RuntimeManager"/> bootstrapped, initialization settled within a budget, the
-    /// resolved subsystem graph is non-empty and healthy, any caller-declared required subsystems resolve,
-    /// and the scene's Sequence controllers are discoverable — returning one evidence bundle.
+    /// resolved subsystem graph is non-empty and healthy, and any caller-declared required subsystems
+    /// resolve — returning one evidence bundle. (Sequence-controller discovery moved to
+    /// <c>com.molca.sequence</c>'s own <c>molca.sequence-smoke</c> workflow.)
     /// </summary>
     /// <remarks>
     /// This workflow only <em>reads</em> runtime state; it never enters or exits Play mode. Because it is
@@ -35,14 +35,13 @@ namespace Molca.Editor.Automation.BuiltIn
         public static MolcaWorkflowDefinition Create() => new MolcaWorkflowDefinition(
             id: Id,
             displayName: "Runtime Smoke",
-            description: "Read-only Play-mode smoke: confirms RuntimeManager initializes, subsystems resolve and are healthy, and Sequence controllers are discoverable.",
+            description: "Read-only Play-mode smoke: confirms RuntimeManager initializes and subsystems resolve and are healthy.",
             steps: new[]
             {
                 new MolcaWorkflowStep("manager", "Confirm a RuntimeManager exists and bootstrap has started.", ManagerStep),
                 new MolcaWorkflowStep("initialization", "Wait for bootstrap to reach Ready within the init budget.", InitializationStep),
                 new MolcaWorkflowStep("subsystems", "Confirm the resolved subsystem graph is non-empty and every subsystem is active.", SubsystemsStep),
                 new MolcaWorkflowStep("services", "Resolve caller-declared required subsystems.", ServicesStep, critical: false),
-                new MolcaWorkflowStep("sequences", "Discover Sequence controllers in the loaded scenes.", SequencesStep, critical: false),
             },
             mode: MolcaCommandMode.Play,
             kind: MolcaCommandKind.ReadOnly,
@@ -176,19 +175,6 @@ namespace Molca.Editor.Automation.BuiltIn
             return Completed(missing.Count > 0
                 ? MolcaStepResult.Fail(diagnostics, data)
                 : MolcaStepResult.Pass(data));
-        }
-
-        /// <summary>Discovers Sequence controllers in the loaded scenes (informational evidence).</summary>
-        private static Awaitable<MolcaStepResult> SequencesStep(MolcaCommandContext context)
-        {
-            var controllers = Object.FindObjectsByType<SequenceController>(
-                FindObjectsInactive.Include, FindObjectsSortMode.None);
-            var data = new JObject
-            {
-                ["sequenceControllerCount"] = controllers.Length,
-                ["names"] = new JArray(controllers.Take(50).Select(c => c.gameObject.name))
-            };
-            return Completed(MolcaStepResult.Pass(data));
         }
 
         /// <summary>Wraps a synchronous step result in an already-completed awaitable (no yield).</summary>

@@ -6,7 +6,8 @@ namespace Molca.Editor
 {
     /// <summary>
     /// Single Undo-grouped path for reading and writing a settings <see cref="ScriptableObject"/>'s
-    /// serialized fields by name — the settings counterpart to <see cref="StepFieldEditingService"/>.
+    /// serialized fields by name — the settings counterpart to the <c>com.molca.sequence</c> add-on's
+    /// <c>StepFieldEditingService</c>.
     /// Edit mode only; no GUI dependencies. Field coercion and value reading are delegated to the
     /// general-purpose <see cref="SerializedFieldCoercion"/> (in <c>Editor/Serialization/</c>).
     /// </summary>

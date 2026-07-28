@@ -303,14 +303,14 @@ namespace Molca.Editor
         }
 
         /// <summary>Writes serialized component fields as one undo group.</summary>
-        internal static StepFieldEditingService.SetFieldsResult SetComponentFields(
+        internal static FieldEditResult SetComponentFields(
             Component component,
             IReadOnlyDictionary<string, FieldNode> fields)
         {
             var applied = new List<string>();
             var rejected = new List<KeyValuePair<string, string>>();
             if (component == null || fields == null)
-                return new StepFieldEditingService.SetFieldsResult(applied, rejected);
+                return new FieldEditResult(applied, rejected);
 
             Undo.IncrementCurrentGroup();
             Undo.SetCurrentGroupName("Set Component Fields");
@@ -346,7 +346,7 @@ namespace Molca.Editor
 
             if (applied.Count > 0) so.ApplyModifiedProperties();
             Collapse(group);
-            return new StepFieldEditingService.SetFieldsResult(applied, rejected);
+            return new FieldEditResult(applied, rejected);
         }
 
         /// <summary>

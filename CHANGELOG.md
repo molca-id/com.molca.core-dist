@@ -2,16 +2,109 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [1.17.3] - 2026-07-28
+
+### Removed
+- **Sequence (`SequenceController`, `Step`, `StepAuxiliary`, and all Sequence editor tooling — authoring and
+  graph views, the validator, its Doctor check, and its MCP tools) has moved out of Core into its own
+  package, `com.molca.sequence`.** Core no longer declares a dependency on it — the two are decoupled, not
+  merely relocated, so a project that doesn't use Sequence carries none of its code or tooling. Distributed
+  through Hub → Add-ons as a signed UPM-shaped pack via the Molca control plane (protocol 3), not a git-URL
+  dist repo like `com.molca.core`/`com.molca.sdk`. Existing projects add `com.molca.sequence` the same way as
+  any other add-on; its own reference docs (`SEQUENCE_AUTHORING.md`, `SEQUENCE_VALIDATION.md`) moved with it.
+  `FixReversibility`/`FieldEditResult` and the serialized-field editing helpers Sequence's tooling shares with
+  the rest of Core's Doctor/editor systems stayed behind in Core, since other Core systems depend on them.
+
+### Added
+- **The Hub toolbar now survives any number of workspace tabs.** The strip measures itself and degrades in
+  order: full `[icon] [label]` tabs, then icon-only (all-or-nothing, and only when every tab resolves an
+  icon — a row of blanks reads worse than a menu), then a `» N` overflow menu. Tabs that do not fit are one
+  click away in that menu, grouped and never silently dropped; the Settings tab and the active tab always
+  keep their slot and their label. `.molca-hub-workspace-tab` also gained `flex-shrink: 0`, which on its own
+  fixes labels being cut mid-word.
+- **The Hub search box finds workspace tabs, not just settings sections.** Typing surfaces a *Workspaces*
+  group above the section results, and Enter activates the first match. Note the box lives in the Settings
+  rail panel, so it is a Settings-surface affordance — a global command palette is a separate proposal.
+- **`MolcaHubWorkspaceItem.Group`** and **`MolcaHubWorkspaceGroups`**: a tab declares a semantic group
+  (`quality`, `authoring`, `assistance`, `integrations`, `reference`, or the default `general`) instead of
+  guessing an `Order` integer against a namespace it cannot observe. Tabs sort by group rank, then `Order`
+  *within* the group — the only scope a provider can reason about honestly. Unknown groups are allowed and
+  sort last. Existing providers compile untouched and land in `general`; Core's own tabs render in exactly
+  the order they did before.
+- **Pinning and recents.** `MolcaHubWorkspaceRegistry.PinnedIds()`/`SetPinned(id, pinned)`/`PinsChanged` keep
+  chosen tabs in the toolbar when space runs out; everything else falls back to overflow, ordered by recent
+  use. Pin from a tab's right-click menu or the Settings ▸ Editor ▸ Workspace Tabs card. Hidden still beats
+  pinned, and the default is no pins — an existing project's toolbar is unchanged until someone pins something.
+- **`MolcaHubSettingsLeafProvider`**: a lower-ceremony seam for a contribution that is really one settings
+  panel rather than a full-window tool. Discovered via `TypeCache` with the same resolution contract as the
+  workspace registry, placed into a named rail category, and namespaced as `ext:<id>` so a provider can never
+  collide with a Core section name. Contribute a workspace tab when your surface is a full-window tool with
+  its own toolbar and long-running work; contribute a leaf when it would look at home next to *Network* or *MCP*.
+- **`MolcaHubWorkspaceItem.CacheContent`**: opt a workspace view into being hidden rather than rebuilt on tab
+  switch, so scroll position and in-progress view state survive. Opt-in only, because it changes the view's
+  lifecycle contract — an opted-in view keeps running while hidden and does not get a `DetachFromPanelEvent`
+  between activations (detach still fires on eviction, and at most three views are kept). Core opts in Docs
+  and Sequence; Doctor and Assistant deliberately stay uncached until their long-running work is reviewed
+  against a hidden-but-live view.
+
+### Changed
+- `MolcaHubWorkspaceItem`'s constructor gained three optional trailing parameters (`group`, `cacheContent`,
+  alongside the existing ones). This is source-compatible — existing provider code compiles unmodified — but
+  not binary-compatible. Core ships as a UPM source package and consumers recompile, so this is theoretical;
+  it is called out here for anyone shipping a precompiled DLL against the old signature.
+- **A git install can now take a Core update from the Hub instead of being sent to `manifest.json`.**
+  Repointing a git dependency is a `Client.Add` against the git URL — exactly the move the Package
+  Manager's own `Manage ▸ Update` makes — so About > Updates offers the same one-click update it offers a
+  registry install. Unity still writes the manifest entry; Core never edits it. The clipboard fallback
+  remains for the two cases the client cannot apply faithfully: a release whose `upgradeSpec` is
+  registry-shaped (adding it would silently move the project off git) and one whose git URL pins no
+  revision (it would resolve the default branch's HEAD, not the version named on the card).
+- An `upgradeSpec` published in npm's `git+https://…` spelling is now accepted. Neither `Client.Add` nor
+  `Packages/manifest.json` takes the `git+` prefix, so it is stripped before either sees it — previously
+  the copied manifest line carried a prefix that would not resolve.
+
+### Fixed
+- **Hub activity discovery no longer warns about providers it was never meant to own.**
+  `MolcaHubActivityRegistry.CreateProviders` now requires a public parameterless constructor (and skips open
+  generics) before probing a type, instead of calling `Activator.CreateInstance` on everything derived from
+  `MolcaHubActivityProvider` and reporting the inevitable failure. `TypeCache` sees test assemblies, so a
+  provider built by its own caller — a test double, or one composed by the system it observes — produced a
+  warning on every Hub open and every Remote session start. The warning is kept for the case that is a real
+  fault: a default-constructible provider whose constructor throws.
+- **Nested lists are indented instead of flattened.** Every list item's leading whitespace was discarded
+  before the parser saw it, so a sub-list under a numbered step rendered at the same level as the step —
+  losing the structure the doc was written with. `MolcaMarkdownBlock.Indent` now carries a 0-based nesting
+  depth, which the renderer turns into a left margin and (for bullets) a disc → circle → square glyph cycle.
+  Depth is read *relatively*, from a stack of open indent columns rather than a fixed spaces-per-level
+  divisor, so a doc nesting by two spaces and one nesting by four both come out one level deep; a blank line
+  keeps a list open, any other block kind ends it, and runaway nesting clamps at five levels.
+- **`MolcaMarkdown` now renders GitHub alert callouts (`> [!NOTE|TIP|IMPORTANT|WARNING|CAUTION]`)** as a
+  titled, type-colored variant of the blockquote instead of leaking the literal `[!TIP]` marker into the
+  page. It also accepts the shape HTML→Markdown exporters actually emit — the marker on its own line,
+  without the `>` prefix and with escaped brackets (`\[!TIP\]`) — because that is what real SDK docs
+  contain. A marker with no quoted body after it renders nothing rather than a stray line.
+- **`* * *` (spaced horizontal rule) is a rule again.** Only the unspaced `---`/`***`/`___` form was
+  recognized, so the spaced form CommonMark allows — and exporters prefer — fell through to the bullet
+  branch and rendered as a stray "• * *" list item between every section.
+- **Backslash escapes are honored.** Only `\_` was unescaped; every CommonMark-escapable punctuation
+  character is now rendered literally, in both the inline spans and `CleanInline`'s plain text. Windows
+  paths are unaffected — a backslash before a non-punctuation character is left alone.
+
 ## [1.17.2] - 2026-07-27
 
 ### Fixed
-- **A busy Editor no longer drops a working Remote session.** Building a snapshot reads the editor, and the
-  editor is not always readable: during a domain reload or a scene load the Package Manager refuses with
-  "can only be called from the main thread" *even on the main thread*, and the dispatcher faithfully
-  rethrew that onto the socket thread, where it read as a connection failure and tore the session down. The
-  snapshot's Core-version lookup now goes through the same guarded helper the rest of Core uses, a snapshot
-  that cannot be built is skipped rather than fatal, the connect-time snapshot is best-effort, and session
-  teardown can no longer throw over the real reason a socket closed.
+- **A busy Editor no longer drops a working Remote session.** Reading the editor is not always possible:
+  during a domain reload or a scene load Unity refuses Package Manager and other editor APIs with "can only
+  be called from the main thread" *even on the main thread*, and the main-thread dispatcher faithfully
+  rethrows that onto the socket thread, where it is indistinguishable from a transport error. A session
+  would connect, read a busy editor, and tear itself down in a loop.
+  Every main-thread read a session performs — activity-provider discovery, the state snapshot, the
+  Assistant snapshot, maintenance and authorization-loss stops, and teardown — is now treated as skippable:
+  it is reported once per session naming the operation, and the session continues, recovering on the next
+  change or heartbeat. Nothing a remote session reads is worth dropping the session for.
+- The Core-version lookups in the remote snapshot, the `molca.preflight` versions step, and the MCP status
+  tool went through raw `PackageInfo.FindForAssembly`. They now use the same guarded helper the rest of Core
+  uses, so an unreadable moment degrades to an empty or "unknown" version instead of failing the caller.
 
 ## [1.17.1] - 2026-07-27
 

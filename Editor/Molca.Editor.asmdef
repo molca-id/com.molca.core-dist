@@ -7,7 +7,6 @@
         "Molca.Localization",
         "Molca.UI",
         "Molca.Networking",
-        "Molca.Sequence",
         "Molca.ContentPackage",
         "Molca.ReferenceSystem",
         "Unity.Addressables",

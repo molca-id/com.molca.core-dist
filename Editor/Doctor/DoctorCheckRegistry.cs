@@ -9,7 +9,7 @@ namespace Molca.Editor.Doctor
     /// <summary>
     /// Discovers every <see cref="IDoctorCheck"/> in the project — Core's built-in checks plus any
     /// authored by an SDK layer or consumer project — and exposes them as one ordered, de-duplicated
-    /// set. Mirrors <see cref="Molca.Editor.Validation.SequenceValidatorRegistry"/> and the MCP tool
+    /// set. Mirrors <c>SequenceValidatorRegistry</c> (in <c>com.molca.sequence</c>) and the MCP tool
     /// registry: implementations are found by <c>TypeCache</c>, instantiated once via their public
     /// parameterless constructor, and a duplicate <see cref="IDoctorCheck.Id"/> is rejected loudly
     /// rather than silently shadowing another check.
@@ -57,7 +57,8 @@ namespace Molca.Editor.Doctor
             "http-response-success-misuse",
             "http-unredacted-logging",
             "dataprovider-lifetime-token",
-            "sequence-validation",
+            // "sequence-validation" used to be listed here; it now ships with com.molca.sequence and,
+            // being unlisted, sorts after this curated block (see class remarks) rather than in this slot.
             // Scene-performance audit (Sprint 50) — ids prefixed "scene-".
             "scene-structure",
             "scene-polygon-budget",

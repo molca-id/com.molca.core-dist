@@ -44,7 +44,7 @@ Static JSON helpers built on Unity's `JsonUtility`, plus key-level access `JsonU
 ## SceneUtility
 
 A ScriptableObject that wraps scene loading (by name, `SharedString`, `AssetReference`, or Addressable
-address), so a scene transition can be wired from the Inspector or a [Sequence step](SEQUENCES.md)
+address), so a scene transition can be wired from the Inspector or a [Sequence step](molca://doc/SEQUENCES)
 without bespoke code:
 
 ```csharp
@@ -84,5 +84,5 @@ runtime view, the checks are the static audit.
 
 - [Telemetry & Diagnostics](TELEMETRY.md)
 - [Async Contract](ASYNC_CONTRACT.md)
-- [Sequences: Controller, Steps & Auxiliaries](SEQUENCES.md)
+- [Sequences: Controller, Steps & Auxiliaries](molca://doc/SEQUENCES)
 - [Extending Molca Doctor with Custom Checks](DOCTOR_CHECKS.md)

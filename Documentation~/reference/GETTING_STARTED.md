@@ -93,7 +93,7 @@ Or let the container inject it for you with `[Inject]` — see [Dependency Injec
 
 ## Next steps
 
-- Build a step-based flow: [Sequences](SEQUENCES.md).
+- Build a step-based flow: [Sequences](molca://doc/SEQUENCES) (`com.molca.sequence` add-on).
 - Wire objects across scenes: [Scene Reference System](REFERENCE_SYSTEM.md).
 - Talk to a backend: [Networking](NETWORKING.md).
 - Check your project: run **Molca → Hub → Doctor** ([Doctor](DOCTOR_CHECKS.md)).

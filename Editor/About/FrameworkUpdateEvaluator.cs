@@ -127,6 +127,14 @@ namespace Molca.Editor.About
         /// How an upgrade could reach this project. A release with no <c>upgradeSpec</c> offers no path at
         /// all, whatever the install source — the client refuses to guess a dependency string.
         /// </summary>
+        /// <remarks>
+        /// A git install is applicable through <see cref="UnityEditor.PackageManager.Client"/> exactly as a
+        /// registry install is — that is what the Package Manager's own <c>Manage ▸ Update</c> does — but
+        /// only when the published spec is a git URL pinning a revision. The two ways that can fail are both
+        /// silent, so both fall back to showing the dependency line instead: a registry-shaped spec would
+        /// send Unity to the registry and quietly change the install source, and an unpinned URL would
+        /// resolve the default branch's HEAD rather than the version the panel just named.
+        /// </remarks>
         internal static FrameworkUpgradePath ResolvePath(PackageSource source, FrameworkReleaseDto release)
         {
             if (release == null || string.IsNullOrWhiteSpace(release.upgradeSpec))
@@ -135,7 +143,11 @@ namespace Molca.Editor.About
             return source switch
             {
                 PackageSource.Registry => FrameworkUpgradePath.PackageManager,
-                PackageSource.Git => FrameworkUpgradePath.Manifest,
+                PackageSource.Git =>
+                    FrameworkUpgradeSpec.IsGitUrl(release.upgradeSpec) &&
+                    FrameworkUpgradeSpec.HasRevision(release.upgradeSpec)
+                        ? FrameworkUpgradePath.GitPackageManager
+                        : FrameworkUpgradePath.Manifest,
                 PackageSource.Embedded or PackageSource.Local or PackageSource.LocalTarball =>
                     FrameworkUpgradePath.Embedded,
                 _ => FrameworkUpgradePath.None,

@@ -9,9 +9,10 @@ using System.Xml;
 namespace Molca.Editor
 {
     /// <summary>
-    /// Loads tabular data from CSV/TSV text or Excel .xlsx (first sheet or by index).
+    /// Loads tabular data from CSV/TSV text or Excel .xlsx (first sheet or by index). Public since the
+    /// <c>com.molca.sequence</c> add-on's CSV step importer (a separate assembly) also consumes it.
     /// </summary>
-    internal static class SpreadsheetTableLoader
+    public static class SpreadsheetTableLoader
     {
         internal enum TextDelimiter
         {

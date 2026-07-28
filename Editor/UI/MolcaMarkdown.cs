@@ -34,12 +34,32 @@ namespace Molca.Editor.UI
         Error,
         /// <summary>A blockquote line/paragraph (<c>&gt; ...</c>).</summary>
         Quote,
+        /// <summary>
+        /// A GitHub-style alert callout (<c>&gt; [!TIP]</c> followed by quoted body lines); the callout type
+        /// is in <see cref="MolcaMarkdownBlock.Alert"/>.
+        /// </summary>
+        Alert,
         /// <summary>A task-list item (<c>- [ ] ...</c> / <c>- [x] ...</c>); see <see cref="MolcaMarkdownBlock.Checked"/>.</summary>
         Task,
         /// <summary>A simple Markdown table; rows are in <see cref="MolcaMarkdownBlock.TableRows"/> (row 0 = header).</summary>
         Table,
         /// <summary>A horizontal rule (<c>---</c> / <c>***</c> / <c>___</c>).</summary>
         Rule
+    }
+
+    /// <summary>The type of a GitHub-style alert callout (<c>&gt; [!NOTE]</c>, <c>&gt; [!TIP]</c>, …).</summary>
+    public enum MolcaMarkdownAlertKind
+    {
+        /// <summary><c>[!NOTE]</c> — useful information the reader should notice.</summary>
+        Note,
+        /// <summary><c>[!TIP]</c> — optional advice for doing something better.</summary>
+        Tip,
+        /// <summary><c>[!IMPORTANT]</c> — key information needed to succeed.</summary>
+        Important,
+        /// <summary><c>[!WARNING]</c> — urgent information needing immediate attention.</summary>
+        Warning,
+        /// <summary><c>[!CAUTION]</c> — advice about the risks of an action.</summary>
+        Caution
     }
 
     /// <summary>One parsed, renderable Markdown block.</summary>
@@ -70,6 +90,19 @@ namespace Molca.Editor.UI
         /// </summary>
         public IReadOnlyList<IReadOnlyList<string>> TableRows { get; }
 
+        /// <summary>
+        /// For <see cref="MolcaMarkdownBlockKind.Alert"/>: which callout the marker named. Meaningless
+        /// (always <see cref="MolcaMarkdownAlertKind.Note"/>) on every other block kind.
+        /// </summary>
+        public MolcaMarkdownAlertKind Alert { get; }
+
+        /// <summary>
+        /// For list blocks (<see cref="MolcaMarkdownBlockKind.Bullet"/>,
+        /// <see cref="MolcaMarkdownBlockKind.Numbered"/>, <see cref="MolcaMarkdownBlockKind.Task"/>): the
+        /// 0-based nesting depth, which the renderer turns into a left margin. Always 0 elsewhere.
+        /// </summary>
+        public int Indent { get; }
+
         /// <summary>Creates a block whose raw and cleaned text are identical.</summary>
         public MolcaMarkdownBlock(MolcaMarkdownBlockKind kind, string text, int number = 0)
             : this(kind, text, text, number)
@@ -78,18 +111,38 @@ namespace Molca.Editor.UI
 
         /// <summary>Creates a block, preserving the raw (un-stripped) text for inline rendering.</summary>
         public MolcaMarkdownBlock(MolcaMarkdownBlockKind kind, string text, string rawText, int number)
+            : this(kind, text, rawText, number, 0)
+        {
+        }
+
+        /// <summary>Creates a block at a given list nesting depth.</summary>
+        public MolcaMarkdownBlock(MolcaMarkdownBlockKind kind, string text, string rawText, int number, int indent)
         {
             Kind = kind;
             Text = text ?? string.Empty;
             RawText = rawText ?? Text;
             Number = number;
+            Indent = indent;
         }
 
         /// <summary>Creates a task-list block carrying its checked state.</summary>
         public MolcaMarkdownBlock(MolcaMarkdownBlockKind kind, string text, string rawText, bool isChecked)
-            : this(kind, text, rawText, 0)
+            : this(kind, text, rawText, isChecked, 0)
+        {
+        }
+
+        /// <summary>Creates a task-list block carrying its checked state and nesting depth.</summary>
+        public MolcaMarkdownBlock(MolcaMarkdownBlockKind kind, string text, string rawText, bool isChecked, int indent)
+            : this(kind, text, rawText, 0, indent)
         {
             Checked = isChecked;
+        }
+
+        /// <summary>Creates a GitHub-style alert callout block carrying its callout type.</summary>
+        public MolcaMarkdownBlock(MolcaMarkdownAlertKind alert, string text, string rawText)
+            : this(MolcaMarkdownBlockKind.Alert, text, rawText, 0)
+        {
+            Alert = alert;
         }
 
         /// <summary>Creates a table block from its parsed rows (row 0 = header).</summary>
@@ -205,8 +258,9 @@ namespace Molca.Editor.UI
     /// <summary>
     /// A small, deterministic, dependency-free Markdown renderer for Molca editor surfaces. It parses the
     /// subset of Markdown the editor UI needs — headings, ordered/unordered lists, task lists, fenced code,
-    /// inline <c>`code`</c>/<c>**bold**</c>/<c>_italic_</c>, blockquotes, tables, horizontal rules, and
-    /// <c>file:line</c>/web/custom-scheme links — into <see cref="VisualElement"/> trees.
+    /// inline <c>`code`</c>/<c>**bold**</c>/<c>_italic_</c>, blockquotes, GitHub alert callouts, tables,
+    /// horizontal rules, backslash escapes, and <c>file:line</c>/web/custom-scheme links — into
+    /// <see cref="VisualElement"/> trees.
     /// </summary>
     /// <remarks>
     /// Placement: <c>Packages/com.molca.core/Editor/UI/</c> (shared editor design layer; forks inherit it).
@@ -233,6 +287,23 @@ namespace Molca.Editor.UI
         private static readonly Regex LinkRegex = new Regex(
             @"(?<path>(?:[A-Za-z]:[\\/])?[\w./\\\-]+\.(?:cs|jsonl|js|ts|tsx|jsx|json|md|asmdef|uxml|uss|shader|cginc|hlsl|txt|yaml|yml|xml|csproj|cs?proj))(?::(?<line>\d+))?",
             RegexOptions.Compiled);
+
+        /// <summary>
+        /// A GitHub alert marker line. The leading <c>&gt;</c> is optional and the brackets may be
+        /// backslash-escaped, because HTML→Markdown exporters routinely emit the marker as a bare
+        /// <c>\[!TIP\]</c> line above the quoted body instead of as the quote's first line.
+        /// </summary>
+        private static readonly Regex AlertMarkerRegex = new Regex(
+            @"^>?\s*\\?\[!(?<type>NOTE|TIP|IMPORTANT|WARNING|CAUTION)\\?\]\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /// <summary>A backslash-escaped Markdown punctuation character; the escape is dropped on render.</summary>
+        private static readonly Regex EscapeRegex = new Regex(
+            @"\\([\\`*_{}\[\]()#+\-.!|>~])",
+            RegexOptions.Compiled);
+
+        /// <summary>The punctuation set a backslash may escape, per CommonMark.</summary>
+        private const string EscapableChars = "\\`*_{}[]()#+-.!|>~";
 
         // ---- Parsing --------------------------------------------------------------------------------
 
@@ -298,12 +369,20 @@ namespace Molca.Editor.UI
             var tableLines = new List<string>();
             var inCode = false;
             var codeLang = string.Empty; // fence info string, e.g. "mermaid"; routes the block on close
+            // Set by an alert marker line; consumed by the quote run that follows it, which then flushes as
+            // an Alert block instead of a plain Quote.
+            MolcaMarkdownAlertKind? pendingAlert = null;
+            // Indent columns of the currently open list levels, outermost first. A list item's depth is this
+            // stack's height, so nesting is read *relatively* — a doc indenting sub-items by two spaces and
+            // one indenting by four both come out one level deep. Blank lines keep the stack (a list may be
+            // loose); any other block kind clears it, ending the list.
+            var listIndents = new List<int>();
 
             // Flushes whichever multi-line accumulator is active before a different block type starts.
             void FlushPending()
             {
                 FlushParagraph(blocks, paragraph);
-                FlushQuote(blocks, quote);
+                FlushQuote(blocks, quote, ref pendingAlert);
                 FlushTable(blocks, tableLines);
             }
 
@@ -311,6 +390,7 @@ namespace Molca.Editor.UI
             {
                 var line = raw.TrimEnd();
                 var trimmed = line.Trim();
+                var indent = LeadingIndent(line);
 
                 if (trimmed.StartsWith("```", StringComparison.Ordinal))
                 {
@@ -324,6 +404,7 @@ namespace Molca.Editor.UI
                     else
                     {
                         FlushPending();
+                        listIndents.Clear();
                         // The info string after the opening fence selects the block kind on close.
                         codeLang = trimmed.Substring(3).Trim();
                         inCode = true;
@@ -343,11 +424,23 @@ namespace Molca.Editor.UI
                     continue;
                 }
 
+                // GitHub alert marker (`> [!TIP]`): arms the callout; the quote run that follows is its body.
+                if (TryReadAlertMarker(trimmed, out var alertKind))
+                {
+                    FlushParagraph(blocks, paragraph);
+                    FlushTable(blocks, tableLines);
+                    FlushQuote(blocks, quote, ref pendingAlert); // close any callout/quote still open
+                    listIndents.Clear();
+                    pendingAlert = alertKind;
+                    continue;
+                }
+
                 // Blockquote: merge a contiguous run of '>' lines into one Quote block.
                 if (trimmed.StartsWith(">", StringComparison.Ordinal))
                 {
                     FlushParagraph(blocks, paragraph);
                     FlushTable(blocks, tableLines);
+                    listIndents.Clear();
                     if (quote.Length > 0) quote.Append(' ');
                     quote.Append(trimmed.Substring(1).Trim());
                     continue;
@@ -357,18 +450,20 @@ namespace Molca.Editor.UI
                 if (IsTableRow(trimmed))
                 {
                     FlushParagraph(blocks, paragraph);
-                    FlushQuote(blocks, quote);
+                    FlushQuote(blocks, quote, ref pendingAlert);
+                    listIndents.Clear();
                     tableLines.Add(trimmed);
                     continue;
                 }
 
                 // Any non-quote, non-table line ends those runs.
-                FlushQuote(blocks, quote);
+                FlushQuote(blocks, quote, ref pendingAlert);
                 FlushTable(blocks, tableLines);
 
                 if (IsRule(trimmed))
                 {
                     FlushParagraph(blocks, paragraph);
+                    listIndents.Clear();
                     blocks.Add(new MolcaMarkdownBlock(MolcaMarkdownBlockKind.Rule, string.Empty));
                     continue;
                 }
@@ -376,20 +471,24 @@ namespace Molca.Editor.UI
                 if (TryReadTask(trimmed, out var isChecked, out var taskText))
                 {
                     FlushParagraph(blocks, paragraph);
-                    blocks.Add(new MolcaMarkdownBlock(MolcaMarkdownBlockKind.Task, CleanInline(taskText), taskText, isChecked));
+                    blocks.Add(new MolcaMarkdownBlock(
+                        MolcaMarkdownBlockKind.Task, CleanInline(taskText), taskText, isChecked,
+                        ListDepth(listIndents, indent)));
                     continue;
                 }
 
                 if (TryReadNumbered(trimmed, out var number, out var numberedText))
                 {
                     FlushParagraph(blocks, paragraph);
-                    blocks.Add(MakeBlock(MolcaMarkdownBlockKind.Numbered, numberedText, number));
+                    blocks.Add(MakeBlock(
+                        MolcaMarkdownBlockKind.Numbered, numberedText, number, ListDepth(listIndents, indent)));
                     continue;
                 }
 
                 if (TryReadHeading(trimmed, out var headingLevel, out var headingText))
                 {
                     FlushParagraph(blocks, paragraph);
+                    listIndents.Clear();
                     // The level (1–6) is carried in Number so the renderer can size the heading.
                     blocks.Add(MakeBlock(MolcaMarkdownBlockKind.Heading, headingText, headingLevel));
                     continue;
@@ -398,13 +497,16 @@ namespace Molca.Editor.UI
                 if (trimmed.StartsWith("- ", StringComparison.Ordinal) || trimmed.StartsWith("* ", StringComparison.Ordinal))
                 {
                     FlushParagraph(blocks, paragraph);
-                    blocks.Add(MakeBlock(MolcaMarkdownBlockKind.Bullet, trimmed.Substring(2).Trim()));
+                    blocks.Add(MakeBlock(
+                        MolcaMarkdownBlockKind.Bullet, trimmed.Substring(2).Trim(), 0,
+                        ListDepth(listIndents, indent)));
                     continue;
                 }
 
                 if (StartsWithLabel(trimmed, "Warning:"))
                 {
                     FlushParagraph(blocks, paragraph);
+                    listIndents.Clear();
                     blocks.Add(MakeBlock(MolcaMarkdownBlockKind.Warning, trimmed));
                     continue;
                 }
@@ -412,10 +514,12 @@ namespace Molca.Editor.UI
                 if (StartsWithLabel(trimmed, "Error:"))
                 {
                     FlushParagraph(blocks, paragraph);
+                    listIndents.Clear();
                     blocks.Add(MakeBlock(MolcaMarkdownBlockKind.Error, trimmed));
                     continue;
                 }
 
+                listIndents.Clear();
                 // Accumulate the raw line; inline markers are stripped only when the paragraph is flushed.
                 if (paragraph.Length > 0) paragraph.Append(' ');
                 paragraph.Append(trimmed);
@@ -457,6 +561,15 @@ namespace Molca.Editor.UI
             while (i < text.Length)
             {
                 var c = text[i];
+
+                // Backslash escape: the next character is literal, not markup. Only the CommonMark
+                // punctuation set is escapable, so a Windows path (`C:\Users`) is left untouched.
+                if (c == '\\' && i + 1 < text.Length && EscapableChars.IndexOf(text[i + 1]) >= 0)
+                {
+                    buffer.Append(text[i + 1]);
+                    i += 2;
+                    continue;
+                }
 
                 // [label](scheme...): an opted-in custom scheme becomes an Action run (checked before the
                 // general link handling so it isn't degraded to plain text as an unknown scheme).
@@ -540,7 +653,7 @@ namespace Molca.Editor.UI
 
         /// <summary>
         /// Removes lightweight inline Markdown markers that UI Toolkit labels cannot style inline, reducing a
-        /// string to its visible plain text (link → label, drop <c>**</c>/<c>`</c>, unescape <c>\_</c>).
+        /// string to its visible plain text (link → label, drop <c>**</c>/<c>`</c>, drop backslash escapes).
         /// </summary>
         public static string CleanInline(string text)
         {
@@ -552,7 +665,8 @@ namespace Molca.Editor.UI
             var clean = MarkdownLinkRegex.Replace(text, "${label}");
             clean = BoldRegex.Replace(clean, "$1");
             clean = InlineCodeRegex.Replace(clean, "$1");
-            return clean.Replace("\\_", "_");
+            // Mirrors the escape handling in ParseInline so plain text and rendered spans agree.
+            return EscapeRegex.Replace(clean, "$1");
         }
 
         // ---- Rendering ------------------------------------------------------------------------------
@@ -627,6 +741,12 @@ namespace Molca.Editor.UI
                     continue;
                 }
 
+                if (block.Kind == MolcaMarkdownBlockKind.Alert)
+                {
+                    parent.Add(CreateAlert(block, options));
+                    continue;
+                }
+
                 if (block.Kind == MolcaMarkdownBlockKind.Quote)
                 {
                     var quote = CreateInlineBlock(block.RawText, options);
@@ -665,7 +785,10 @@ namespace Molca.Editor.UI
         {
             var row = new VisualElement();
             row.AddToClassList("molca-md-list-row");
-            var marker = new Label(block.Kind == MolcaMarkdownBlockKind.Bullet ? "•" : $"{block.Number}.");
+            ApplyListIndent(row, block.Indent);
+            var marker = new Label(block.Kind == MolcaMarkdownBlockKind.Bullet
+                ? BulletGlyph(block.Indent)
+                : $"{block.Number}.");
             marker.AddToClassList("molca-md-list-marker");
             ApplyVariant(marker, options);
 
@@ -797,11 +920,70 @@ namespace Molca.Editor.UI
             return label;
         }
 
+        /// <summary>Left margin (px) added per level of list nesting.</summary>
+        private const float ListIndentPixels = 16f;
+
+        /// <summary>Indents a list row by its nesting depth, so a sub-list reads as subordinate to its parent.</summary>
+        private static void ApplyListIndent(VisualElement row, int depth)
+        {
+            if (depth > 0) row.style.marginLeft = depth * ListIndentPixels;
+        }
+
+        /// <summary>
+        /// The bullet glyph for a nesting depth, cycling disc → circle → square the way browsers style nested
+        /// <c>&lt;ul&gt;</c>s, so adjacent levels stay distinguishable when the indent alone is subtle.
+        /// </summary>
+        private static string BulletGlyph(int depth) => (depth % 3) switch
+        {
+            1 => "◦",
+            2 => "▪",
+            _ => "•"
+        };
+
+        /// <summary>
+        /// Builds a GitHub-style alert callout: a titled, type-colored variant of the blockquote. The title
+        /// is derived from the marker type (the marker itself is never shown); the body renders as ordinary
+        /// inline Markdown.
+        /// </summary>
+        private static VisualElement CreateAlert(MolcaMarkdownBlock block, MolcaMarkdownOptions options)
+        {
+            var box = new VisualElement();
+            box.AddToClassList("molca-md-alert");
+            box.AddToClassList(AlertModifierClass(block.Alert));
+
+            var title = new Label(AlertTitle(block.Alert));
+            title.AddToClassList("molca-md-alert__title");
+            box.Add(title);
+            box.Add(CreateInlineBlock(block.RawText, options));
+            return box;
+        }
+
+        /// <summary>The visible heading shown in place of an alert's <c>[!TYPE]</c> marker.</summary>
+        private static string AlertTitle(MolcaMarkdownAlertKind kind) => kind switch
+        {
+            MolcaMarkdownAlertKind.Tip => "Tip",
+            MolcaMarkdownAlertKind.Important => "Important",
+            MolcaMarkdownAlertKind.Warning => "Warning",
+            MolcaMarkdownAlertKind.Caution => "Caution",
+            _ => "Note"
+        };
+
+        /// <summary>The BEM modifier class carrying an alert's accent color.</summary>
+        private static string AlertModifierClass(MolcaMarkdownAlertKind kind) => kind switch
+        {
+            MolcaMarkdownAlertKind.Tip => "molca-md-alert--tip",
+            MolcaMarkdownAlertKind.Important => "molca-md-alert--important",
+            MolcaMarkdownAlertKind.Warning => "molca-md-alert--warning",
+            MolcaMarkdownAlertKind.Caution => "molca-md-alert--caution",
+            _ => "molca-md-alert--note"
+        };
+
         private static VisualElement CreateTaskRow(MolcaMarkdownBlock block, MolcaMarkdownOptions options)
         {
             var row = new VisualElement();
             row.AddToClassList("molca-md-list-row");
             row.AddToClassList("molca-md-task");
+            ApplyListIndent(row, block.Indent);
 
             var box = new Label(block.Checked ? "☑" : "☐");
             box.AddToClassList("molca-md-list-marker");
@@ -1123,11 +1305,45 @@ namespace Molca.Editor.UI
             paragraph.Length = 0;
         }
 
-        private static void FlushQuote(ICollection<MolcaMarkdownBlock> blocks, StringBuilder quote)
+        /// <summary>
+        /// Emits a buffered blockquote run as a <see cref="MolcaMarkdownBlockKind.Quote"/> block, or as a
+        /// <see cref="MolcaMarkdownBlockKind.Alert"/> callout when <paramref name="alert"/> was armed by a
+        /// preceding marker line. Always disarms <paramref name="alert"/>; a marker with no quoted body
+        /// after it renders nothing rather than leaking the literal <c>[!TIP]</c> text into the output.
+        /// </summary>
+        private static void FlushQuote(
+            ICollection<MolcaMarkdownBlock> blocks, StringBuilder quote, ref MolcaMarkdownAlertKind? alert)
         {
-            if (quote.Length == 0) return;
-            blocks.Add(MakeBlock(MolcaMarkdownBlockKind.Quote, quote.ToString().Trim()));
+            if (quote.Length == 0)
+            {
+                alert = null;
+                return;
+            }
+
+            var raw = quote.ToString().Trim();
+            blocks.Add(alert.HasValue
+                ? new MolcaMarkdownBlock(alert.Value, CleanInline(raw), raw)
+                : MakeBlock(MolcaMarkdownBlockKind.Quote, raw));
             quote.Length = 0;
+            alert = null;
+        }
+
+        /// <summary>Reads a GitHub alert marker line, returning the callout type it names.</summary>
+        private static bool TryReadAlertMarker(string line, out MolcaMarkdownAlertKind kind)
+        {
+            kind = MolcaMarkdownAlertKind.Note;
+            var match = AlertMarkerRegex.Match(line);
+            if (!match.Success) return false;
+
+            switch (match.Groups["type"].Value.ToUpperInvariant())
+            {
+                case "TIP": kind = MolcaMarkdownAlertKind.Tip; break;
+                case "IMPORTANT": kind = MolcaMarkdownAlertKind.Important; break;
+                case "WARNING": kind = MolcaMarkdownAlertKind.Warning; break;
+                case "CAUTION": kind = MolcaMarkdownAlertKind.Caution; break;
+                default: kind = MolcaMarkdownAlertKind.Note; break;
+            }
+            return true;
         }
 
         /// <summary>
@@ -1197,15 +1413,25 @@ namespace Molca.Editor.UI
             return cells;
         }
 
-        /// <summary>A horizontal rule: three or more of a single <c>-</c>/<c>*</c>/<c>_</c> char, nothing else.</summary>
+        /// <summary>
+        /// A horizontal rule: three or more of a single <c>-</c>/<c>*</c>/<c>_</c> char and nothing else.
+        /// Spaces between the markers are allowed (<c>* * *</c>) — CommonMark permits it and HTML→Markdown
+        /// exporters emit that form; without this the line would fall through to the bullet branch and
+        /// render as a stray "• * *" list item.
+        /// </summary>
         private static bool IsRule(string line)
         {
-            if (line.Length < 3) return false;
-            var c = line[0];
-            if (c != '-' && c != '*' && c != '_') return false;
+            var marker = '\0';
+            var count = 0;
             foreach (var ch in line)
-                if (ch != c) return false;
-            return true;
+            {
+                if (ch == ' ' || ch == '\t') continue;
+                if (ch != '-' && ch != '*' && ch != '_') return false;
+                if (count == 0) marker = ch;
+                else if (ch != marker) return false;
+                count++;
+            }
+            return count >= 3;
         }
 
         /// <summary>Reads a task-list item (<c>- [ ] text</c> / <c>- [x] text</c>); checked for x/X.</summary>
@@ -1225,8 +1451,55 @@ namespace Molca.Editor.UI
         }
 
         /// <summary>Builds a block holding both the cleaned text and the raw (marker-preserving) text.</summary>
-        private static MolcaMarkdownBlock MakeBlock(MolcaMarkdownBlockKind kind, string raw, int number = 0)
-            => new MolcaMarkdownBlock(kind, CleanInline(raw), raw, number);
+        private static MolcaMarkdownBlock MakeBlock(MolcaMarkdownBlockKind kind, string raw, int number = 0, int indent = 0)
+            => new MolcaMarkdownBlock(kind, CleanInline(raw), raw, number, indent);
+
+        /// <summary>
+        /// The visual column a line's content starts at, counting a tab as <see cref="TabWidth"/> spaces.
+        /// </summary>
+        private static int LeadingIndent(string line)
+        {
+            var column = 0;
+            foreach (var ch in line)
+            {
+                if (ch == ' ') column++;
+                else if (ch == '\t') column += TabWidth;
+                else break;
+            }
+            return column;
+        }
+
+        /// <summary>A tab's width in columns when measuring list indentation.</summary>
+        private const int TabWidth = 4;
+
+        /// <summary>
+        /// Cap on list nesting depth. Past this, deeper items keep rendering at the cap rather than marching
+        /// off the right edge of a narrow editor pane.
+        /// </summary>
+        private const int MaxListDepth = 5;
+
+        /// <summary>
+        /// Resolves a list item's nesting depth against the open levels in <paramref name="openIndents"/>,
+        /// updating that stack in place. Depth is relative, not a fixed spaces-per-level divisor: the first
+        /// item opens level 0 at whatever column it starts on, a more-indented item opens the next level, and
+        /// a less-indented one closes levels until it matches an open column again. A doc that nests by two
+        /// spaces and one that nests by four therefore both read as one level deep.
+        /// </summary>
+        /// <param name="openIndents">Indent columns of the currently open levels, outermost first.</param>
+        /// <param name="indent">The item's indent column, from <see cref="LeadingIndent"/>.</param>
+        /// <returns>The 0-based depth, clamped to <see cref="MaxListDepth"/>.</returns>
+        private static int ListDepth(List<int> openIndents, int indent)
+        {
+            // Close every level indented deeper than this item.
+            while (openIndents.Count > 0 && indent < openIndents[openIndents.Count - 1])
+                openIndents.RemoveAt(openIndents.Count - 1);
+
+            // Open a new level when this item is indented past the innermost open one (or is the first item).
+            if (openIndents.Count == 0 || indent > openIndents[openIndents.Count - 1])
+                openIndents.Add(indent);
+
+            return Mathf.Min(openIndents.Count - 1, MaxListDepth);
+        }
 
         /// <summary>Reads an ATX heading (<c># </c> … <c>###### </c>), returning its level (1–6) and text.</summary>
         private static bool TryReadHeading(string line, out int level, out string text)

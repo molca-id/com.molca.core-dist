@@ -175,4 +175,4 @@ only when its registered type is `T` or a base of `T`.
 - [Subsystems](SUBSYSTEMS.md)
 - [Runtime Manager](RUNTIME_MANAGER.md)
 - [Dependency Injection](DEPENDENCY_INJECTION.md)
-- [Sequences](SEQUENCES.md)
+- [Sequences](molca://doc/SEQUENCES)

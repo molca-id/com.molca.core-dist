@@ -179,7 +179,7 @@ runtime-resolvable through this system.
 
 ## See also
 
-- [Sequences](SEQUENCES.md)
+- [Sequences](molca://doc/SEQUENCES)
 - [Subsystems](SUBSYSTEMS.md)
 - [Events](EVENTS.md)
 - [Dependency Injection](DEPENDENCY_INJECTION.md)

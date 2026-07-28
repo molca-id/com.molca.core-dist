@@ -13,7 +13,7 @@ namespace Molca.Editor.Mcp.Providers
         /// <summary>
         /// The <c>molca_refids</c> tool (Sprint 15.5): all Ref Ids exposed by live
         /// <see cref="IReferenceable"/> components in the loaded scene(s) — including
-        /// <see cref="ReferenceableComponent"/>, <see cref="Molca.Sequence.Step"/>,
+        /// <see cref="ReferenceableComponent"/>, <c>Step</c>,
         /// <c>SequenceController</c>, and any custom implementer — plus any
         /// <see cref="SceneObjectReference"/> whose Ref Id resolves to no such component (unresolved).
         /// Works in both Edit and Play mode (scans loaded scene objects directly).
@@ -110,7 +110,7 @@ namespace Molca.Editor.Mcp.Providers
 
         /// <summary>
         /// All live <see cref="IReferenceable"/> components in the loaded scene(s) — the true runtime
-        /// registry set. Spans <see cref="ReferenceableComponent"/>, <see cref="Molca.Sequence.Step"/>,
+        /// registry set. Spans <see cref="ReferenceableComponent"/>, <c>Step</c>,
         /// <c>SequenceController</c>, and any custom implementer, rather than a single concrete type.
         /// Shared by <c>molca_refids</c> and <c>molca_fix_refids</c> so both agree on what is "known".
         /// </summary>

@@ -6,7 +6,7 @@ order: 950
 
 # Core MCP Tools
 
-`CoreMcpToolProvider` owns the `molca` namespace: the introspection, sequence/content/settings authoring, networking, localization, knowledge-graph, and ClickUp tools that are specific to Molca Core. General-purpose Unity-editor actions live in [`UnityMcpToolProvider`](UNITY_MCP_TOOLS.md). The Figma tools (`molca_figma_*`) moved to the `com.molca.integration.figma` add-on's own `FigmaMcpToolProvider`, owning the `molca.figma` namespace — see [Figma → UI Intent Spec](FIGMA_TO_UI_SPEC.md).
+`CoreMcpToolProvider` owns the `molca` namespace: the introspection, content/settings authoring, networking, localization, knowledge-graph, and ClickUp tools that are specific to Molca Core. General-purpose Unity-editor actions live in [`UnityMcpToolProvider`](UNITY_MCP_TOOLS.md). The Figma tools (`molca_figma_*`) moved to the `com.molca.integration.figma` add-on's own `FigmaMcpToolProvider`, owning the `molca.figma` namespace — see [Figma → UI Intent Spec](FIGMA_TO_UI_SPEC.md). The sequence tools (`molca_sequence_*`, `molca_validate_sequence`, `molca_validate_all_sequences`) moved to the `com.molca.sequence` add-on's own `SequenceMcpToolProvider`, still under the `molca` namespace (unchanged tool names, for back-compat) — see [Sequence MCP Tools](molca://doc/SEQUENCE_MCP_TOOLS).
 
 ## Provider Layout
 
@@ -16,8 +16,7 @@ Tools are discovered by convention from the `Create*Tool()` factories across the
 - `CoreMcpToolProvider.Status.cs` / `.BuildInfo.cs`: editor/runtime status and build-profile/version info.
 - `CoreMcpToolProvider.Subsystems.cs` / `.Services.cs` / `.Bootstrap.cs`: live subsystem graph, DI service registrations, and static bootstrap description.
 - `CoreMcpToolProvider.FrameworkGraph.cs`: read-only project-wiring map.
-- `CoreMcpToolProvider.Sequence*.cs` / `.Author.cs` / `.Remediate.cs`: sequence validation, field reads/edits, structural edits, playback, whole-graph authoring, and remediation.
-- `CoreMcpToolProvider.Codegen.cs` / `.CreateMcpTool.cs`: Step/Auxiliary script scaffolding and MCP-tool codegen.
+- `CoreMcpToolProvider.CreateMcpTool.cs`: MCP-tool codegen. (Step/Auxiliary script scaffolding moved with the sequence tools — see below.)
 - `CoreMcpToolProvider.RefIds.cs` / `.RefIdFix.cs`: Ref Id listing and repair.
 - `CoreMcpToolProvider.ContentPackages.cs`: Play-mode content package listing, sizing, queue status, and install/update lifecycle.
 - `CoreMcpToolProvider.ContentAuthoring.cs` / `.ContentBuild.cs`: content-package config authoring, build-config authoring, build verification, build, and deploy.
@@ -42,13 +41,6 @@ Status / runtime introspection:
 - `molca_services`: `RuntimeManager` service-container registrations. Play mode.
 - `molca_describe_bootstrap`: static bootstrap description.
 - `molca_framework_graph`: read-only project-wiring map.
-
-Sequences:
-
-- `molca_validate_sequence`: validate one `SequenceController`.
-- `molca_validate_all_sequences`: validate every `SequenceController` across loaded scenes.
-- `molca_sequence_list_types`: concrete `Step` / `StepAuxiliary` types and writable fields.
-- `molca_sequence_get_step_fields`: current serialized field values for a step and auxiliaries.
 
 Reference system:
 
@@ -110,10 +102,6 @@ Interactive:
 
 Unity Undo-backed (`McpToolReversibility.UnityUndo`, Edit mode):
 
-- Sequence field edits: `molca_sequence_set_step_fields`, `molca_sequence_add_auxiliary`, `molca_sequence_remove_auxiliary`, `molca_sequence_set_auxiliary_fields`
-- Sequence structure: `molca_sequence_add_steps`, `molca_sequence_remove_steps`, `molca_sequence_duplicate_steps`, `molca_sequence_change_type`, `molca_sequence_reparent`
-- Whole-graph authoring: `molca_sequence_author`
-- Sequence remediation: `molca_sequence_remediate` for Unity-Undo-safe remediation. File-snapshot fixes such as `BrokenAuxiliary` are intentionally delegated to `molca_sequence_fix`.
 - Ref Id repair: `molca_fix_refids`
 - Settings: `molca_settings_set_fields`
 - Networking: `molca_network_create_request`, `molca_network_set_request_fields`
@@ -123,7 +111,6 @@ Unity Undo-backed (`McpToolReversibility.UnityUndo`, Edit mode):
 File-snapshot reversible (`McpToolReversibility.FileSnapshot`, revert via `molca_undo_last_action`):
 
 - `molca_run_doctor_fix`
-- `molca_sequence_fix`
 - `molca_edit_source`: guarded, reversible in-place editing of a single project file — the write half of the
   file loop that pairs with the read-only `molca_read_source` (read the file first so an exact-string
   `replace` matches). Four discriminated `mode`s: `replace` (exact `oldString`→`newString`; must match
@@ -140,7 +127,6 @@ File-snapshot reversible (`McpToolReversibility.FileSnapshot`, revert via `molca
 
 Play-mode runtime actions (irreversible):
 
-- `molca_sequence_start`, `molca_sequence_complete_step`
 - `molca_content_install`, `molca_content_uninstall`, `molca_content_update`, `molca_content_switch_version`, `molca_content_cancel`
 - `molca_content_queue_pause`, `molca_content_queue_resume`, `molca_content_queue_cancel_all`
 - `molca_localization_set_language`
@@ -151,7 +137,6 @@ Edit-mode irreversible actions:
 - `molca_content_build`
 - `molca_content_deploy`
 - `molca_content_bind_group`
-- `molca_sequence_create_step_script`, `molca_sequence_create_auxiliary_script`
 - `molca_create_mcp_tool`
 - `molca_trigger_build`
 - `molca_kg_build`
@@ -160,8 +145,8 @@ Edit-mode irreversible actions:
 
 ## Usage Rules
 
-- Use read tools before action tools to resolve targets: sequence type/field reads before sequence edits, `molca_refids` before Ref Id fixes, settings reads before `molca_settings_set_fields`, networking reads before request edits, and localization coverage before localization edits.
-- Sequence, settings, localization text/language-list, and most content-config edits route through Unity Undo.
+- Use read tools before action tools to resolve targets: `molca_refids` before Ref Id fixes, settings reads before `molca_settings_set_fields`, networking reads before request edits, and localization coverage before localization edits.
+- Settings, localization text/language-list, and most content-config edits route through Unity Undo.
 - Doctor/validation fixes that touch scene files are snapshotted for `molca_undo_last_action`.
 - Play-mode control, content lifecycle, codegen, ClickUp writes, builds, deploys, and graph generation are irreversible.
 - Codegen tools write `.cs` files; new types are unavailable until after a domain reload.
@@ -175,5 +160,5 @@ Edit-mode irreversible actions:
 
 - [UNITY_MCP_TOOLS.md](UNITY_MCP_TOOLS.md): general-purpose `molca.unity` Unity-editor tools.
 - [MCP_FORK_PROVIDERS.md](MCP_FORK_PROVIDERS.md): adding provider tools from an SDK fork.
-- [SEQUENCE_AUTHORING.md](SEQUENCE_AUTHORING.md) / [SEQUENCE_VALIDATION.md](SEQUENCE_VALIDATION.md): the sequence model the sequence tools operate on.
+- [Sequence MCP Tools](molca://doc/SEQUENCE_MCP_TOOLS) (`com.molca.sequence` add-on): the `molca_sequence_*`/`molca_validate_sequence` tools that moved out of this provider.
 - [KNOWLEDGE_GRAPH.md](KNOWLEDGE_GRAPH.md): the graphify knowledge graph behind the `molca_kg_*` tools.

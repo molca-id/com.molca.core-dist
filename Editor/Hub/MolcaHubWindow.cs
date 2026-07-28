@@ -33,14 +33,11 @@ namespace Molca.Editor.Hub
             new SectionInfo(MolcaHubSection.Tasks, "Tasks", "Your ClickUp tasks for this project's folder, with inline status changes."),
             new SectionInfo(MolcaHubSection.Mcp, "MCP", "MCP bridge, auth token, proxy, and tool provider settings."),
             new SectionInfo(MolcaHubSection.Network, "Network", "Live HTTP request counts, redacted request history, cache size, and streaming-provider status."),
-            new SectionInfo(MolcaHubSection.Sequences, "Sequences", "Validation status of every SequenceController in the open scene(s)."),
             new SectionInfo(MolcaHubSection.Assistant, "Assistant", "In-editor chat assistant provider, model, and API key."),
             new SectionInfo(MolcaHubSection.AddOnsBrowse, "Browse", "Discover and install signed add-on packs entitled to this license and compatible with this Core."),
             new SectionInfo(MolcaHubSection.AddOnsInstalled, "Installed", "Manage installed add-ons: updates, removal, integrity status, and signed-bundle import."),
             new SectionInfo(MolcaHubSection.About, "About", "Installed versions, framework update check, license, and links.")
         };
-
-        private readonly List<Button> _workspaceButtons = new List<Button>();
 
         // Nested navigation rail (TreeView) state. _railRoots holds the built node hierarchy; the id maps are
         // rebuilt on every (re)build/filter so selection and expansion can be addressed by stable node id.
@@ -52,8 +49,12 @@ namespace Molca.Editor.Hub
         private bool _suppressRailSelection;
         private int _nextItemId;
 
-        // Non-Settings workspace tabs resolved from the provider registry (Core's Doctor/Assistant/Sequence
-        // plus any consumer-contributed tabs), rebuilt each time the shell is constructed.
+        // The row Enter in the search field activates: the first leaf surviving the active filter.
+        private MolcaHubRailNode _firstFilterMatch;
+
+        // Non-Settings workspace tabs resolved from the provider registry (Core's Doctor/Assistant plus
+        // com.molca.sequence's Sequence tab and any other consumer-contributed tabs), rebuilt each time
+        // the shell is constructed.
         private IReadOnlyList<MolcaHubWorkspaceItem> _workspaceItems = System.Array.Empty<MolcaHubWorkspaceItem>();
 
         private MolcaHubState _state;
@@ -67,6 +68,8 @@ namespace Molca.Editor.Hub
         private VisualElement _settingsBody;
         private VisualElement _workspaceHost;
         private VisualElement _workspaceToolbar;
+        private MolcaHubTabStrip _tabStrip;
+        private MolcaHubWorkspaceViewCache _viewCache;
         private MolcaHubActivityRail _activityRail;
 
         /// <summary>Opens or focuses the Molca Hub window.</summary>
@@ -98,7 +101,7 @@ namespace Molca.Editor.Hub
             window.Show();
 
             var workspaceId = MolcaHubState.WorkspaceId(workspace);
-            if (window._state != null && window._workspaceButtons.Count > 0)
+            if (window._state != null && window._tabStrip != null)
                 window.SelectWorkspace(workspaceId);
             else
                 MolcaHubState.Load().SetWorkspace(workspaceId); // CreateGUI restores this on first build
@@ -123,7 +126,7 @@ namespace Molca.Editor.Hub
             window.minSize = new Vector2(520, 360);
             window.Show();
 
-            if (window._state != null && window._workspaceButtons.Count > 0)
+            if (window._state != null && window._tabStrip != null)
                 window.SelectWorkspace(Docs.DocsWorkspaceProvider.WorkspaceId);
             else
                 MolcaHubState.Load().SetWorkspace(Docs.DocsWorkspaceProvider.WorkspaceId);
@@ -144,7 +147,7 @@ namespace Molca.Editor.Hub
             window.minSize = new Vector2(520, 360);
             window.Show();
 
-            if (window._state != null && window._workspaceButtons.Count > 0)
+            if (window._state != null && window._tabStrip != null)
             {
                 window.SelectWorkspace(MolcaHubWorkspaceRegistry.SettingsId);
                 window.SelectSection(MolcaHubSection.About);
@@ -160,18 +163,19 @@ namespace Molca.Editor.Hub
         {
             titleContent = MolcaEditorIcons.WindowTitle("Molca Hub", "logo-dark");
             MolcaHubWorkspaceRegistry.VisibilityChanged += RefreshWorkspaceToolbar;
+            MolcaHubWorkspaceRegistry.PinsChanged += RefreshTabPriority;
         }
 
         private void OnDisable()
         {
             MolcaHubWorkspaceRegistry.VisibilityChanged -= RefreshWorkspaceToolbar;
+            MolcaHubWorkspaceRegistry.PinsChanged -= RefreshTabPriority;
         }
 
         /// <summary>Builds the initial Hub shell from package UXML/USS assets.</summary>
         public void CreateGUI()
         {
             _state = MolcaHubState.Load();
-            _workspaceButtons.Clear();
 
             var root = rootVisualElement;
             root.Clear();
@@ -220,6 +224,7 @@ namespace Molca.Editor.Hub
             _workspaceHost.AddToClassList("molca-hub-workspace-host");
             _workspaceHost.style.display = DisplayStyle.None;
             root.Add(_workspaceHost);
+            _viewCache = new MolcaHubWorkspaceViewCache(_workspaceHost);
 
             // Slim, full-width activity rail pinned to the bottom of the shell (last child of the flex-column
             // root). It surfaces ongoing processes — e.g. a Doctor run that keeps going across tab switches —
@@ -230,115 +235,46 @@ namespace Molca.Editor.Hub
             _workspaceToolbar = root.Q<VisualElement>("workspace-toolbar");
             _workspaceItems = MolcaHubWorkspaceRegistry.GetWorkspaces();
 
-            BuildWorkspaceToolbar(_workspaceToolbar);
+            // The strip replaces the *contents* of the existing toolbar element, not the element: it owns
+            // building, measuring, and degrading the tabs, so the window only says "here are the items" and
+            // "this one is active".
+            _tabStrip = new MolcaHubTabStrip(SelectWorkspace, OpenTabManagement);
+            _workspaceToolbar?.Add(_tabStrip);
+            _tabStrip.SetItems(_workspaceItems);
+
             BuildSettingsRail();
             SelectWorkspace(_state.Workspace);
+        }
+
+        /// <summary>Navigates to the Settings ▸ Editor section, where the Workspace Tabs card lives.</summary>
+        private void OpenTabManagement()
+        {
+            SelectWorkspace(MolcaHubWorkspaceRegistry.SettingsId);
+            SelectSection(MolcaHubSection.Editor);
         }
 
         private static T LoadAsset<T>(string fileName) where T : UnityEngine.Object =>
             AssetDatabase.LoadAssetAtPath<T>(AssetDir + fileName);
 
-        private void BuildWorkspaceToolbar(VisualElement toolbar)
-        {
-            if (toolbar == null) return;
-
-            // Settings is the anchored home tab (Core-owned, always first). Every other tab — Core's own
-            // Doctor/Assistant/Sequence and any consumer-contributed workspace — comes from the registry.
-            // Left-aligned tabs sit before the flexible spacer; right-anchored tabs (e.g. Docs) after it.
-            toolbar.Add(BuildToolbarToggle(MolcaHubWorkspaceRegistry.SettingsId, "Settings", "settings"));
-            foreach (var item in _workspaceItems)
-                if (!item.RightAnchored)
-                {
-                    toolbar.Add(MakeTabDivider());
-                    toolbar.Add(BuildToolbarToggle(item.Id, item.Label, item.Icon));
-                }
-
-            var spacer = new VisualElement();
-            spacer.AddToClassList("molca-hub-spacer");
-            toolbar.Add(spacer);
-
-            var firstRight = true;
-            foreach (var item in _workspaceItems)
-                if (item.RightAnchored)
-                {
-                    if (!firstRight) toolbar.Add(MakeTabDivider());
-                    toolbar.Add(BuildToolbarToggle(item.Id, item.Label, item.Icon));
-                    firstRight = false;
-                }
-        }
-
-        /// <summary>Builds a thin vertical divider that visually separates adjacent workspace tabs.</summary>
-        private static VisualElement MakeTabDivider()
-        {
-            var divider = new VisualElement { pickingMode = PickingMode.Ignore };
-            divider.AddToClassList("molca-hub-tab-divider");
-            return divider;
-        }
-
+        /// <summary>
+        /// Rebuilds the toolbar after the resolved workspace set changed (a tab was hidden or shown). The
+        /// view cache is dropped with it: a cached view whose tab no longer exists has no way back.
+        /// </summary>
         private void RefreshWorkspaceToolbar()
         {
-            if (_workspaceToolbar == null || _state == null) return;
+            if (_tabStrip == null || _state == null) return;
 
             _workspaceItems = MolcaHubWorkspaceRegistry.GetWorkspaces();
-            _workspaceButtons.Clear();
-            _workspaceToolbar.Clear();
-            BuildWorkspaceToolbar(_workspaceToolbar);
+            _viewCache?.Clear();
+            _tabStrip.SetItems(_workspaceItems);
             SelectWorkspace(_state.Workspace);
         }
 
         /// <summary>
-        /// Builds one workspace toolbar tab as <c>[icon] [label] [underline]</c>. The selection indicator is
-        /// a child <see cref="VisualElement"/> strip (styled via the parent's <c>--active</c> class), not a
-        /// button border: Unity's built-in <see cref="Button"/> repaints its own border box on focus, which
-        /// would erase a border-based underline the moment the tab is clicked.
+        /// Re-runs the strip's fitting pass after the pinned set changed. The tabs themselves are unchanged,
+        /// so nothing is rebuilt and no workspace view is torn down — only which tabs keep a slot.
         /// </summary>
-        private Button BuildToolbarToggle(string workspaceId, string label, string icon)
-        {
-            var button = new Button(() => SelectWorkspace(workspaceId));
-            button.AddToClassList("molca-hub-workspace-tab");
-            button.userData = workspaceId;
-
-            var iconTexture = ResolveTabIcon(icon);
-            if (iconTexture != null)
-            {
-                var image = new Image { image = iconTexture, scaleMode = ScaleMode.ScaleToFit };
-                image.AddToClassList("molca-hub-workspace-tab__icon");
-                image.pickingMode = PickingMode.Ignore;
-                button.Add(image);
-            }
-
-            var text = new Label(label) { pickingMode = PickingMode.Ignore };
-            text.AddToClassList("molca-hub-workspace-tab__label");
-            button.Add(text);
-
-            var underline = new VisualElement { pickingMode = PickingMode.Ignore };
-            underline.AddToClassList("molca-hub-workspace-tab__underline");
-            button.Add(underline);
-
-            _workspaceButtons.Add(button);
-            return button;
-        }
-
-        /// <summary>
-        /// Resolves a tab icon by name: first an on-brand Molca family icon shipped in the package
-        /// (<see cref="MolcaEditorIcons.Family"/>), then a skin-aware built-in editor icon. Returns
-        /// <c>null</c> when the name is empty or nothing matches, in which case the tab renders label-only.
-        /// </summary>
-        private static Texture ResolveTabIcon(string icon)
-        {
-            if (string.IsNullOrEmpty(icon)) return null;
-
-            var family = MolcaEditorIcons.Family(icon);
-            if (family != null) return family;
-
-            if (EditorGUIUtility.isProSkin && !icon.StartsWith("d_"))
-            {
-                var pro = EditorGUIUtility.IconContent("d_" + icon)?.image;
-                if (pro != null) return pro;
-            }
-
-            return EditorGUIUtility.IconContent(icon)?.image;
-        }
+        private void RefreshTabPriority() => _tabStrip?.Refresh();
 
         private void BuildSettingsRail()
         {
@@ -371,7 +307,26 @@ namespace Molca.Editor.Hub
                 _searchPlaceholder.AddToClassList("molca-hub-search-placeholder");
                 _searchField.Add(_searchPlaceholder);
                 _searchField.RegisterValueChangedCallback(evt => ApplyRailFilter(evt.newValue));
+                _searchField.RegisterCallback<KeyDownEvent>(OnSearchKeyDown);
             }
+        }
+
+        /// <summary>Enter in the search field activates the first surviving match (a workspace, if any matched).</summary>
+        private void OnSearchKeyDown(KeyDownEvent evt)
+        {
+            if (evt.keyCode != KeyCode.Return && evt.keyCode != KeyCode.KeypadEnter) return;
+            if (_firstFilterMatch == null) return;
+
+            var node = _firstFilterMatch;
+            evt.StopPropagation();
+
+            if (node.Activate != null)
+            {
+                node.Activate();
+                return;
+            }
+
+            SelectNodeById(node.Id);
         }
 
         // ---- Rail node model ----------------------------------------------------------------------
@@ -386,28 +341,69 @@ namespace Molca.Editor.Hub
         {
             _railRoots.Clear();
 
-            _railRoots.Add(Category("cat:framework", "Framework",
+            _railRoots.Add(Category(MolcaHubSettingsLeafRegistry.Framework, "Framework",
                 SectionLeaf(MolcaHubSection.Project),
                 SectionLeaf(MolcaHubSection.BuildVersion),
                 SectionLeaf(MolcaHubSection.RuntimeGlobal),
                 SectionLeaf(MolcaHubSection.Editor)));
 
-            _railRoots.Add(Category("cat:tooling", "Tooling",
+            _railRoots.Add(Category(MolcaHubSettingsLeafRegistry.Tooling, "Tooling",
                 SectionLeaf(MolcaHubSection.Integrations),
                 SectionLeaf(MolcaHubSection.Tasks),
                 SectionLeaf(MolcaHubSection.Mcp),
-                SectionLeaf(MolcaHubSection.Network),
-                SectionLeaf(MolcaHubSection.Sequences)));
+                SectionLeaf(MolcaHubSection.Network)));
 
-            _railRoots.Add(Category("cat:addons", "Add-ons",
+            _railRoots.Add(Category(MolcaHubSettingsLeafRegistry.Addons, "Add-ons",
                 SectionLeaf(MolcaHubSection.AddOnsBrowse),
                 SectionLeaf(MolcaHubSection.AddOnsInstalled)));
+
+            AppendProviderLeaves();
 
             _railRoots.Add(SectionLeaf(MolcaHubSection.Assistant));
 
             // About sits last and uncategorized: it is the one leaf that reports on the framework itself
             // rather than configuring it, and it is conventionally the bottom of a settings rail.
             _railRoots.Add(SectionLeaf(MolcaHubSection.About));
+        }
+
+        /// <summary>
+        /// Appends every <see cref="MolcaHubSettingsLeafProvider"/> contribution to the category it named.
+        /// Leaves naming an unknown (or no) category collect under an "Extensions" root that is created only
+        /// when at least one leaf lands there — a fork (or <c>com.molca.sequence</c>'s Sequences panel) that
+        /// contributes nothing never sees an empty branch.
+        /// </summary>
+        private void AppendProviderLeaves()
+        {
+            var leaves = MolcaHubSettingsLeafRegistry.GetLeaves();
+            if (leaves.Count == 0) return;
+
+            List<MolcaHubRailNode> extensions = null;
+            foreach (var leaf in leaves)
+            {
+                var node = new MolcaHubRailNode(
+                    MolcaHubSettingsLeafRegistry.NodeId(leaf.Id), leaf.Label, leaf.CreateContent, leaf.Description);
+
+                var category = MolcaHubSettingsLeafRegistry.ResolveCategory(leaf.Group);
+                if (category == MolcaHubSettingsLeafRegistry.Extensions)
+                {
+                    (extensions ??= new List<MolcaHubRailNode>()).Add(node);
+                    continue;
+                }
+
+                FindRoot(category)?.Children.Add(node);
+            }
+
+            if (extensions != null)
+                _railRoots.Add(new MolcaHubRailNode(
+                    MolcaHubSettingsLeafRegistry.Extensions, MolcaHubSettingsLeafRegistry.ExtensionsLabel, extensions));
+        }
+
+        private MolcaHubRailNode FindRoot(string nodeId)
+        {
+            foreach (var root in _railRoots)
+                if (root.Id == nodeId)
+                    return root;
+            return null;
         }
 
         private static MolcaHubRailNode Category(string id, string label, params MolcaHubRailNode[] children)
@@ -473,7 +469,13 @@ namespace Molca.Editor.Hub
             foreach (var obj in selected) { node = obj as MolcaHubRailNode; break; }
             if (node == null) return;
 
-            if (node.IsLeaf)
+            if (node.Activate != null)
+            {
+                // A command leaf is a jump, not a location: run it and deliberately do not persist it as the
+                // active rail node, so returning to Settings restores the last real section.
+                node.Activate();
+            }
+            else if (node.IsLeaf)
             {
                 ShowNode(node);
                 _state.SetRailNode(node.Id);
@@ -519,10 +521,30 @@ namespace Molca.Editor.Hub
             _nextItemId = 0;
 
             var roots = new List<TreeViewItemData<MolcaHubRailNode>>();
-            foreach (var node in _railRoots)
+
+            // While a filter is active, matching workspace tabs are offered first as command leaves. A tab the
+            // user cannot see is a tab they cannot find, and switching workspace is the more expensive thing
+            // to do by hand — so workspace results outrank section results.
+            var shown = new List<MolcaHubRailNode>();
+            var workspaces = MolcaHubRailFilter.BuildWorkspaceCategory(_workspaceItems, filter, SelectWorkspace);
+            if (workspaces != null) shown.Add(workspaces);
+            shown.AddRange(_railRoots);
+
+            foreach (var node in shown)
             {
                 var data = BuildItemData(node, filter);
                 if (data.HasValue) roots.Add(data.Value);
+            }
+
+            // Remember what Enter in the search field should activate: the first surviving leaf, in the order
+            // the rows are actually rendered.
+            _firstFilterMatch = null;
+            foreach (var node in shown)
+            {
+                var leaf = FirstVisibleLeaf(node);
+                if (leaf == null) continue;
+                _firstFilterMatch = leaf;
+                break;
             }
 
             _suppressRailSelection = true;
@@ -542,8 +564,7 @@ namespace Molca.Editor.Hub
         // filtered out. A parent whose own label matches reveals its whole subtree.
         private TreeViewItemData<MolcaHubRailNode>? BuildItemData(MolcaHubRailNode node, string filter)
         {
-            bool self = string.IsNullOrEmpty(filter)
-                        || node.Label.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0;
+            bool self = MolcaHubRailFilter.Matches(node.Label, filter);
 
             // Once this node matches, descendants are all included (pass a null/empty filter downward).
             string childFilter = self ? null : filter;
@@ -613,7 +634,11 @@ namespace Molca.Editor.Hub
             try { _railTree.SetSelectionByIdWithoutNotify(new[] { itemId }); }
             finally { _suppressRailSelection = false; }
 
-            if (node.IsLeaf)
+            if (node.Activate != null)
+            {
+                node.Activate();
+            }
+            else if (node.IsLeaf)
             {
                 ShowNode(node);
                 _state.SetRailNode(node.Id);
@@ -635,6 +660,24 @@ namespace Molca.Editor.Hub
             {
                 var leaf = FirstLeaf(root);
                 if (leaf != null) return leaf.Id;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The first leaf of <paramref name="node"/>'s subtree that survived the current filter, or
+        /// <c>null</c>. Unlike <see cref="FirstLeaf"/> this consults the built id map, so it never returns a
+        /// row that is not actually on screen.
+        /// </summary>
+        private MolcaHubRailNode FirstVisibleLeaf(MolcaHubRailNode node)
+        {
+            if (node == null || !_nodeIdToItemId.ContainsKey(node.Id)) return null;
+            if (node.IsLeaf) return node;
+
+            foreach (var child in node.Children)
+            {
+                var leaf = FirstVisibleLeaf(child);
+                if (leaf != null) return leaf;
             }
             return null;
         }
@@ -667,21 +710,18 @@ namespace Molca.Editor.Hub
             }
 
             _state.SetWorkspace(workspaceId);
-
-            foreach (var button in _workspaceButtons)
-                button.EnableInClassList("molca-hub-workspace-tab--active", (string)button.userData == workspaceId);
+            _tabStrip?.SetActive(workspaceId);
 
             _railTree?.SetEnabled(isSettings);
 
             if (_settingsBody != null) _settingsBody.style.display = isSettings ? DisplayStyle.Flex : DisplayStyle.None;
             if (_workspaceHost != null) _workspaceHost.style.display = isSettings ? DisplayStyle.None : DisplayStyle.Flex;
 
-            // Clearing detaches the previously hosted tool view, triggering its DetachFromPanelEvent
-            // cleanup (cancel runs, dispose controllers) so no two hosts run the same tool at once.
-            _workspaceHost?.Clear();
-
             if (isSettings)
             {
+                // Hides cached views and detaches the previously hosted uncached tool view, triggering its
+                // DetachFromPanelEvent cleanup (cancel runs, dispose controllers).
+                _viewCache?.ShowNone();
                 RestoreRailSelection();
                 return;
             }
@@ -697,25 +737,11 @@ namespace Molca.Editor.Hub
             return null;
         }
 
-        private void HostWorkspaceContent(MolcaHubWorkspaceItem item)
-        {
-            if (_workspaceHost == null || item?.CreateContent == null) return;
-
-            // A consumer workspace that throws while building must not break the Hub shell — surface a
-            // compact error in the host instead.
-            try
-            {
-                var content = item.CreateContent();
-                if (content != null) _workspaceHost.Add(content);
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogException(ex);
-                var error = new Label($"Failed to open '{item.Label}': {ex.Message}");
-                error.AddToClassList("molca-hub-muted");
-                _workspaceHost.Add(error);
-            }
-        }
+        /// <summary>
+        /// Hands the active workspace to the view cache, which builds it, reuses an opted-in cached view, or
+        /// surfaces a compact error for a consumer view that throws — the Hub shell never breaks either way.
+        /// </summary>
+        private void HostWorkspaceContent(MolcaHubWorkspaceItem item) => _viewCache?.Show(item);
 
         /// <summary>Cross-navigation entry point (e.g. from a section): selects the section's rail node.</summary>
         private void SelectSection(MolcaHubSection section) => SelectNodeById(section.ToString());
@@ -731,7 +757,6 @@ namespace Molca.Editor.Hub
             MolcaHubSection.Tasks => new MolcaHubTasksSection(SelectSection),
             MolcaHubSection.Mcp => new MolcaHubMcpSection(),
             MolcaHubSection.Network => new MolcaHubNetworkSection(),
-            MolcaHubSection.Sequences => new MolcaHubSequencesSection(),
             MolcaHubSection.Assistant => new MolcaHubAssistantSection(),
             MolcaHubSection.AddOnsBrowse => new Addons.AddonBrowseView(),
             MolcaHubSection.AddOnsInstalled => new Addons.AddonInstalledView(),

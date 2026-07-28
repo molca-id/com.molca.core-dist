@@ -1,5 +1,4 @@
 using System.Threading;
-using Molca.Editor.Validation;
 
 namespace Molca.Editor.Doctor
 {
@@ -44,7 +43,7 @@ namespace Molca.Editor.Doctor
 
     /// <summary>
     /// A pluggable fix for one <b>mechanical</b> scene-performance finding (Sprint 55). Mirrors the Sprints
-    /// 38/41 sequence-remediation abstraction (<see cref="ISequenceValidatorFix"/>) for the scene-audit
+    /// 38/41 sequence-remediation abstraction (the <c>com.molca.sequence</c> add-on's <c>ISequenceValidatorFix</c>) for the scene-audit
     /// domain: implementations are discovered by <c>TypeCache</c> via <see cref="SceneFixRegistry"/> and
     /// indexed by the <see cref="HandledCheckId"/> they remediate, so a fork ships a fix by declaring a
     /// parameterless class. Only single-answer findings get a fix; judgment findings stay report-only.

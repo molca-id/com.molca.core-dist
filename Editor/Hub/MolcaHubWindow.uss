@@ -36,7 +36,16 @@
  * tab was clicked and took focus. A child element is immune to that. Tabs stretch full toolbar height
  * so the underline can sit flush on the header's bottom seam.
  */
+/*
+ * NOTE: `flex-shrink: 0` is load-bearing, not cosmetic. Without it, tabs compress below their content
+ * width once the strip runs out of room and labels are cut mid-word. Holding the content width is also
+ * what makes MolcaHubTabStrip's single width measurement trustworthy at any window size, which is how
+ * the strip knows when to collapse to icons and when to overflow. The icon-only width constant
+ * (MolcaHubTabStrip.IconOnlyTabWidth = 38px) is derived from this rule's horizontal padding (12 + 12)
+ * plus the icon's 14px width — keep the three in sync.
+ */
 .molca-hub-workspace-tab {
+    flex-shrink: 0;
     flex-direction: row;
     align-items: center;
     margin-left: 0;
@@ -72,6 +81,25 @@
     height: 14px;
     margin-right: 6px;
     flex-shrink: 0;
+}
+
+/*
+ * Icon-only collapse (MolcaHubTabStrip degradation step 2). The label element is hidden from C# (the
+ * strip also moves the label text into the tab's tooltip), so this rule only has to reclaim the icon's
+ * trailing margin. Resulting width: 12 + 14 + 12 = 38px — MolcaHubTabStrip.IconOnlyTabWidth.
+ */
+.molca-hub-workspace-tab--icon-only .molca-hub-workspace-tab__icon {
+    margin-right: 0;
+}
+
+/*
+ * Overflow chevron ("» N"): the same tab chrome, minus the selection underline it never carries, and
+ * pushed hard against the right edge so it reads as an affordance rather than another workspace.
+ */
+.molca-hub-workspace-tab--overflow {
+    padding-left: 8px;
+    padding-right: 8px;
+    -unity-font-style: bold;
 }
 
 /*
@@ -112,6 +140,25 @@
     margin-bottom: 8px;
     flex-shrink: 0;
     background-color: var(--hub-border-soft);
+}
+
+/*
+ * Boundary between two semantic groups (MolcaHubWorkspaceGroups): the same rule, given air on both sides
+ * so a group reads as a block without introducing a second visual language.
+ */
+.molca-hub-tab-divider--group {
+    margin-left: 6px;
+    margin-right: 6px;
+    margin-top: 6px;
+    margin-bottom: 6px;
+}
+
+/* The strip itself is the toolbar's only child and lays its tabs out in a row. */
+.molca-hub-tab-strip {
+    flex-grow: 1;
+    flex-direction: row;
+    align-items: stretch;
+    overflow: hidden;
 }
 
 .molca-hub-spacer {

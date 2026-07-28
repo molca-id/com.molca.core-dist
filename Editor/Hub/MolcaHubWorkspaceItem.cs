@@ -15,7 +15,8 @@ namespace Molca.Editor.Hub
     /// owned by <see cref="MolcaHubWindow"/> and may not be supplied by a provider.
     /// <see cref="CreateContent"/> builds the hosted view on demand each time the tab is selected and must
     /// tolerate teardown — the workspace host is cleared on every tab switch (which fires the view's
-    /// <c>DetachFromPanelEvent</c> cleanup). Editor-only; main thread.
+    /// <c>DetachFromPanelEvent</c> cleanup) unless the item opts into <see cref="CacheContent"/>.
+    /// Editor-only; main thread.
     /// </remarks>
     public sealed class MolcaHubWorkspaceItem
     {
@@ -25,8 +26,18 @@ namespace Molca.Editor.Hub
         /// <summary>Tab label shown in the workspace toolbar.</summary>
         public string Label { get; }
 
-        /// <summary>Sort order among non-Settings tabs (ascending; ties broken by <see cref="Id"/>).</summary>
+        /// <summary>
+        /// Sort order *within* this tab's <see cref="Group"/> (ascending; ties broken by <see cref="Id"/>).
+        /// Group rank is compared first, so this number never has to be chosen against a global namespace.
+        /// </summary>
         public int Order { get; }
+
+        /// <summary>
+        /// Semantic group this tab belongs to; see <see cref="MolcaHubWorkspaceGroups"/>. Null/empty means
+        /// the default general group. Decides render order (group rank before <see cref="Order"/>), the
+        /// group separators in the toolbar, and the submenu a tab appears under in the overflow menu.
+        /// </summary>
+        public string Group { get; }
 
         /// <summary>
         /// Optional icon rendered before the tab label. Resolved first as an on-brand Molca family icon
@@ -51,17 +62,32 @@ namespace Molca.Editor.Hub
         /// </summary>
         public bool RightAnchored { get; }
 
+        /// <summary>
+        /// When <c>true</c>, the built view is kept alive and hidden on tab switch instead of being detached
+        /// and rebuilt, so scroll position, filters, and in-progress view state survive a round trip.
+        /// </summary>
+        /// <remarks>
+        /// Opting in changes the view's lifecycle contract: the view must tolerate being hidden while still
+        /// attached — its work keeps running, and it will <em>not</em> receive a <c>DetachFromPanelEvent</c>
+        /// between activations. Detach still fires when the cached view is evicted (the cache keeps a small
+        /// number of views) or when the toolbar is rebuilt, so cleanup code is still required, just no longer
+        /// guaranteed on every switch. Defaults to <c>false</c>, which is exactly today's behaviour.
+        /// </remarks>
+        public bool CacheContent { get; }
+
         /// <summary>Creates a workspace descriptor.</summary>
         /// <param name="id">Stable unique kebab-case id (not <see cref="MolcaHubWorkspaceRegistry.SettingsId"/>).</param>
         /// <param name="label">Toolbar tab label.</param>
-        /// <param name="order">Sort order among non-Settings tabs.</param>
+        /// <param name="order">Sort order within <paramref name="group"/>.</param>
         /// <param name="createContent">Factory that builds the hosted content on selection.</param>
         /// <param name="isAvailable">Optional availability gate; <c>null</c> means always available.</param>
         /// <param name="rightAnchored">When <c>true</c>, anchors the tab to the right of the toolbar.</param>
         /// <param name="icon">Optional tab icon (Molca family name or built-in editor icon name); see <see cref="Icon"/>.</param>
+        /// <param name="group">Semantic group; <c>null</c> means <see cref="MolcaHubWorkspaceGroups.General"/>.</param>
+        /// <param name="cacheContent">When <c>true</c>, opts the view into hide-instead-of-rebuild caching; see <see cref="CacheContent"/>.</param>
         public MolcaHubWorkspaceItem(string id, string label, int order,
             Func<VisualElement> createContent, Func<bool> isAvailable = null, bool rightAnchored = false,
-            string icon = null)
+            string icon = null, string group = null, bool cacheContent = false)
         {
             Id = id;
             Label = label;
@@ -70,6 +96,8 @@ namespace Molca.Editor.Hub
             IsAvailable = isAvailable;
             RightAnchored = rightAnchored;
             Icon = icon;
+            Group = group;
+            CacheContent = cacheContent;
         }
     }
 

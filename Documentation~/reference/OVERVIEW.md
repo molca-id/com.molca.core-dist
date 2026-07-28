@@ -41,7 +41,7 @@ Core ships as the read-only UPM package `com.molca.core`.
 | Async contract | One `Awaitable`/cancellation convention across the framework. | [Async Contract](ASYNC_CONTRACT.md) |
 | Events | Decoupled `EventDispatcher` messaging with typed payloads. | [Events](EVENTS.md) |
 | Scene references | Cross-scene wiring without serialized references. | [Scene Reference System](REFERENCE_SYSTEM.md) |
-| Sequences | Step-based flows with auxiliaries. | [Sequences](SEQUENCES.md) |
+| Sequences | Step-based flows with auxiliaries (`com.molca.sequence` add-on). | [Sequences](../../../com.molca.sequence/Documentation~/reference/SEQUENCES.md) |
 | Networking & data | HTTP requests + live streaming data providers. | [Networking](NETWORKING.md) · [Data Providers](DATA_PROVIDERS.md) |
 | UI & presentation | Modals, ColorID theming, UI tokens. | [Modals](MODALS.md) · [Color ID](COLOR_ID.md) · [UI Tokens](UI_TOKENS.md) |
 | Content & assets | Addressable DLC packages. | [Content Packages](CONTENT_PACKAGES.md) |

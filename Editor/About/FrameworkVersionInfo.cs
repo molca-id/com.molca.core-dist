@@ -132,8 +132,12 @@ namespace Molca.Editor.About
         {
             FrameworkUpgradePath.PackageManager =>
                 "Core is installed from a registry, so the Package Manager can move this project to the new version.",
+            FrameworkUpgradePath.GitPackageManager =>
+                "Core is installed from a git URL. The Package Manager can repoint that dependency to the " +
+                "release's tag and re-resolve it — git must be available to this editor.",
             FrameworkUpgradePath.Manifest =>
-                "Core is installed from a git URL. Repoint the dependency in Packages/manifest.json, then let Unity resolve it.",
+                "Core is installed from a git URL, but this release did not publish a pinned git ref. " +
+                "Repoint the dependency in Packages/manifest.json, then let Unity resolve it.",
             FrameworkUpgradePath.Embedded =>
                 "Core is embedded in this project, so its files are yours to update — the Package Manager does not own them.",
             _ => "No upgrade instruction was published for this release.",

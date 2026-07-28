@@ -253,4 +253,4 @@ list rather than breaking the graph.
 
 ## See also
 
-- [`SEQUENCE_VALIDATION.md`](./SEQUENCE_VALIDATION.md) — the `ISequenceValidator` registry: adding a sequence validator in a fork follows the same TypeCache-discovery, no-registration-line pattern as MCP providers.
+- [Sequence Validation](molca://doc/SEQUENCE_VALIDATION) (`com.molca.sequence` add-on) — the `ISequenceValidator` registry: adding a sequence validator in a fork follows the same TypeCache-discovery, no-registration-line pattern as MCP providers.

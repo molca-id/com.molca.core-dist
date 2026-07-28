@@ -13,9 +13,10 @@ namespace Molca.Editor
     /// <remarks>
     /// Lives under <c>Editor/Serialization/</c> (Sprint 25 follow-up): it and
     /// <see cref="SerializedFieldCoercion"/> are general-purpose serialized-property helpers with no
-    /// dependency on the sequence system, reusable by any editor tooling in the <c>Molca.Editor</c> assembly.
+    /// dependency on the sequence system. Public (not just assembly-internal) since the
+    /// <c>com.molca.sequence</c> add-on's editor tooling — a separate assembly — also consumes it.
     /// </remarks>
-    internal sealed class FieldNode
+    public sealed class FieldNode
     {
         /// <summary>Leaf value in the string form the scalar coercion path parses; null for non-leaves.</summary>
         public string Scalar { get; }

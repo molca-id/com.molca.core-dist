@@ -1,5 +1,8 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Molca.Editor;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -18,19 +21,20 @@ namespace Molca.Editor.Mcp.Providers
         private static McpToolDefinition CreateSceneObjectsTool() => new McpToolDefinition(
             name: "molca_unity_scene_objects",
             description: "Lists GameObjects in the loaded scene(s) with their hierarchy path, active state, "
-                       + "instance id, component type names, and (for Steps) their auxiliary type names. This "
-                       + "is the discovery primitive: filter to find the objects you need, then act on the "
-                       + "returned path/instanceId with any action tool. Filters (all case-insensitive, "
-                       + "combinable): 'nameContains' by name; 'componentType' by attached component type (e.g. "
-                       + "'Light', 'Rigidbody', 'MeshRenderer'); 'auxiliaryType' by a Step's serialized "
-                       + "auxiliary type (e.g. 'Hint', 'Timer') — auxiliaries are SerializeReference data on a "
-                       + "Step, not components, so 'componentType' will not find them. 'limit' caps results "
-                       + "(default 200). Prefer a filter over dumping the whole scene.",
+                       + "instance id, component type names, and any polymorphic SerializeReference list/array "
+                       + "element type names (e.g. a Sequence Step's auxiliaries). This is the discovery "
+                       + "primitive: filter to find the objects you need, then act on the returned "
+                       + "path/instanceId with any action tool. Filters (all case-insensitive, combinable): "
+                       + "'nameContains' by name; 'componentType' by attached component type (e.g. 'Light', "
+                       + "'Rigidbody', 'MeshRenderer'); 'auxiliaryType' by a SerializeReference list/array "
+                       + "element's type name (e.g. a Step's auxiliary, 'Hint', 'Timer') — these are not "
+                       + "components, so 'componentType' will not find them. 'limit' caps results (default 200). "
+                       + "Prefer a filter over dumping the whole scene.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
                 "\"nameContains\":{\"type\":\"string\",\"description\":\"Case-insensitive name substring filter.\"}," +
                 "\"componentType\":{\"type\":\"string\",\"description\":\"Case-insensitive attached-component type-name substring filter (e.g. 'Light', 'Rigidbody').\"}," +
-                "\"auxiliaryType\":{\"type\":\"string\",\"description\":\"Case-insensitive filter matching a Step's serialized auxiliary type name (e.g. 'Hint', 'Timer'). Use this, not componentType, to find Steps by auxiliary.\"}," +
+                "\"auxiliaryType\":{\"type\":\"string\",\"description\":\"Case-insensitive filter matching a SerializeReference list/array element's type name (e.g. a Sequence Step's auxiliary type 'Hint', 'Timer'). Use this, not componentType, to find objects by that nested data.\"}," +
                 "\"limit\":{\"type\":\"integer\",\"description\":\"Max entries to return (default 200).\"}}," +
                 "\"additionalProperties\":false}",
             execute: ExecuteSceneObjects,
@@ -66,12 +70,11 @@ namespace Molca.Editor.Mcp.Providers
                         !componentNames.Any(n => n.IndexOf(componentFilter, StringComparison.OrdinalIgnoreCase) >= 0))
                         continue;
 
-                    // A Step's auxiliaries are SerializeReference data, not components, so they must be read
-                    // off the Step directly. Only Steps have them; null entries (broken SerializeReference)
-                    // are skipped so a missing script doesn't crash discovery.
-                    var step = go.GetComponent<Molca.Sequence.Step>();
-                    var auxiliaryNames = step?.Auxiliaries
-                        .Where(a => a != null).Select(a => a.GetType().Name).ToArray();
+                    // Polymorphic SerializeReference list/array data (e.g. a Sequence Step's auxiliaries) is
+                    // not surfaced by componentType, so it is read generically off every component via
+                    // reflection — Core has no compile-time knowledge of Step/StepAuxiliary or any other
+                    // concrete SerializeReference payload type.
+                    var auxiliaryNames = FindSerializeReferenceListTypeNames(go);
 
                     if (!string.IsNullOrEmpty(auxiliaryFilter) &&
                         (auxiliaryNames == null ||
@@ -102,6 +105,47 @@ namespace Molca.Editor.Mcp.Providers
                 ["truncated"] = truncated,
                 ["objects"] = entries
             }.ToString(Formatting.None);
+        }
+
+        private const BindingFlags SerializeReferenceFieldFlags =
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+        /// <summary>
+        /// Reflects over every component on <paramref name="go"/> for <c>[SerializeReference]</c> list/array
+        /// fields (e.g. a Sequence <c>Step</c>'s <c>auxiliaries</c>) and returns the distinct runtime type
+        /// names of their non-null elements — generically, with no compile-time reference to any concrete
+        /// payload type. A single faulting field read is skipped rather than aborting the whole scan.
+        /// </summary>
+        /// <param name="go">The GameObject to scan.</param>
+        /// <returns>The distinct element type names, or <c>null</c> when none were found.</returns>
+        private static string[] FindSerializeReferenceListTypeNames(GameObject go)
+        {
+            List<string> names = null;
+            foreach (var component in go.GetComponents<Component>())
+            {
+                if (component == null) continue;
+                foreach (var field in component.GetType().GetFields(SerializeReferenceFieldFlags))
+                {
+                    if (field.GetCustomAttribute<SerializeReference>() == null) continue;
+                    if (!typeof(IEnumerable).IsAssignableFrom(field.FieldType) || field.FieldType == typeof(string))
+                        continue;
+
+                    try
+                    {
+                        if (field.GetValue(component) is not IEnumerable seq) continue;
+                        foreach (var item in seq)
+                        {
+                            if (item == null) continue;
+                            (names ??= new List<string>()).Add(item.GetType().Name);
+                        }
+                    }
+                    catch
+                    {
+                        // Field unreadable (unassigned reference, faulting getter); skip it.
+                    }
+                }
+            }
+            return names?.Distinct().ToArray();
         }
 
         private static McpToolDefinition CreateSelectionTool() => new McpToolDefinition(

@@ -31,8 +31,10 @@ namespace Molca.Editor.Mcp.Providers
         /// <summary>Resolves the installed Molca Core package version, or "unknown" if unavailable.</summary>
         private static string GetCoreVersion()
         {
-            var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(RuntimeManager).Assembly);
-            return info != null ? info.version : "unknown";
+            // Through the guarded helper: the Package Manager refuses during a domain reload or scene load
+            // even on the main thread, and a status tool must degrade to "unknown" rather than throw.
+            var version = Molca.Editor.Addons.AddonDistributionConfig.CoreVersion();
+            return !string.IsNullOrEmpty(version) ? version : "unknown";
         }
     }
 }

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Molca.ReferenceSystem;
-using Molca.Sequence;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
@@ -14,7 +13,7 @@ namespace Molca.Editor.Mcp.Providers
     /// The <c>molca_fix_refids</c> Action tool (Sprint 20.6): the write counterpart to read-only
     /// <c>molca_refids</c>. Repairs empty and duplicate Ref Ids on every live
     /// <see cref="IReferenceable"/> in the loaded scene(s) — <see cref="ReferenceableComponent"/>,
-    /// <see cref="Step"/>, <c>SequenceController</c>, and custom implementers — by regenerating ids via
+    /// <c>Step</c>, <c>SequenceController</c>, and custom implementers — by regenerating ids via
     /// <see cref="ReferenceGenerator"/>, as one Unity Undo group. Unresolved
     /// <see cref="SceneObjectReference"/> ids are reported but never auto-changed — the intended target
     /// is a human decision, so the tool surfaces them rather than guessing.

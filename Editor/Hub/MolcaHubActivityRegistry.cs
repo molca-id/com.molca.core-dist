@@ -13,15 +13,16 @@ namespace Molca.Editor.Hub
     /// <remarks>
     /// Placement: <c>Packages/com.molca.core/Editor/Hub/</c>. Providers are stateful observers, so the
     /// caller (the rail) instantiates them once via <see cref="CreateProviders"/>, subscribes to each
-    /// provider's <c>Changed</c> event, and disposes them on teardown. A provider that cannot be
-    /// instantiated, or throws while listing, is skipped (logged) rather than breaking the rail.
-    /// Editor-only; main thread.
+    /// provider's <c>Changed</c> event, and disposes them on teardown. Discovery requires a public
+    /// parameterless constructor; a subclass without one is owned by its own caller and is skipped
+    /// silently. A discovered provider that throws while constructing, or while listing, is skipped
+    /// (logged) rather than breaking the rail. Editor-only; main thread.
     /// </remarks>
     public static class MolcaHubActivityRegistry
     {
         /// <summary>
-        /// Instantiates every discovered non-abstract <see cref="MolcaHubActivityProvider"/>. The caller owns
-        /// the returned instances and must <see cref="IDisposable.Dispose"/> them when done.
+        /// Instantiates every discovered concrete, default-constructible <see cref="MolcaHubActivityProvider"/>.
+        /// The caller owns the returned instances and must <see cref="IDisposable.Dispose"/> them when done.
         /// </summary>
         /// <returns>The live provider instances (empty if none / all failed).</returns>
         public static IReadOnlyList<MolcaHubActivityProvider> CreateProviders()
@@ -29,7 +30,15 @@ namespace Molca.Editor.Hub
             var providers = new List<MolcaHubActivityProvider>();
             foreach (var type in TypeCache.GetTypesDerivedFrom<MolcaHubActivityProvider>())
             {
-                if (type.IsAbstract) continue;
+                if (type.IsAbstract || type.IsGenericTypeDefinition) continue;
+
+                // A provider the registry can own must be default-constructible. A subclass that exposes
+                // only parameterised constructors is owned by its own caller instead (test doubles, and
+                // providers composed by the system they observe), so it is not a discovery failure and must
+                // not be reported as one — TypeCache sees test assemblies too. The warning below stays for
+                // the case that is a genuine fault: a default-constructible provider that throws.
+                if (type.GetConstructor(Type.EmptyTypes) == null) continue;
+
                 try
                 {
                     providers.Add((MolcaHubActivityProvider)Activator.CreateInstance(type));

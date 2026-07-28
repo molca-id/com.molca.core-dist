@@ -177,6 +177,52 @@ namespace Molca.Editor.Remote
         // instead of a warning per attempt. A console line every couple of seconds is its own outage.
         private static string _loggedStatus = string.Empty;
 
+        // Main-thread operations already reported this session, so a repeatedly unavailable editor is
+        // named once per operation rather than on every attempt. Cleared when a session starts.
+        private static readonly System.Collections.Generic.HashSet<string> ReportedMainThreadFailures =
+            new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Runs <paramref name="work"/> on the main thread, treating a refusal as "not available right
+        /// now" rather than as a session failure.
+        /// </summary>
+        /// <remarks>
+        /// The editor is not always readable. During a domain reload or a scene load, Unity refuses
+        /// Package Manager and other editor APIs with "can only be called from the main thread" <em>even
+        /// when the caller is the main thread</em> — its own message says the work runs on the loading
+        /// thread. <see cref="McpMainThreadDispatcher.Invoke{T}"/> faithfully rethrows that onto the
+        /// calling thread, where it is indistinguishable from a transport error, so without this the
+        /// connection loop would read a busy editor as a dead socket and reconnect in a cycle.
+        /// <para>
+        /// Nothing reachable from a remote session is important enough to justify dropping the session:
+        /// every caller here can skip a beat and recover on the next change or heartbeat.
+        /// </para>
+        /// </remarks>
+        /// <typeparam name="T">The work result type.</typeparam>
+        /// <param name="operation">Short name used to report an unavailable editor once per session.</param>
+        /// <param name="work">The delegate to run on the main thread.</param>
+        /// <param name="result">The work's result, or <c>default</c> when the editor could not serve it.</param>
+        /// <returns>True when the work ran.</returns>
+        private static bool TryMainThread<T>(string operation, Func<T> work, out T result)
+        {
+            try
+            {
+                result = McpMainThreadDispatcher.Invoke(work);
+                return true;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                result = default;
+                lock (ReportedMainThreadFailures)
+                {
+                    if (!ReportedMainThreadFailures.Add(operation)) return false;
+                }
+                Debug.LogWarning(
+                    $"[Molca Remote] The editor could not serve '{operation}' and it was skipped: {exception.Message}");
+                return false;
+            }
+        }
+
         // Set by the heartbeat so a snapshot goes out even when nothing changed — a session that has been
         // quiet for a minute should still be provably current, not merely assumed so.
         private static int _forceSnapshot;
@@ -410,22 +456,20 @@ namespace Molca.Editor.Remote
             await SendLockedAsync(socket, sendLock, MolcaRemoteProtocol.Envelope(
                 "agent.hello", session.sessionId, Interlocked.Increment(ref sequence), new JObject()), cancellationToken);
 
+            lock (ReportedMainThreadFailures) ReportedMainThreadFailures.Clear();
+
             // The companion's activity providers are stateful observers, so they are created once per
             // session on the main thread and disposed in the finally below — a provider that watches a
-            // static source leaks otherwise.
-            McpMainThreadDispatcher.Invoke(() => { RemoteCompanionFacade.Start(); return true; });
+            // static source leaks otherwise. Discovery reads the editor, so it can be refused; a session
+            // without chips is still a working session, and the next attempt gets them.
+            TryMainThread("activity providers", () => { RemoteCompanionFacade.Start(); return true; }, out _);
             Interlocked.Exchange(ref _forceSnapshot, 0);
 
-            // Reading the editor can fail transiently (domain reload, scene load, a busy frame). Connecting
-            // is the worst moment to treat that as fatal — enabling Remote and opening a scene at the same
-            // time would otherwise loop through connect/disconnect. Send what we have; if we have nothing,
-            // arm the forced send so the first heartbeat carries a real snapshot.
-            string firstSnapshot = null;
-            try { firstSnapshot = CollectCompanionState(); }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                Interlocked.Exchange(ref _forceSnapshot, 1);
-            }
+            // Connecting is the worst moment to treat an unreadable editor as fatal — enabling Remote and
+            // opening a scene at the same time would otherwise loop through connect and disconnect. Send
+            // what we have; if we have nothing, arm the forced send so the first heartbeat carries state.
+            var firstSnapshot = CollectCompanionState();
+            if (firstSnapshot == null) Interlocked.Exchange(ref _forceSnapshot, 1);
             if (firstSnapshot != null)
                 await SendLockedAsync(socket, sendLock, MolcaRemoteProtocol.Envelope(
                     "state.snapshot", session.sessionId, Interlocked.Increment(ref sequence),
@@ -442,10 +486,11 @@ namespace Molca.Editor.Remote
             {
                 // Marshalled: this runs on the socket's thread, and the Assistant snapshot reads the shared
                 // in-Editor chat runtime. The Changed-driven path below is already on the main thread.
-                var assistantState = McpMainThreadDispatcher.Invoke(AssistantRemoteFacade.Snapshot);
-                await SendLockedAsync(socket, sendLock, MolcaRemoteProtocol.Envelope(
-                    "assistant.turn.state", session.sessionId, nextSequence(),
-                    assistantState, Guid.NewGuid().ToString("N")), cancellationToken);
+                // Skippable: the Assistant reports itself again on its next change.
+                if (TryMainThread("assistant snapshot", AssistantRemoteFacade.Snapshot, out var assistantState))
+                    await SendLockedAsync(socket, sendLock, MolcaRemoteProtocol.Envelope(
+                        "assistant.turn.state", session.sessionId, nextSequence(),
+                        assistantState, Guid.NewGuid().ToString("N")), cancellationToken);
                 var receiveTask = ReceiveLoopAsync(
                     socket, session.sessionId, sendLock, nextSequence, cancellationToken);
                 var snapshotTask = SnapshotLoopAsync(
@@ -484,26 +529,16 @@ namespace Molca.Editor.Remote
             {
                 AssistantRemoteFacade.Changed -= assistantChanged;
                 RemoteCompanionFacade.Changed -= companionChanged;
-                // Teardown must never throw out of this finally. Marshalling can fail for reasons that
-                // have nothing to do with the session — the editor may be mid-domain-reload, or busy
-                // enough to miss the dispatcher's window — and an exception here would replace the real
-                // reason the socket closed with a misleading one, or escape as an unhandled fault.
-                try
+                // Teardown must never throw out of this finally: an exception here would replace the real
+                // reason the socket closed with a misleading one.
+                TryMainThread("session teardown", () =>
                 {
-                    McpMainThreadDispatcher.Invoke(() =>
-                    {
-                        // A remote-initiated run that nobody can still watch or stop from the browser must
-                        // not keep mutating the project, so socket loss cancels it just as authorization
-                        // loss does.
-                        RemoteAutomationCommands.CancelForAuthorizationLoss();
-                        RemoteCompanionFacade.Stop();
-                        return true;
-                    });
-                }
-                catch (Exception exception)
-                {
-                    Debug.LogWarning($"[Molca Remote] Session teardown was incomplete: {exception.Message}");
-                }
+                    // A remote-initiated run that nobody can still watch or stop from the browser must not
+                    // keep mutating the project, so socket loss cancels it just as authorization loss does.
+                    RemoteAutomationCommands.CancelForAuthorizationLoss();
+                    RemoteCompanionFacade.Stop();
+                    return true;
+                }, out _);
             }
         }
 
@@ -532,14 +567,11 @@ namespace Molca.Editor.Remote
                     if (socket.State != WebSocketState.Open) return;
 
                     var forced = Interlocked.Exchange(ref _forceSnapshot, 0) == 1;
-                    string payload;
-                    try { payload = CollectCompanionState(); }
-                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    var payload = CollectCompanionState();
+                    if (payload == null)
                     {
-                        // Building a snapshot reads the editor, and the editor is not always readable: a
-                        // domain reload, a scene load, or a busy frame can make a main-thread API refuse.
-                        // That is a reason to skip one snapshot, not to drop a working session — the next
-                        // change or heartbeat will produce a current one.
+                        // Skip this beat and keep the session. Restore the forced flag so a heartbeat's
+                        // guarantee of a fresh snapshot is not lost to an unreadable moment.
                         Interlocked.Exchange(ref _forceSnapshot, forced ? 1 : 0);
                         continue;
                     }
@@ -563,13 +595,18 @@ namespace Molca.Editor.Remote
         /// and automation blocks — and returns it as compact JSON so the caller can compare two snapshots
         /// byte-for-byte without walking two object graphs.
         /// </summary>
-        private static string CollectCompanionState() => McpMainThreadDispatcher.Invoke(() =>
+        /// <returns>The compact JSON payload, or null when the editor could not be read right now.</returns>
+        private static string CollectCompanionState()
         {
-            var state = MolcaRemoteProtocol.CollectState();
-            foreach (var block in RemoteCompanionFacade.StateBlocks())
-                state[block.Key] = block.Value;
-            return state.ToString(Formatting.None);
-        });
+            TryMainThread("state snapshot", () =>
+            {
+                var state = MolcaRemoteProtocol.CollectState();
+                foreach (var block in RemoteCompanionFacade.StateBlocks())
+                    state[block.Key] = block.Value;
+                return state.ToString(Formatting.None);
+            }, out var payload);
+            return payload;
+        }
 
         // SemaphoreSlim(0, 1) is a coalescing edge signal: a release while one is already pending is the
         // same request, so the full-semaphore throw is the expected case, not an error.
@@ -594,11 +631,11 @@ namespace Molca.Editor.Remote
                     if (result.CloseStatusDescription == "server_restart" ||
                         result.CloseStatusDescription == "maintenance")
                     {
-                        McpMainThreadDispatcher.Invoke(() =>
+                        TryMainThread("maintenance stop", () =>
                         {
                             AssistantRemoteFacade.StopActionsForMaintenance();
                             return true;
-                        });
+                        }, out _);
                     }
                     return;
                 }
@@ -619,12 +656,12 @@ namespace Molca.Editor.Remote
                         code == "session_revoked" || code == "device_revoked" ||
                         code == "project_binding_revoked" || code == "remote_disabled")
                     {
-                        McpMainThreadDispatcher.Invoke(() =>
+                        TryMainThread("authorization-loss stop", () =>
                         {
                             AssistantRemoteFacade.StopForAuthorizationLoss();
                             RemoteAutomationCommands.CancelForAuthorizationLoss();
                             return true;
-                        });
+                        }, out _);
                     }
                     continue;
                 }

@@ -36,9 +36,9 @@ Each guide carries YAML front-matter (`title`/`category`/`order`); the categorie
   [`ASYNC_CONTRACT.md`](reference/ASYNC_CONTRACT.md), [`EVENTS.md`](reference/EVENTS.md),
   [`ATTRIBUTES.md`](reference/ATTRIBUTES.md).
 - **Scene & References** — [`REFERENCE_SYSTEM.md`](reference/REFERENCE_SYSTEM.md).
-- **Sequences** — [`SEQUENCES.md`](reference/SEQUENCES.md),
-  [`SEQUENCE_AUTHORING.md`](reference/SEQUENCE_AUTHORING.md),
-  [`SEQUENCE_VALIDATION.md`](reference/SEQUENCE_VALIDATION.md).
+- **Sequences** — moved to the `com.molca.sequence` add-on: [`SEQUENCES.md`](../../com.molca.sequence/Documentation~/reference/SEQUENCES.md),
+  [`SEQUENCE_AUTHORING.md`](../../com.molca.sequence/Documentation~/reference/SEQUENCE_AUTHORING.md),
+  [`SEQUENCE_VALIDATION.md`](../../com.molca.sequence/Documentation~/reference/SEQUENCE_VALIDATION.md).
 - **Data & Networking** — [`NETWORKING.md`](reference/NETWORKING.md),
   [`DATA_PROVIDERS.md`](reference/DATA_PROVIDERS.md).
 - **UI & Presentation** — [`MODALS.md`](reference/MODALS.md), [`COLOR_ID.md`](reference/COLOR_ID.md),

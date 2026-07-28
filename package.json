@@ -1,8 +1,8 @@
 {
   "name": "com.molca.core",
-  "version": "1.17.2",
+  "version": "1.17.3",
   "displayName": "Molca",
-  "description": "General-purpose Unity application framework. Provides RuntimeManager, DI, EventDispatcher, Networking, Sequence, Settings, Modals, Audio, and related systems.",
+  "description": "General-purpose Unity application framework. Provides RuntimeManager, DI, EventDispatcher, Networking, Settings, Modals, Audio, and related systems. Sequence (SequenceController, Step, StepAuxiliary) ships separately in com.molca.sequence.",
   "unity": "6000.0",
   "unityRelease": "0f1",
   "documentationUrl": "https://github.com/molca-id/com.molca.core-dist/blob/main/Documentation~/README.md",
@@ -11,8 +11,7 @@
     "molca",
     "framework",
     "runtime",
-    "di",
-    "sequence"
+    "di"
   ],
   "author": {
     "name": "Molca",

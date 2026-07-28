@@ -66,11 +66,14 @@ A plain link to a sibling guide navigates the browser in-place *and* still rende
 target a doc by its id:
 
 ```
-[Sequence Validation](SEQUENCE_VALIDATION.md)
-[Validation](molca://doc/SEQUENCE_VALIDATION)
+[Events](EVENTS.md)
+[Sequence Validation, by id](molca://doc/SEQUENCE_VALIDATION)
 ```
 
-Try it: [Sequence Validation](SEQUENCE_VALIDATION.md) · [Sequence Authoring, by id](molca://doc/SEQUENCE_AUTHORING)
+A relative link only works within the same package's docs; a doc in another package (e.g. an add-on like
+`com.molca.sequence`) must be linked by id instead.
+
+Try it: [Events](EVENTS.md) · [Sequence Authoring, by id](molca://doc/SEQUENCE_AUTHORING)
 
 ### Project assets
 

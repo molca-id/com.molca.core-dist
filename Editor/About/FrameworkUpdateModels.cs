@@ -132,11 +132,22 @@ namespace Molca.Editor.About
         /// <summary>Registry install: the Package Manager can add the target version directly.</summary>
         PackageManager,
 
-        /// <summary>Git install: the manifest dependency line must be repointed, then resolved.</summary>
+        /// <summary>Git install with a spec the client cannot apply: the manifest line must be repointed by hand.</summary>
         Manifest,
 
         /// <summary>Embedded, local, or tarball install: the files are project-owned; update them in place.</summary>
         Embedded,
+
+        /// <summary>
+        /// Git install with a revision-pinned git spec: the Package Manager can repoint the git dependency
+        /// directly, the same move its own <c>Manage ▸ Update</c> makes.
+        /// </summary>
+        /// <remarks>
+        /// Appended rather than slotted next to <see cref="PackageManager"/> so no existing member's ordinal
+        /// moves. Behaves identically to <see cref="PackageManager"/> at the call site — the two are kept
+        /// apart only so the panel can explain which dependency is about to change.
+        /// </remarks>
+        GitPackageManager,
     }
 
     /// <summary>

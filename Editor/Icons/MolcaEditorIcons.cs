@@ -16,7 +16,7 @@ namespace Molca.Editor.Icons
     /// <c>"sequence"</c>) so a window shares the icon of the assets it edits; omit it to fall back to
     /// the generic <c>"window"</c> icon.
     /// </remarks>
-    internal static class MolcaEditorIcons
+    public static class MolcaEditorIcons
     {
         private const string IconDir = "Packages/com.molca.core/Editor/Icons/";
 
@@ -24,15 +24,15 @@ namespace Molca.Editor.Icons
         private static readonly Dictionary<string, Texture2D> _cache = new Dictionary<string, Texture2D>();
 
         /// <summary>The generic Molca editor-window icon.</summary>
-        internal static Texture2D Window => Family("window");
+        public static Texture2D Window => Family("window");
 
         /// <summary>The Molca product logo icon.</summary>
-        internal static Texture2D Logo => Family("logo");
+        public static Texture2D Logo => Family("logo");
 
         /// <summary>Loads (and caches) the icon for the given family, e.g. <c>"mcp"</c>.</summary>
         /// <param name="family">Family name without the <c>molca-</c> prefix or <c>.png</c> suffix.</param>
         /// <returns>The texture, or <c>null</c> if no matching icon ships in the package.</returns>
-        internal static Texture2D Family(string family)
+        public static Texture2D Family(string family)
         {
             if (_cache.TryGetValue(family, out var tex) && tex != null) return tex;
             tex = AssetDatabase.LoadAssetAtPath<Texture2D>($"{IconDir}molca-{family}.png");
@@ -47,7 +47,7 @@ namespace Molca.Editor.Icons
         /// <param name="title">Text shown on the window tab.</param>
         /// <param name="family">Family icon to use, e.g. <c>"mcp"</c>; defaults to <c>"window"</c>.</param>
         /// <returns>A <see cref="GUIContent"/> carrying both the title and icon.</returns>
-        internal static GUIContent WindowTitle(string title, string family = "window") =>
+        public static GUIContent WindowTitle(string title, string family = "window") =>
             new GUIContent(title, Family(family));
     }
 }

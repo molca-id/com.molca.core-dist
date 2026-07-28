@@ -359,6 +359,67 @@
     color: var(--molca-muted);
 }
 
+/* GitHub-style alert callout (`> [!TIP]`): a quote with a titled, type-colored accent bar. The default
+   rule carries the neutral (Note-less) look; the --note/--tip/… modifiers only recolor. */
+.molca-md-alert {
+    border-left-width: 3px;
+    border-left-color: var(--molca-status-grey);
+    background-color: var(--molca-panel);
+    border-radius: 2px;
+    padding-left: 8px;
+    padding-right: 6px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    margin-top: 3px;
+    margin-bottom: 4px;
+}
+
+.molca-md-alert__title {
+    -unity-font-style: bold;
+    color: var(--molca-status-grey);
+    margin-bottom: 2px;
+}
+
+.molca-md-alert--note {
+    border-left-color: var(--molca-link);
+}
+
+.molca-md-alert--note .molca-md-alert__title {
+    color: var(--molca-link);
+}
+
+.molca-md-alert--tip {
+    border-left-color: var(--molca-status-green);
+}
+
+.molca-md-alert--tip .molca-md-alert__title {
+    color: var(--molca-status-green);
+}
+
+.molca-md-alert--important {
+    border-left-color: var(--molca-accent);
+}
+
+.molca-md-alert--important .molca-md-alert__title {
+    color: var(--molca-accent);
+}
+
+.molca-md-alert--warning {
+    border-left-color: var(--molca-status-warn);
+}
+
+.molca-md-alert--warning .molca-md-alert__title {
+    color: var(--molca-status-warn);
+}
+
+.molca-md-alert--caution {
+    border-left-color: var(--molca-status-error);
+}
+
+.molca-md-alert--caution .molca-md-alert__title {
+    color: var(--molca-status-error);
+}
+
 .molca-md-rule {
     height: 1px;
     background-color: var(--molca-border);

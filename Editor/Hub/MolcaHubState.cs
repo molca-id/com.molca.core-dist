@@ -22,6 +22,10 @@ namespace Molca.Editor.Hub
         private const string HiddenWorkspacesKey = "Molca.Hub.HiddenWorkspaces";
         private const string RailNodeKey = "Molca.Hub.RailNode";
         private const string RailExpandedKey = "Molca.Hub.RailExpanded";
+        private const string WorkspaceMruKey = "Molca.Hub.WorkspaceMru";
+
+        /// <summary>How many recently-used workspace ids are remembered; bounded so the pref cannot grow.</summary>
+        internal const int WorkspaceMruCapacity = 8;
 
         /// <summary>
         /// The selected workspace tab, by stable string id (e.g. <c>"settings"</c>, <c>"doctor"</c>,
@@ -40,6 +44,13 @@ namespace Molca.Editor.Hub
         /// <summary>The set of expanded rail category node ids. Empty means "expand all by default".</summary>
         internal HashSet<string> RailExpanded { get; private set; } = new HashSet<string>();
 
+        /// <summary>
+        /// Recently activated workspace ids, most recent first, capped at <see cref="WorkspaceMruCapacity"/>.
+        /// Used to decide which tabs keep a toolbar slot when the strip has to overflow, and to populate the
+        /// overflow menu's "Recent" section.
+        /// </summary>
+        internal IReadOnlyList<string> WorkspaceMru { get; private set; } = Array.Empty<string>();
+
         internal static MolcaHubState Load()
         {
             EnsureHiddenWorkspacesKey();
@@ -53,8 +64,19 @@ namespace Molca.Editor.Hub
                 SelectedBuildProfile = MolcaEditorPrefs.GetString(SelectedBuildProfileKey, string.Empty),
                 SelectedRuntimeModule = MolcaEditorPrefs.GetString(SelectedRuntimeModuleKey, string.Empty),
                 RailNode = MolcaEditorPrefs.GetString(RailNodeKey, string.Empty),
-                RailExpanded = ReadStringSet(RailExpandedKey)
+                RailExpanded = ReadStringSet(RailExpandedKey),
+                WorkspaceMru = ReadStringList(WorkspaceMruKey)
             };
+        }
+
+        private static List<string> ReadStringList(string key)
+        {
+            var raw = MolcaEditorPrefs.GetString(key, string.Empty);
+            var list = new List<string>();
+            if (string.IsNullOrEmpty(raw)) return list;
+            foreach (var part in raw.Split('\n'))
+                if (!string.IsNullOrEmpty(part) && !list.Contains(part)) list.Add(part);
+            return list;
         }
 
         private static HashSet<string> ReadStringSet(string key)
@@ -77,6 +99,35 @@ namespace Molca.Editor.Hub
         {
             Workspace = string.IsNullOrEmpty(workspaceId) ? MolcaHubWorkspaceRegistry.SettingsId : workspaceId;
             MolcaEditorPrefs.SetString(WorkspaceKey, Workspace);
+            PushMru(Workspace);
+        }
+
+        /// <summary>
+        /// Moves <paramref name="workspaceId"/> to the front of the MRU list, de-duplicating and trimming to
+        /// <see cref="WorkspaceMruCapacity"/>, then persists it.
+        /// </summary>
+        private void PushMru(string workspaceId)
+        {
+            WorkspaceMru = PushMru(WorkspaceMru, workspaceId);
+            MolcaEditorPrefs.SetString(WorkspaceMruKey, string.Join("\n", WorkspaceMru));
+        }
+
+        /// <summary>
+        /// Pure MRU push step, exposed for testing: returns the list that results from moving
+        /// <paramref name="workspaceId"/> to the front of <paramref name="current"/>.
+        /// </summary>
+        /// <param name="current">The existing MRU list, most recent first.</param>
+        /// <param name="workspaceId">The workspace that was just activated.</param>
+        /// <param name="capacity">Maximum retained entries.</param>
+        /// <returns>The new MRU list, most recent first.</returns>
+        internal static IReadOnlyList<string> PushMru(
+            IReadOnlyList<string> current, string workspaceId, int capacity = WorkspaceMruCapacity)
+        {
+            var mru = new List<string>(current ?? Array.Empty<string>());
+            mru.Remove(workspaceId);
+            mru.Insert(0, workspaceId);
+            if (mru.Count > capacity) mru.RemoveRange(capacity, mru.Count - capacity);
+            return mru;
         }
 
         /// <summary>Maps a built-in <see cref="MolcaHubWorkspace"/> enum value to its stable workspace id.</summary>
@@ -163,7 +214,6 @@ namespace Molca.Editor.Hub
         Tasks,
         Mcp,
         Network,
-        Sequences,
         Assistant,
         AddOnsBrowse,
         AddOnsInstalled,

@@ -20,9 +20,10 @@ namespace Molca.Editor.Hub.Docs
     /// hidden. Selected product/doc and expanded categories persist per project via <see cref="MolcaEditorPrefs"/>.
     /// A <c>molca://doc/&lt;id&gt;</c> link navigates in-view via <see cref="NavigateTo"/>; an external deep-link
     /// (<see cref="MolcaHubWindow.OpenDoc"/>) hands off through <see cref="PendingDocId"/>, consumed once on
-    /// construction (switching to the product that owns the target). Editor-only; main thread.
+    /// construction (switching to the product that owns the target) or, when this view is being reused from
+    /// the workspace view cache, on re-activation. Editor-only; main thread.
     /// </remarks>
-    internal sealed class DocsWorkspaceView : VisualElement
+    internal sealed class DocsWorkspaceView : VisualElement, IMolcaHubCachedView
     {
         private const string SelectedKey = "Molca.Hub.Docs.Selected";
         private const string ExpandedKey = "Molca.Hub.Docs.Expanded";
@@ -135,6 +136,19 @@ namespace Molca.Editor.Hub.Docs
             BuildNodes(_currentProductKey);
             RebuildTree(null);
             RestoreSelection();
+        }
+
+        /// <summary>
+        /// Consumes a deep-link target when this already-built view is shown again. The view opts into
+        /// <see cref="MolcaHubWorkspaceItem.CacheContent"/>, so a second <see cref="MolcaHubWindow.OpenDoc"/>
+        /// does not rebuild it — without this hook the pending id would never be read and the Hub would
+        /// switch to Docs while still showing the previously selected page.
+        /// </summary>
+        void IMolcaHubCachedView.OnWorkspaceActivated()
+        {
+            var pending = PendingDocId;
+            PendingDocId = null;
+            if (!string.IsNullOrEmpty(pending)) NavigateTo(pending);
         }
 
         /// <summary>Navigates the browser to a doc by its <see cref="MolcaDocEntry.Id"/> (in-view doc→doc link).</summary>
