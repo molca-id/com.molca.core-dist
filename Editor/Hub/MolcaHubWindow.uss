@@ -103,6 +103,22 @@
 }
 
 /*
+ * Tabs menu button: the strip's always-visible show/hide affordance, rightmost and icon-only. Resulting
+ * width: 8 + 14 + 8 = 30px — MolcaHubTabStrip.TabsMenuButtonWidth, which the strip subtracts from the
+ * fitting budget because this button, unlike the overflow chevron, is never hidden. Keep the three in sync.
+ */
+.molca-hub-workspace-tab--tabs-menu {
+    padding-left: 8px;
+    padding-right: 8px;
+    min-width: 30px;
+    justify-content: center;
+}
+
+.molca-hub-workspace-tab--tabs-menu .molca-hub-workspace-tab__icon {
+    margin-right: 0;
+}
+
+/*
  * Bottom accent underline. Absolutely positioned along the tab's bottom edge (out of flow, so it
  * never shifts the icon/label row) and overlapping the toolbar's 1px bottom border. Transparent at
  * rest; a faint hint on hover; the full accent color when the tab is the active workspace.
@@ -130,6 +146,22 @@
 }
 
 .molca-hub-workspace-tab--active .molca-hub-workspace-tab__underline {
+    background-color: var(--hub-primary);
+}
+
+/*
+ * Pinned marker: a small accent dot in the tab's top-right corner, shown while the tab is pinned. Like
+ * __underline it is absolutely positioned and therefore out of flow — MolcaHubTabStrip captures each tab's
+ * full-fidelity width exactly once, so a marker that occupied layout space would invalidate a measurement
+ * cache that cannot refill itself. Survives the icon-only collapse, where knowing what is pinned matters most.
+ */
+.molca-hub-workspace-tab__pin {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 4px;
+    height: 4px;
+    border-radius: 2px;
     background-color: var(--hub-primary);
 }
 
@@ -663,6 +695,31 @@
     flex-direction: row-reverse;
     align-items: center;
     min-height: 18px;
+}
+
+/*
+ * A UI Toolkit Foldout header IS a Toggle, so the rule above also catches every foldout under the Hub
+ * root — including the ones Unity's own InspectorElement builds for a List<T>. A foldout keeps its text
+ * inside the *input* (`.unity-foldout__text`) and leaves `.unity-base-field__label` empty, so growing
+ * that empty label pushed the arrow, the text, and the array size field hard right and clipped them.
+ *
+ * Undone by specificity rather than by excluding the foldout above: USS has no `:not()` — it reports
+ * "Recursive pseudo classes are not supported" and drops the entire stylesheet, which unstyles the whole
+ * window. Two class selectors outrank one class plus a type, so these win.
+ */
+.molca-hub-root .unity-foldout__toggle {
+    flex-direction: row;
+}
+
+.molca-hub-root .unity-foldout__toggle > .unity-base-field__label {
+    flex-grow: 0;
+    flex-shrink: 1;
+    margin-left: 0;
+}
+
+.molca-hub-root .unity-foldout__toggle > .unity-base-field__input {
+    flex-grow: 1;
+    flex-shrink: 1;
 }
 
 /* The caption absorbs the row's free space, which is what pins the checkbox to the leading edge. */

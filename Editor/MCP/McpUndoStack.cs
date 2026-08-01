@@ -31,10 +31,19 @@ namespace Molca.Editor.Mcp
             public string Description;
             /// <summary>Project-relative path of the edited file.</summary>
             public string TargetPath;
-            /// <summary>Absolute path of the stored backup copy.</summary>
+            /// <summary>Absolute path of the stored backup copy. Empty for a creation entry.</summary>
             public string BackupPath;
             /// <summary>UTC timestamp.</summary>
             public string TimestampUtc;
+            /// <summary>
+            /// True when the action <em>created</em> <see cref="TargetPath"/> rather than overwriting it, so
+            /// reverting means deleting that asset rather than restoring a backup.
+            /// </summary>
+            /// <remarks>
+            /// Absent from entries written before creation tracking existed; those deserialize as
+            /// <c>false</c>, which is the correct reading — they are all overwrite backups.
+            /// </remarks>
+            public bool WasCreated;
         }
 
         private static string Root
@@ -97,6 +106,50 @@ namespace Molca.Editor.Mcp
             }
         }
 
+        /// <summary>
+        /// Records that an action created <paramref name="createdAssetPath"/>, so reverting deletes it.
+        /// Returns the entry id, or null on failure ("no undo available", not a hard error).
+        /// </summary>
+        /// <param name="createdAssetPath">Project-relative path of the asset that was created.</param>
+        /// <param name="tool">Tool or fix that created it.</param>
+        /// <param name="description">Human description, shown when reverting.</param>
+        /// <returns>The entry id, or <c>null</c>.</returns>
+        /// <remarks>
+        /// <para><see cref="Snapshot"/> cannot express this: it backs up a file that already exists, and
+        /// returns null for one that does not. Provisioning fixes create assets, and Unity's own Undo stack
+        /// does not reliably remove a created asset across a reimport — so without this, a fix that declares
+        /// <c>FileSnapshot</c> reversibility would have no way to make that claim true.</para>
+        /// <para>Call this <em>after</em> the asset exists, unlike <see cref="Snapshot"/>.</para>
+        /// </remarks>
+        public static string RecordCreated(string createdAssetPath, string tool, string description)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(createdAssetPath)) return null;
+
+                var id = Guid.NewGuid().ToString("N");
+                var entries = Load();
+                entries.Add(new Entry
+                {
+                    Id = id,
+                    Tool = tool,
+                    Description = description,
+                    TargetPath = createdAssetPath,
+                    BackupPath = string.Empty,
+                    WasCreated = true,
+                    TimestampUtc = DateTime.UtcNow.ToString("o")
+                });
+                Prune(entries);
+                Save(entries);
+                return id;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Molca MCP] Undo creation record failed: {ex.Message}");
+                return null;
+            }
+        }
+
         /// <summary>Discards the entry with <paramref name="id"/> (e.g. if the action made no change).</summary>
         public static void Discard(string id)
         {
@@ -122,6 +175,17 @@ namespace Molca.Editor.Mcp
             var entry = entries[entries.Count - 1];
             try
             {
+                if (entry.WasCreated)
+                {
+                    var removed = DeleteCreated(entry);
+                    entries.RemoveAt(entries.Count - 1);
+                    Save(entries);
+                    AssetDatabase.Refresh();
+                    return removed
+                        ? $"Reverted: {entry.Description} (deleted {entry.TargetPath})"
+                        : $"'{entry.TargetPath}' was already gone; entry discarded.";
+                }
+
                 if (!File.Exists(entry.BackupPath))
                 {
                     entries.RemoveAt(entries.Count - 1);
@@ -168,7 +232,15 @@ namespace Molca.Editor.Mcp
                 for (var i = entries.Count - 1; i >= targetIdx; i--)
                 {
                     var entry = entries[i];
-                    if (File.Exists(entry.BackupPath))
+                    if (entry.WasCreated)
+                    {
+                        if (DeleteCreated(entry))
+                        {
+                            reverted++;
+                            lastDescription = entry.Description;
+                        }
+                    }
+                    else if (File.Exists(entry.BackupPath))
                     {
                         File.Copy(entry.BackupPath, entry.TargetPath, overwrite: true);
                         ReloadIfActiveScene(entry.TargetPath);
@@ -211,10 +283,33 @@ namespace Molca.Editor.Mcp
             }
         }
 
+        /// <summary>
+        /// Deletes the asset a creation entry recorded. Returns whether anything was removed.
+        /// </summary>
+        /// <remarks>
+        /// Routed through <see cref="AssetDatabase.DeleteAsset"/> so the <c>.meta</c> goes with it; a raw
+        /// <see cref="File.Delete"/> would leave an orphaned meta that Unity then warns about forever.
+        /// </remarks>
+        private static bool DeleteCreated(Entry entry)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(entry.TargetPath)) return false;
+                return AssetDatabase.DeleteAsset(entry.TargetPath);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning(
+                    $"[Molca MCP] Could not delete created asset '{entry.TargetPath}': {ex.Message}");
+                return false;
+            }
+        }
+
         private static void DeleteBackup(Entry entry)
         {
             try
             {
+                // A creation entry has no backup folder; nothing to clean up.
                 var dir = Path.GetDirectoryName(entry.BackupPath);
                 if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
                     Directory.Delete(dir, recursive: true);
@@ -235,7 +330,9 @@ namespace Molca.Editor.Mcp
                     Description = t.Value<string>("description"),
                     TargetPath = t.Value<string>("targetPath"),
                     BackupPath = t.Value<string>("backupPath"),
-                    TimestampUtc = t.Value<string>("timestampUtc")
+                    TimestampUtc = t.Value<string>("timestampUtc"),
+                    // Missing on entries written before creation tracking; false is the right reading.
+                    WasCreated = t.Value<bool?>("wasCreated") ?? false
                 }).ToList();
             }
             catch { return new List<Entry>(); }
@@ -253,7 +350,8 @@ namespace Molca.Editor.Mcp
                     ["description"] = e.Description,
                     ["targetPath"] = e.TargetPath,
                     ["backupPath"] = e.BackupPath,
-                    ["timestampUtc"] = e.TimestampUtc
+                    ["timestampUtc"] = e.TimestampUtc,
+                    ["wasCreated"] = e.WasCreated
                 }));
                 File.WriteAllText(IndexPath, arr.ToString(Newtonsoft.Json.Formatting.Indented));
             }

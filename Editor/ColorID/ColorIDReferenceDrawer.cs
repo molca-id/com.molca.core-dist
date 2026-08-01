@@ -94,11 +94,20 @@ namespace Molca.ColorID.Editor
                 }
             }
 
-            if (currentIndex == -1 && swatchColorMap.Count > 0)
+            if (currentIndex == -1)
             {
+                // The serialized pair does not resolve in the active palette. Surface it as a
+                // selectable, clearly-marked entry instead of writing over it.
+                //
+                // V1 assigned swatchColorMap[0] here — so merely *drawing* an inspector silently
+                // repointed an unresolved reference to whichever colour happened to be first,
+                // destroying the authored value and hiding the fact that it was ever broken.
+                // Repair must be an explicit user action.
+                // No '/' in this label: EditorGUI.Popup treats slashes as submenu separators,
+                // which would bury the unresolved entry inside a swatch group.
+                displayOptions.Insert(0, $"(unresolved) {currentSwatchName}.{currentColorId}");
+                swatchColorMap.Insert(0, (currentSwatchName, currentColorId));
                 currentIndex = 0;
-                swatchNameProp.stringValue = swatchColorMap[0].swatchName;
-                colorIdProp.stringValue = swatchColorMap[0].colorId;
             }
 
             // Draw dropdown

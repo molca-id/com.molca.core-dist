@@ -4,6 +4,7 @@
     "references": [
         "Molca",
         "Molca.Modals",
+        "Molca.Networking",
         "Unity.Addressables",
         "Unity.ResourceManager",
         "Unity.TextMeshPro"

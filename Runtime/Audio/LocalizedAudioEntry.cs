@@ -12,6 +12,9 @@ namespace Molca.Audio
     [Serializable]
     public class LocalizedAudioEntry
     {
+        public const int CurrentSchemaVersion = 2;
+
+        [SerializeField] private int schemaVersion = CurrentSchemaVersion;
         public string id;
         public string description;
         
@@ -29,11 +32,9 @@ namespace Molca.Audio
         }
 
         /// <summary>
-        /// Edit-time authoring step that rebuilds the per-language clip slots from the
-        /// configured languages. <b>Destructive</b>: wipes every authored clip
-        /// reference. At runtime it therefore only resets the load cache — the
-        /// serialized clip list is asset data and calling this on a loaded asset in
-        /// play mode would silently destroy its clip wiring.
+        /// Compatibility entry point. Adds missing configured-locale slots without
+        /// deleting, reordering, or replacing authored clip references.
+        /// At runtime it only resets the loaded-clip cache.
         /// </summary>
         public void Initialize()
         {
@@ -51,26 +52,39 @@ namespace Molca.Audio
                 return;
             }
 
-            // Clear existing clips
-            _languageClips.Clear();
             _loadedClips.Clear();
-
-            // Add entries for each available language
+            schemaVersion = CurrentSchemaVersion;
             foreach (var languageCode in localizationModule.LanguageCode)
-            {
+                EnsureLanguage(languageCode);
+        }
+
+        public int SchemaVersion => schemaVersion;
+
+        /// <summary>Adds a missing locale slot without changing existing authoring.</summary>
+        public void EnsureLanguage(string languageCode)
+        {
+            if (string.IsNullOrWhiteSpace(languageCode))
+                return;
+            _languageClips ??= new List<LanguageAudioClip>();
+            if (_languageClips.All(candidate => !string.Equals(
+                    candidate?.languageCode,
+                    languageCode,
+                    StringComparison.OrdinalIgnoreCase)))
                 _languageClips.Add(new LanguageAudioClip { languageCode = languageCode });
-            }
         }
 
         public AssetReferenceT<AudioClip> GetClipReferenceForLanguage(string languageCode)
         {
-            var clip = _languageClips.Find(c => c.languageCode == languageCode);
+            var clip = _languageClips?.Find(c => string.Equals(
+                c.languageCode, languageCode, StringComparison.OrdinalIgnoreCase));
             return clip?.clipReference;
         }
 
         public void SetClipReference(string languageCode, AssetReferenceT<AudioClip> clipReference)
         {
-            var clip = _languageClips.Find(c => c.languageCode == languageCode);
+            _languageClips ??= new List<LanguageAudioClip>();
+            var clip = _languageClips.Find(c => string.Equals(
+                c.languageCode, languageCode, StringComparison.OrdinalIgnoreCase));
             if (clip != null)
             {
                 clip.clipReference = clipReference;
@@ -87,9 +101,19 @@ namespace Molca.Audio
 
         public bool HasClipForLanguage(string languageCode)
         {
-            var clip = _languageClips.Find(c => c.languageCode == languageCode);
+            var clip = _languageClips?.Find(c => string.Equals(
+                c.languageCode, languageCode, StringComparison.OrdinalIgnoreCase));
             return clip != null && clip.clipReference != null && clip.clipReference.RuntimeKeyIsValid();
         }
+
+        /// <summary>Resolves audio through the same authored locale fallback graph as text.</summary>
+        public LocalizedAssetResolution<AssetReferenceT<AudioClip>> ResolveClipReference(
+            string languageCode) =>
+            LocalizationFallbackResolver.Resolve(
+                languageCode,
+                LocalizationManager.GetFallbackChain(languageCode),
+                GetClipReferenceForLanguage,
+                reference => reference != null && reference.RuntimeKeyIsValid());
 
         /// <summary>
         /// Gets the audio clip for the current language
@@ -110,8 +134,9 @@ namespace Molca.Audio
                 return cachedClip;
             }
 
-            var clipRef = GetClipReferenceForLanguage(languageCode);
-            if (clipRef == null || !clipRef.RuntimeKeyIsValid())
+            var resolution = ResolveClipReference(languageCode);
+            var clipRef = resolution.Reference;
+            if (!resolution.Found)
             {
                 Debug.LogWarning($"No valid audio clip reference found for language '{languageCode}' and id '{id}'");
                 return null;
@@ -163,7 +188,7 @@ namespace Molca.Audio
 
         public string[] GetAvailableLanguages()
         {
-            return _languageClips
+            return (_languageClips ?? new List<LanguageAudioClip>())
                 .Where(c => c.clipReference != null && c.clipReference.RuntimeKeyIsValid())
                 .Select(c => c.languageCode)
                 .ToArray();
@@ -182,8 +207,9 @@ namespace Molca.Audio
         /// </summary>
         public void ReleaseAsset(string languageCode)
         {
-            var clipRef = GetClipReferenceForLanguage(languageCode);
-            if (clipRef != null && clipRef.RuntimeKeyIsValid())
+            var resolution = ResolveClipReference(languageCode);
+            var clipRef = resolution.Reference;
+            if (resolution.Found)
             {
                 clipRef.ReleaseAsset();
                 _loadedClips.Remove(languageCode);
@@ -195,7 +221,7 @@ namespace Molca.Audio
         /// </summary>
         public void ReleaseAllAssets()
         {
-            foreach (var clipRef in _languageClips)
+            foreach (var clipRef in _languageClips ?? new List<LanguageAudioClip>())
             {
                 if (clipRef.clipReference != null && clipRef.clipReference.RuntimeKeyIsValid() && clipRef.clipReference.OperationHandle.IsValid())
                 {
@@ -205,4 +231,4 @@ namespace Molca.Audio
             _loadedClips.Clear();
         }
     }
-} 
+}

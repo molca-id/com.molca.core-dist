@@ -806,7 +806,10 @@ namespace Molca
         {
             if (_main == null)
             {
-                Debug.LogWarning($"[RuntimeManager] Not initialized. Cannot resolve {serviceType.Name}.");
+                // Quiet callers (TryGetService, optional injection) resolve legitimately before bootstrap —
+                // most visibly from OnValidate in the editor, where no runtime exists at all.
+                if (logIfNotFound)
+                    Debug.LogWarning($"[RuntimeManager] Not initialized. Cannot resolve {serviceType.Name}.");
                 return null;
             }
             
@@ -915,9 +918,12 @@ namespace Molca
         /// <summary>
         /// Try to resolve a service. Returns true if successful.
         /// </summary>
+        /// <remarks>
+        /// Never logs: an unresolved service is the documented negative result of this API, not a fault.
+        /// </remarks>
         public static bool TryGetService<T>(out T service) where T : class
         {
-            service = GetService<T>();
+            service = GetServiceInternal(typeof(T), logIfNotFound: false) as T;
             return service != null;
         }
         

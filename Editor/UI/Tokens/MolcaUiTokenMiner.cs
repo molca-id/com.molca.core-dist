@@ -4,6 +4,8 @@ using System.Text;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UI;
+using Molca.ColorID;
+using Molca.ColorID.Editor;
 using Molca.Localization;
 using Molca.UI.Tokens;
 using ColorIDComponent = Molca.ColorID.ColorID;
@@ -46,6 +48,12 @@ namespace Molca.Editor.UI.Tokens
 
             // First match wins per id, so iterate prefabs in a stable, path-sorted order for determinism.
             var byId = new Dictionary<string, MolcaUiToken>();
+
+            // When the project is on V2, mined colours come out already canonical: the legacy pair found
+            // on a prefab is translated through the theme set's alias map, and the catalog id is derived
+            // from the canonical token. Two legacy pairs that map to one token therefore collapse into one
+            // catalog entry instead of seeding a fresh catalog with a vocabulary that is already obsolete.
+            var themeSet = ColorThemeAuditService.FindThemeSettings()?.ThemeSet;
             var paths = AssetDatabase.FindAssets("t:Prefab", new[] { folderPath })
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .Distinct()
@@ -60,12 +68,43 @@ namespace Molca.Editor.UI.Tokens
                 // control/<prefab-name> — the prefab itself is a reusable control.
                 AddToken(byId, MolcaUiToken.NewControl($"control/{Kebab(prefab.name)}", prefab));
 
-                // color/<swatch>-<step> — every ColorID in the prefab tree.
+                // color/* — every legacy ColorID in the prefab tree, canonicalized when possible.
                 foreach (var colorId in prefab.GetComponentsInChildren<ColorIDComponent>(true))
                 {
                     if (string.IsNullOrEmpty(colorId.SwatchName) || string.IsNullOrEmpty(colorId.ColorId)) continue;
-                    var id = $"color/{Kebab(colorId.SwatchName)}-{Kebab(colorId.ColorId)}";
-                    AddToken(byId, MolcaUiToken.NewColor(id, colorId.SwatchName, colorId.ColorId));
+
+                    string canonical = themeSet?.ResolveLegacyToken(
+                        new LegacyColorKey(colorId.SwatchName, colorId.ColorId));
+
+                    if (!string.IsNullOrEmpty(canonical))
+                    {
+                        AddToken(byId, MolcaUiToken.NewColorToken(CatalogIdFor(canonical), canonical));
+                    }
+                    else
+                    {
+                        // A pair the alias map does not cover. Mining it as a legacy pair is deliberate and
+                        // is not "new authoring": the alternative is dropping a colour the prefab really
+                        // uses, which would make a mined catalog quietly incomplete. Migration reports it as
+                        // unaliased so it gets a canonical token — the miner records what exists.
+#pragma warning disable CS0618
+                        AddToken(byId, MolcaUiToken.NewColor(
+                            $"color/{Kebab(colorId.SwatchName)}-{Kebab(colorId.ColorId)}",
+                            colorId.SwatchName, colorId.ColorId));
+#pragma warning restore CS0618
+                    }
+                }
+
+                // color/* — every V2 binding in the prefab tree. Content already migrated to canonical
+                // tokens would otherwise be invisible to the miner, so a mined catalog would under-report
+                // the vocabulary in use precisely as a project finished migrating to it.
+                foreach (var binding in prefab.GetComponentsInChildren<ColorThemeBinding>(true))
+                {
+                    foreach (var bound in binding.Bindings)
+                    {
+                        if (bound == null || !bound.Token.IsAssigned) continue;
+                        string canonical = bound.Token.TokenId;
+                        AddToken(byId, MolcaUiToken.NewColorToken(CatalogIdFor(canonical), canonical));
+                    }
                 }
 
                 // text/<preset> — LocalizedText style presets (styleInfo is protected; read serialized).
@@ -135,6 +174,18 @@ namespace Molca.Editor.UI.Tokens
             if (token != null && !string.IsNullOrEmpty(token.Id) && !byId.ContainsKey(token.Id))
                 byId[token.Id] = token;
         }
+
+        /// <summary>
+        /// Derives a catalog id from a canonical colour token, e.g.
+        /// <c>action/primary/fill</c> to <c>color/action-primary-fill</c>.
+        /// </summary>
+        /// <remarks>
+        /// Flattened rather than nested because a catalog id is <c>category/name</c> — a single separator —
+        /// and keeping the canonical token's own slashes would produce ids the catalog cannot address.
+        /// Deterministic, so two legacy pairs aliased to the same token mine to the same entry.
+        /// </remarks>
+        private static string CatalogIdFor(string canonicalTokenId) =>
+            $"color/{Kebab(canonicalTokenId)}";
 
         /// <summary>Lower-cases and hyphenates a name into a token-safe segment (no slashes, no spaces).</summary>
         private static string Kebab(string raw)

@@ -32,7 +32,9 @@ namespace Molca.Modals
         }
 
         [Header("General")]
-        [SerializeField, Tooltip("Subscribe to Logger onLogs event, displaying it as messages.")]
+        [SerializeField, Tooltip(
+             "Show every captured log message as an on-screen toast. Registers a sink with the Molca log "
+             + "pipeline; does not require a Log Manager component.")]
         private bool hookLogger;
         [SerializeField] private MessageColors messageColors;
 
@@ -73,10 +75,13 @@ namespace Molca.Modals
         private HashSet<BaseModal> _activeModals;
         #endregion
 
-        // Logger event subscriptions stored so we can unsubscribe in Teardown.
-        private Action<string> _onLogInfo;
-        private Action<string> _onLogWarning;
-        private Action<string> _onLogError;
+        // Registered with the log pipeline so Teardown can unregister it.
+        private Molca.Logging.ILogSink _logSink;
+
+        // Logs raised off the main thread land here instead of going straight to AddMessage, which calls
+        // StartCoroutine — a main-thread-only API that throws from a worker thread. Drained in Update.
+        private readonly System.Collections.Concurrent.ConcurrentQueue<(string message, MessageType type)>
+            _offThreadMessages = new();
 
         private bool IsValidAction(string msg) => isActive && !string.IsNullOrEmpty(msg);
 
@@ -130,20 +135,51 @@ namespace Molca.Modals
                 HideFullScreenLoading();
         }
 
+        /// <summary>
+        /// Registers an on-screen destination with the log pipeline.
+        /// </summary>
+        /// <remarks>
+        /// A sink rather than the three <c>LogManager</c> string callbacks it used to subscribe to: those
+        /// delivered a pre-formatted string, so this manager could not tell a warning from an error without
+        /// three separate handlers, and could not reach the message text alone. It also no longer needs
+        /// <c>LogManager</c> to exist — the pipeline is installed before any subsystem, so a project
+        /// without a Log Manager component still gets on-screen messages.
+        /// <para/>
+        /// The callback runs on whichever thread logged, and <see cref="AddMessage"/> only enqueues, so
+        /// nothing here touches Unity objects off the main thread.
+        /// </remarks>
         private void InitializeLogger()
         {
             if (!hookLogger) return;
 
-            var logger = RuntimeManager.GetSubsystem<LogManager>();
-            if (logger == null) return;
+            _logSink = new Molca.Logging.ActionLogSink("modal-messages", entry =>
+            {
+                var type = entry.UnityLogType switch
+                {
+                    LogType.Log => MessageType.Default,
+                    LogType.Warning => MessageType.Warning,
+                    _ => MessageType.Error
+                };
 
-            _onLogInfo    = msg => AddMessage(msg, MessageType.Default);
-            _onLogWarning = msg => AddMessage(msg, MessageType.Warning);
-            _onLogError   = msg => AddMessage(msg, MessageType.Error);
+                if (entry.IsMainThread) AddMessage(entry.Message, type);
+                else _offThreadMessages.Enqueue((entry.Message, type));
+            });
 
-            logger.onLogInfo    += _onLogInfo;
-            logger.onLogWarning += _onLogWarning;
-            logger.onLogError   += _onLogError;
+            Molca.Logging.MolcaLogPipeline.AddSink(_logSink);
+        }
+
+        /// <remarks>
+        /// Hands off-thread log entries to <see cref="AddMessage"/> from the main thread. A network or
+        /// worker thread calling it directly would reach <c>StartCoroutine</c> and throw — a hazard the
+        /// previous string-callback wiring had too, and which only became reachable in practice once
+        /// warnings stopped being discarded before they were dispatched.
+        /// </remarks>
+        private void Update()
+        {
+            while (_offThreadMessages.TryDequeue(out var pending))
+            {
+                AddMessage(pending.message, pending.type);
+            }
         }
 
         private void InitializePools()
@@ -173,15 +209,10 @@ namespace Molca.Modals
 
         public override void Teardown()
         {
-            if (hookLogger)
+            if (_logSink != null)
             {
-                var logger = RuntimeManager.GetSubsystem<LogManager>();
-                if (logger != null)
-                {
-                    logger.onLogInfo    -= _onLogInfo;
-                    logger.onLogWarning -= _onLogWarning;
-                    logger.onLogError   -= _onLogError;
-                }
+                Molca.Logging.MolcaLogPipeline.RemoveSink(_logSink);
+                _logSink = null;
             }
 
             base.Teardown();

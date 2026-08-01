@@ -1,92 +1,51 @@
-using UnityEngine;
-using UnityEditor;
+using System;
+using Molca.Editor.ReferenceSystem;
 using Molca.ReferenceSystem;
-using System.Linq;
+using UnityEditor;
+using UnityEngine;
 
+/// <summary>
+/// Property drawer for the typed <see cref="SceneObjectReference{T}"/>.
+/// </summary>
+/// <remarks>
+/// Identical to <see cref="SceneObjectReferenceDrawer"/> except that the field's <c>T</c> is passed to
+/// <see cref="SceneObjectReferenceDrawerCore"/>, which uses it both to constrain the picker and to report
+/// a target of the wrong type (<c>REF004</c>) instead of showing it as a working reference that fails the
+/// cast at runtime.
+/// </remarks>
 [CustomPropertyDrawer(typeof(SceneObjectReference<>))]
 public class SceneObjectReferenceGenericDrawer : PropertyDrawer
 {
+    /// <inheritdoc/>
     public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
     {
-        EditorGUI.BeginProperty(position, label, property);
-
-        var refIdProp = property.FindPropertyRelative("refId");
-        var refTypeProp = property.FindPropertyRelative("refType");
-        var sceneGuidProp = property.FindPropertyRelative("sceneGuid");
-        var displayNameProp = property.FindPropertyRelative("cachedDisplayName");
-
-        var typeArg = fieldInfo.FieldType.GetGenericArguments()[0];
-
-        string currentButtonText = "None";
-        IReferenceable foundObjectInScene = null;
-        if (!string.IsNullOrEmpty(refIdProp.stringValue))
-        {
-            var sceneReferenceables = Object.FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None)
-                .OfType<IReferenceable>()
-                .Where(r => typeArg.IsAssignableFrom(r.GetType()))
-                .ToList();
-
-            foundObjectInScene = sceneReferenceables.FirstOrDefault(r => r.RefId == refIdProp.stringValue);
-
-            if (foundObjectInScene != null)
-            {
-                if (Event.current.type != EventType.Layout)
-                    SyncMetadata(refTypeProp, displayNameProp, foundObjectInScene);
-                currentButtonText = $"{foundObjectInScene.DisplayName} ({foundObjectInScene.RefType})";
-            }
-            else
-            {
-                string sceneName = "Unknown Scene";
-                if (!string.IsNullOrEmpty(sceneGuidProp.stringValue))
-                {
-                    string path = AssetDatabase.GUIDToAssetPath(sceneGuidProp.stringValue);
-                    sceneName = string.IsNullOrEmpty(path)
-                        ? "DELETED SCENE"
-                        : System.IO.Path.GetFileNameWithoutExtension(path);
-                }
-                currentButtonText = $"[In Scene: {sceneName}] {displayNameProp.stringValue} ({refTypeProp.stringValue})";
-            }
-        }
-
-        Rect prefixRect = EditorGUI.PrefixLabel(position, label);
-        const float selectButtonWidth = 22f;
-        Rect selectRect = new Rect(prefixRect.xMax - selectButtonWidth, prefixRect.y, selectButtonWidth, prefixRect.height);
-        Rect buttonRect = new Rect(prefixRect.x, prefixRect.y, prefixRect.width - selectButtonWidth - 2f, prefixRect.height);
-
-        if (GUI.Button(buttonRect, new GUIContent(currentButtonText), EditorStyles.popup))
-        {
-            Rect screenRect = new Rect(GUIUtility.GUIToScreenPoint(buttonRect.position), buttonRect.size);
-            SceneObjectReferenceDrawer.SceneObjectReferenceSearchPopup.Show(
-                screenRect,
-                property.serializedObject.targetObjects,
-                property.propertyPath,
-                typeArg);
-        }
-
-        EditorGUI.BeginDisabledGroup(foundObjectInScene == null);
-        GUIContent selectIcon = EditorGUIUtility.IconContent("d_ViewToolMove") ?? new GUIContent("SEL");
-        selectIcon.tooltip = "Select referenced object";
-        if (GUI.Button(selectRect, selectIcon, EditorStyles.miniButton))
-        {
-            if (foundObjectInScene is Object unityObj)
-            {
-                Selection.activeObject = unityObj;
-                EditorGUIUtility.PingObject(unityObj);
-            }
-        }
-        EditorGUI.EndDisabledGroup();
-
-        EditorGUI.EndProperty();
+        SceneObjectReferenceDrawerCore.Draw(position, property, label, ExpectedTargetType());
     }
 
-    private static void SyncMetadata(SerializedProperty refTypeProp, SerializedProperty displayNameProp, IReferenceable found)
+    /// <summary>
+    /// The <c>T</c> of the drawn <see cref="SceneObjectReference{T}"/> field.
+    /// </summary>
+    /// <returns>
+    /// The promised target type, or null when it cannot be determined — for an array or list element,
+    /// <see cref="PropertyDrawer.fieldInfo"/> reports the collection type rather than the element type.
+    /// A null result degrades to untyped behavior rather than to a wrong type constraint.
+    /// </returns>
+    private Type ExpectedTargetType()
     {
-        string type = found.RefType ?? string.Empty;
-        string display = found.DisplayName ?? string.Empty;
-        if (refTypeProp.stringValue == type && displayNameProp.stringValue == display)
-            return;
-        refTypeProp.stringValue = type;
-        displayNameProp.stringValue = display;
-        refTypeProp.serializedObject.ApplyModifiedProperties();
+        var fieldType = fieldInfo?.FieldType;
+        if (fieldType == null)
+            return null;
+
+        if (fieldType.IsArray)
+            fieldType = fieldType.GetElementType();
+        else if (fieldType.IsGenericType &&
+                 fieldType.GetGenericTypeDefinition() == typeof(System.Collections.Generic.List<>))
+            fieldType = fieldType.GetGenericArguments()[0];
+
+        return fieldType != null
+            && fieldType.IsGenericType
+            && fieldType.GetGenericTypeDefinition() == typeof(SceneObjectReference<>)
+                ? fieldType.GetGenericArguments()[0]
+                : null;
     }
 }

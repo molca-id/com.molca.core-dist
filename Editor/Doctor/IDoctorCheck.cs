@@ -44,6 +44,16 @@ namespace Molca.Editor.Doctor
         /// Checks that touch <c>AssetDatabase</c>, <c>SerializedObject</c>, or the scene
         /// graph must stay on the main thread and yield with
         /// <c>Awaitable.NextFrameAsync(cancellationToken)</c> periodically instead.
+        /// <para>
+        /// A check that hops off the main thread <b>must hop back before it returns</b> —
+        /// <c>try { … } finally { await Awaitable.MainThreadAsync(); }</c>. A Unity
+        /// <c>Awaitable</c> is a pooled object with a native counterpart, so completing (or faulting)
+        /// this state machine on the ThreadPool thread the scan ran on raises the native
+        /// <c>Scripting object is not properly attached</c> assert. Nothing throws — the assert is
+        /// logged asynchronously, and the test framework charges it to whichever test happens to be
+        /// open when it lands, which is why it surfaced as unrelated flaky failures in the OAuth
+        /// loopback suite.
+        /// </para>
         /// </remarks>
         Awaitable<IReadOnlyList<DoctorIssue>> RunAsync(DoctorContext context, CancellationToken cancellationToken);
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.WebSockets;
@@ -163,6 +164,12 @@ namespace Molca.Editor.Remote
         /// <summary>Minimum wall-clock gap between two change-driven snapshots.</summary>
         private static readonly TimeSpan SnapshotFloor = TimeSpan.FromSeconds(2);
 
+        /// <summary>
+        /// How long a session must hold before a later failure counts as news rather than as the same problem
+        /// continuing. Comfortably longer than a connect/fail flap and shorter than any real session.
+        /// </summary>
+        private static readonly TimeSpan DurableSession = TimeSpan.FromSeconds(30);
+
         private static CancellationTokenSource _lifetime;
         private static Task _runTask;
         private static readonly string ProcessNonce = Guid.NewGuid().ToString("N");
@@ -203,6 +210,57 @@ namespace Molca.Editor.Remote
         /// <param name="work">The delegate to run on the main thread.</param>
         /// <param name="result">The work's result, or <c>default</c> when the editor could not serve it.</param>
         /// <returns>True when the work ran.</returns>
+        /// <summary>
+        /// True when <paramref name="exception"/> is the editor refusing to be read mid-load rather than a
+        /// real fault. Checked on the inner chain too, because a handler that wraps its own failure would
+        /// otherwise hide it.
+        /// </summary>
+        /// <param name="exception">The exception to classify.</param>
+        /// <returns>True when the editor was busy.</returns>
+        internal static bool IsEditorBusy(Exception exception)
+        {
+            for (var current = exception; current != null; current = current.InnerException)
+            {
+                if (current.Message != null && current.Message.IndexOf(
+                        "can only be called from the main thread", StringComparison.Ordinal) >= 0)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>The one status a busy editor produces, so a retry never reports a transport fault.</summary>
+        private const string EditorBusyStatus = "Editor busy";
+
+        /// <summary>
+        /// The most recent refusal, as "operation: first line", attached to the <see cref="EditorBusyStatus"/>
+        /// log line. Written from the marshalling thread and read from it, so it is deliberately a plain
+        /// field: a stale detail on a status line is harmless, a lock on this path is not.
+        /// </summary>
+        private static volatile string _lastEditorBusyDetail;
+
+        /// <summary>
+        /// Describes where <paramref name="exception"/> was thrown, as its type plus the innermost stack
+        /// frames, for a failure no marshal claimed.
+        /// </summary>
+        /// <param name="exception">The exception to describe.</param>
+        /// <returns>A single-line description, bounded so it cannot flood the console.</returns>
+        internal static string DescribeThrowSite(Exception exception)
+        {
+            if (exception == null) return string.Empty;
+            var innermost = exception;
+            while (innermost.InnerException != null) innermost = innermost.InnerException;
+
+            var frames = innermost.StackTrace?
+                .Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0)
+                .Take(3) ?? Enumerable.Empty<string>();
+            var where = string.Join(" | ", frames);
+            return string.IsNullOrEmpty(where)
+                ? $"unmarshalled {innermost.GetType().Name} (no stack)"
+                : $"unmarshalled {innermost.GetType().Name} — {where}";
+        }
+
         private static bool TryMainThread<T>(string operation, Func<T> work, out T result)
         {
             try
@@ -213,6 +271,12 @@ namespace Molca.Editor.Remote
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 result = default;
+                // Recorded before the once-per-session gate below, so the detail is current even when this
+                // operation has already been reported and the SetStatus line is the only one a user sees.
+                var message = exception.Message ?? exception.GetType().Name;
+                var newline = message.IndexOf('\n');
+                _lastEditorBusyDetail =
+                    $"{operation}: {(newline >= 0 ? message.Substring(0, newline).TrimEnd() : message)}";
                 lock (ReportedMainThreadFailures)
                 {
                     if (!ReportedMainThreadFailures.Add(operation)) return false;
@@ -249,14 +313,48 @@ namespace Molca.Editor.Remote
             if (!loggable) return;
             // Compare the reason without the "retrying in Ns" suffix, which changes on every backoff step.
             var reason = status.Split('·')[0].TrimEnd();
-            if (reason == _loggedStatus) return;
-            _loggedStatus = reason;
-            if (reason is "Connecting" or "Connected" or "Disconnected" or "Disabled") return;
-            Debug.LogWarning($"[Molca Remote] {reason}");
+            if (!ShouldLogReason(reason, ref _loggedStatus)) return;
+            // Name the operation and the editor's own words the first time, so a persistent refusal
+            // identifies itself from one line instead of needing a stack trace to place it.
+            var detail = reason == EditorBusyStatus ? _lastEditorBusyDetail : null;
+            Debug.LogWarning(string.IsNullOrEmpty(detail)
+                ? $"[Molca Remote] {reason}"
+                : $"[Molca Remote] {reason} — {detail}");
+        }
+
+        /// <summary>
+        /// Decides whether a status reason is worth a console line, updating <paramref name="lastLogged"/>.
+        /// </summary>
+        /// <remarks>
+        /// Internal for testing. The ordering here is the whole point: the quiet transitions must be filtered
+        /// <em>before</em> the memory is written. Assigning first meant a retry loop's "Connecting" cleared
+        /// the last logged reason on every attempt, so one unchanging failure logged once per attempt forever
+        /// — the spam this method exists to prevent.
+        /// </remarks>
+        /// <param name="reason">The status reason, already stripped of its backoff suffix.</param>
+        /// <param name="lastLogged">The last reason logged; updated when this one is worth logging.</param>
+        /// <returns>True when the caller should log.</returns>
+        internal static bool ShouldLogReason(string reason, ref string lastLogged)
+        {
+            // "Connected" is quiet like the rest and deliberately does *not* clear the memory. Clearing on
+            // connect looked right — a recurrence after a working session is news — but a session that dies
+            // immediately reaches "Connected" on every attempt, so it restored the per-attempt spam through a
+            // second route. Only a session that proves durable forgets the reason; see RunLoopAsync.
+            if (reason is "Connecting" or "Connected" or "Disconnected" or "Disabled") return false;
+            if (reason == lastLogged) return false;
+            lastLogged = reason;
+            return true;
         }
 
         internal static void ApplySettings()
         {
+            // Toggling Remote is an explicit "try again and tell me": forget what has already been announced
+            // so the next failure is reported in full, including the throw-site detail. Without this the
+            // once-per-reason rule made a warning unobtainable after the first one had scrolled away — the
+            // user would have to force a domain reload to see the reason for a connection they just re-enabled.
+            _loggedStatus = string.Empty;
+            _lastEditorBusyDetail = null;
+            lock (ReportedMainThreadFailures) ReportedMainThreadFailures.Clear();
             Stop();
             EnsureStarted();
         }
@@ -321,6 +419,7 @@ namespace Molca.Editor.Remote
             while (!cancellationToken.IsCancellationRequested && generation == _generation)
             {
                 var reason = "Disconnected";
+                DateTime? connectedAt = null;
                 try
                 {
                     SetStatus("Connecting");
@@ -328,6 +427,7 @@ namespace Molca.Editor.Remote
                     if (generation != _generation) return;
                     SessionId = session.sessionId;
                     SetStatus("Connected");
+                    connectedAt = DateTime.UtcNow;
                     await RunSocketAsync(session, cancellationToken);
                     delaySeconds = 2;
                 }
@@ -338,8 +438,25 @@ namespace Molca.Editor.Remote
                 catch (Exception exception)
                 {
                     reason = UserFacingStatus(exception);
+                    // A busy exception that no marshal reported means a Unity API was touched directly on
+                    // this thread. Only the exception's own stack names that call site — the async
+                    // resumption chain Unity prints in the console does not, which is why this took five
+                    // rounds to place. Recorded here so the one status line carries it.
+                    if (IsEditorBusy(exception) && string.IsNullOrEmpty(_lastEditorBusyDetail))
+                        _lastEditorBusyDetail = DescribeThrowSite(exception);
                     SetStatus(reason);
+                    // A busy editor is transient by nature — it clears when the load settles — so it must not
+                    // escalate the backoff the way a server or network fault should. Escalating meant that
+                    // enabling Remote while a scene loaded pushed the next attempt out to a minute.
+                    if (IsEditorBusy(exception)) delaySeconds = Math.Min(delaySeconds, 5);
                 }
+
+                // Only a session that actually held forgets the last logged reason, so a failure recurring
+                // after a working session is reported again while a connect/fail flap stays at one line. A
+                // session that dies on arrival is the same problem continuing, not news — which is what made
+                // "Connected" clear the memory the wrong way and restore the per-attempt spam.
+                if (connectedAt != null && DateTime.UtcNow - connectedAt.Value >= DurableSession)
+                    _loggedStatus = string.Empty;
 
                 if (generation != _generation) return;
                 // Say how long the wait is, so the Hub label distinguishes a polite backoff from a hot
@@ -380,8 +497,15 @@ namespace Molca.Editor.Remote
         /// failing connection, and it was worst in exactly the failing case: when the settings asset is
         /// absent, nothing caches, so every attempt re-ran the AssetDatabase lookup and the migration probe.
         /// </remarks>
-        private static RemoteConnectInputs GatherConnectInputs() =>
-            McpMainThreadDispatcher.Invoke(() =>
+        /// <returns>The inputs, or <c>null</c> when the editor could not be read.</returns>
+        private static RemoteConnectInputs GatherConnectInputs()
+        {
+            // Named and guarded like every other marshal on the session path. This one runs on *every*
+            // connect attempt and reads the Package Manager (via CoreVersion) and the AssetDatabase (via
+            // MolcaProjectSettings), so an editor mid scene-load refuses it — and unguarded, that refusal
+            // surfaced as the connection's failure reason, which is how Unity's "can only be called from the
+            // main thread" advice ended up logged as a Molca Remote connection status.
+            TryMainThread("connect inputs", () =>
             {
                 var inputs = new RemoteConnectInputs();
                 var entitlement = DevEntitlementStore.LoadEffective();
@@ -408,11 +532,16 @@ namespace Molca.Editor.Remote
                 inputs.AllowAssistant = MolcaRemoteSettings.AllowAssistant;
                 inputs.AllowActions = MolcaRemoteSettings.AllowActions;
                 return inputs;
-            });
+            }, out var gathered);
+            return gathered;
+        }
 
         private static async Task<MolcaRemoteConnectResponse> ConnectSessionAsync(CancellationToken cancellationToken)
         {
             var inputs = GatherConnectInputs();
+            // A busy editor is a retry, not a refusal: the backoff below already spaces the attempts out,
+            // and the next one succeeds as soon as the load settles.
+            if (inputs == null) throw new InvalidOperationException(EditorBusyStatus);
             if (inputs.Refusal != null) throw new InvalidOperationException(inputs.Refusal);
             var entitlement = inputs.Entitlement;
 
@@ -437,12 +566,46 @@ namespace Molca.Editor.Remote
             var json = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
                 throw new InvalidOperationException(ParseReason(json, $"Remote connect failed ({(int)response.StatusCode})"));
-            var result = JsonUtility.FromJson<MolcaRemoteConnectResponse>(json);
+            var result = ParseConnectResponse(json);
             if (result == null || result.protocolVersion != MolcaRemoteProtocol.Version ||
                 string.IsNullOrEmpty(result.sessionId) || string.IsNullOrEmpty(result.agentToken) ||
                 string.IsNullOrEmpty(result.socketUrl))
                 throw new InvalidOperationException("Remote connect returned an invalid response");
             return result;
+        }
+
+        /// <summary>
+        /// Maps the connect response with Newtonsoft, keeping the whole connect path free of Unity APIs.
+        /// </summary>
+        /// <remarks>
+        /// This was <c>JsonUtility.FromJson</c>, which is a UnityEngine API and throws "can only be called
+        /// from the main thread" on the connection loop's thread-pool thread. It worked only while the loop
+        /// ran on the main thread and captured Unity's synchronization context, so every <c>await</c> resumed
+        /// there; moving the loop to <c>Task.Run</c> — the fix for it stalling the editor — is what exposed
+        /// this, and it broke connecting outright, because the response could never be parsed. Nothing on
+        /// this path may touch a Unity API without going through <see cref="TryMainThread{T}"/>.
+        /// <para>Mapped field by field rather than by reflection so the contract is readable here, and so a
+        /// missing field defaults exactly as the old serializer's would.</para>
+        /// </remarks>
+        /// <param name="json">The response body.</param>
+        /// <returns>The parsed response, or <c>null</c> when the body is not a JSON object.</returns>
+        internal static MolcaRemoteConnectResponse ParseConnectResponse(string json)
+        {
+            JObject root;
+            try { root = JObject.Parse(json); }
+            catch (JsonException) { return null; }
+
+            return new MolcaRemoteConnectResponse
+            {
+                sessionId = root.Value<string>("sessionId"),
+                deviceId = root.Value<string>("deviceId"),
+                protocolVersion = root.Value<int?>("protocolVersion") ?? 0,
+                agentToken = root.Value<string>("agentToken"),
+                tokenExpiresAt = root.Value<string>("tokenExpiresAt"),
+                sessionExpiresAt = root.Value<string>("sessionExpiresAt"),
+                socketUrl = root.Value<string>("socketUrl"),
+                heartbeatSeconds = root.Value<int?>("heartbeatSeconds") ?? 0
+            };
         }
 
         private static async Task RunSocketAsync(
@@ -480,8 +643,18 @@ namespace Molca.Editor.Remote
             Action assistantChanged = () => SendAssistantStateInBackground(
                 socket, sendLock, session.sessionId, nextSequence, cancellationToken);
             Action companionChanged = () => Signal(snapshotWake);
-            AssistantRemoteFacade.Changed += assistantChanged;
-            RemoteCompanionFacade.Changed += companionChanged;
+            // Marshalled, and not obviously so: AssistantRemoteFacade.Changed is not a field-like event but a
+            // custom accessor over AssistantChatRuntime.Shared, which lazily builds the Assistant settings
+            // asset through the AssetDatabase on first touch. Subscribing from the socket thread therefore
+            // threw "can only be called from the main thread" — correctly, this time — on the very first thing
+            // after a successful connect, killing every session on arrival. Skippable: a session without the
+            // Assistant's change feed still serves state and commands, and the next one re-subscribes.
+            TryMainThread("session subscribe", () =>
+            {
+                AssistantRemoteFacade.Changed += assistantChanged;
+                RemoteCompanionFacade.Changed += companionChanged;
+                return true;
+            }, out _);
             try
             {
                 // Marshalled: this runs on the socket's thread, and the Assistant snapshot reads the shared
@@ -527,12 +700,14 @@ namespace Molca.Editor.Remote
             }
             finally
             {
-                AssistantRemoteFacade.Changed -= assistantChanged;
-                RemoteCompanionFacade.Changed -= companionChanged;
                 // Teardown must never throw out of this finally: an exception here would replace the real
-                // reason the socket closed with a misleading one.
+                // reason the socket closed with a misleading one. The unsubscribes belong inside the marshal
+                // for the same reason the subscribes do — and unsubscribing something never subscribed is a
+                // no-op, so a skipped subscribe above needs no bookkeeping here.
                 TryMainThread("session teardown", () =>
                 {
+                    AssistantRemoteFacade.Changed -= assistantChanged;
+                    RemoteCompanionFacade.Changed -= companionChanged;
                     // A remote-initiated run that nobody can still watch or stop from the browser must not
                     // keep mutating the project, so socket loss cancels it just as authorization loss does.
                     RemoteAutomationCommands.CancelForAuthorizationLoss();
@@ -679,12 +854,28 @@ namespace Molca.Editor.Remote
             }
         }
 
+        /// <summary>
+        /// Runs a command handler on the main thread, answering <c>editor_busy</c> when the editor refuses.
+        /// A retryable answer is the right shape here: the browser can ask again in a second, whereas
+        /// dropping the socket costs the session every other command queued behind this one.
+        /// </summary>
+        /// <param name="operation">Short name reported once per session when the editor is unreadable.</param>
+        /// <param name="work">The handler to run on the main thread.</param>
+        /// <returns>The handler's reply, or an <c>editor_busy</c> failure.</returns>
+        private static JObject MainThreadCommand(string operation, Func<JObject> work) =>
+            TryMainThread(operation, work, out var result) && result != null
+                ? result
+                : new JObject { ["ok"] = false, ["error"] = "editor_busy" };
+
         private static JObject ExecuteCommand(JObject payload)
         {
+            // Guarded, unlike the tool path below, which has its own try/catch: these two early returns used
+            // to let a refusal escape ExecuteCommand, unwind the receive loop, and close the socket — one
+            // badly-timed request killing the whole session.
             if (payload.Value<string>("type")?.StartsWith("assistant.", StringComparison.Ordinal) == true)
-                return McpMainThreadDispatcher.Invoke(() => AssistantRemoteFacade.Execute(payload));
+                return MainThreadCommand("assistant command", () => AssistantRemoteFacade.Execute(payload));
             if (payload.Value<string>("type")?.StartsWith("automation.", StringComparison.Ordinal) == true)
-                return McpMainThreadDispatcher.Invoke(() => RemoteAutomationCommands.Execute(payload));
+                return MainThreadCommand("automation command", () => RemoteAutomationCommands.Execute(payload));
             var commandType = payload.Value<string>("type");
             var requestedAction = commandType == "tool.action";
             if (commandType != "tool.invoke" && !requestedAction)
@@ -786,7 +977,13 @@ namespace Molca.Editor.Remote
                     }
                     catch { }
                 }
-                return new JObject { ["ok"] = false, ["error"] = exception.Message };
+                return new JObject
+                {
+                    ["ok"] = false,
+                    // A busy editor is retryable and gets the same code as the guarded handlers above, so the
+                    // browser sees one condition rather than a raw Unity message it cannot interpret.
+                    ["error"] = IsEditorBusy(exception) ? "editor_busy" : exception.Message
+                };
             }
         }
 
@@ -852,9 +1049,22 @@ namespace Molca.Editor.Remote
             catch { return fallback; }
         }
 
-        private static string UserFacingStatus(Exception exception)
+        /// <summary>
+        /// Maps a connect-attempt failure to the one short reason the Hub label and the console show.
+        /// Internal for testing: this method is the boundary that decides what a user is told, and it
+        /// regressed by letting a raw editor message through as a connection status.
+        /// </summary>
+        /// <param name="exception">The failure to describe.</param>
+        /// <returns>A single-line reason.</returns>
+        internal static string UserFacingStatus(Exception exception)
         {
+            if (IsEditorBusy(exception)) return EditorBusyStatus;
+            // Last line of defence for the Hub label and the console: an unrecognised message falls through
+            // verbatim, and Unity's editor-API messages are three lines of advice aimed at a script author.
+            // A status is one short reason, so never let more than the first line through.
             var message = exception.Message ?? "Connection failed";
+            var newline = message.IndexOf('\n');
+            if (newline >= 0) message = message.Substring(0, newline).TrimEnd();
             return message switch
             {
                 "membership_required" => "Project access removed",

@@ -1,0 +1,516 @@
+/*
+ * Network workspace styles.
+ *
+ * Colors come exclusively from the shared tokens in MolcaEditorTokens.uss (loaded by
+ * MolcaEditorUi.Apply); no copied hex, so light and dark both work without a second code path.
+ * Layout follows EDITOR_DESIGN_LANGUAGE.md so the workspace renders uniformly with the rest of the Hub.
+ */
+
+.molca-network {
+    flex-grow: 1;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+/* ---- Toolbar ---- */
+
+.molca-network__toolbar {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.molca-network__catalog {
+    -unity-font-style: bold;
+    font-size: 12px;
+    color: var(--molca-heading);
+    margin-right: 10px;
+}
+
+.molca-network__catalog--unregistered {
+    color: var(--molca-status-warn);
+}
+
+.molca-network__environment-slot {
+    flex-direction: row;
+    align-items: center;
+    margin-right: 8px;
+}
+
+.molca-network__environment {
+    min-width: 190px;
+}
+
+.molca-network__environment > .unity-base-field__label {
+    min-width: 48px;
+    font-size: 11px;
+    color: var(--molca-muted);
+}
+
+.molca-network__validation {
+    flex-direction: row;
+    align-items: center;
+    margin-right: 8px;
+    padding-left: 6px;
+    padding-right: 6px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    border-radius: 3px;
+    background-color: var(--molca-control);
+}
+
+.molca-network__validation > Label {
+    font-size: 11px;
+    color: var(--molca-text);
+}
+
+/* ---- Body: rail + content ---- */
+
+.molca-network__body {
+    flex-direction: row;
+    flex-grow: 1;
+}
+
+.molca-network__body--narrow {
+    flex-direction: column;
+}
+
+.molca-network__rail-pane {
+    flex-shrink: 0;
+    margin-right: 10px;
+    border-right-width: 1px;
+    border-right-color: var(--molca-border-soft);
+    padding-right: 8px;
+}
+
+.molca-network__body--narrow .molca-network__rail-pane {
+    margin-right: 0;
+    margin-bottom: 8px;
+    border-right-width: 0;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--molca-border-soft);
+    padding-right: 0;
+    padding-bottom: 8px;
+}
+
+.molca-network__search-results {
+    max-height: 260px;
+}
+
+.molca-network__content {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.molca-network__view {
+    flex-grow: 1;
+}
+
+/* ---- Master / detail ---- */
+
+.molca-network__split {
+    flex-direction: row;
+    flex-grow: 1;
+}
+
+.molca-network__split--narrow {
+    flex-direction: column;
+}
+
+.molca-network__master {
+    width: 280px;
+    flex-shrink: 0;
+    margin-right: 10px;
+}
+
+.molca-network__split--narrow .molca-network__master {
+    width: auto;
+    margin-right: 0;
+    margin-bottom: 8px;
+    max-height: 240px;
+}
+
+.molca-network__detail {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.molca-network__master-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+    padding-left: 2px;
+}
+
+.molca-network__master-header > Label {
+    font-size: 11px;
+    color: var(--molca-muted);
+}
+
+/* ---- Rows ---- */
+
+.molca-network__row {
+    flex-direction: row;
+    align-items: center;
+    background-color: transparent;
+    border-width: 0;
+    border-radius: 3px;
+    margin-top: 1px;
+    margin-bottom: 1px;
+    margin-left: 0;
+    margin-right: 0;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 6px;
+    padding-right: 6px;
+}
+
+.molca-network__row:hover {
+    background-color: var(--molca-control);
+}
+
+.molca-network__row--selected {
+    background-color: var(--molca-row-selected);
+}
+
+.molca-network__row--selected .molca-network__row-title {
+    color: var(--molca-on-row-selected);
+}
+
+.molca-network__row-text {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-left: 6px;
+}
+
+.molca-network__row-title {
+    font-size: 11px;
+    color: var(--molca-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.molca-network__row-subtitle {
+    font-size: 10px;
+    color: var(--molca-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.molca-network__row-badges {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.molca-network__group {
+    margin-bottom: 8px;
+}
+
+.molca-network__group-title {
+    font-size: 11px;
+    -unity-font-style: bold;
+    color: var(--molca-heading);
+    margin-top: 4px;
+    margin-bottom: 2px;
+    padding-left: 2px;
+}
+
+/* ---- Fields ---- */
+
+.molca-network__card {
+    margin-bottom: 8px;
+}
+
+.molca-network__field {
+    flex-direction: row;
+    align-items: flex-start;
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+.molca-network__field-label {
+    width: 160px;
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--molca-label);
+}
+
+.molca-network__field-value {
+    flex-grow: 1;
+    flex-shrink: 1;
+    font-size: 11px;
+    color: var(--molca-text);
+    white-space: normal;
+}
+
+.molca-network__provenance {
+    flex-shrink: 0;
+    margin-left: 8px;
+    font-size: 10px;
+    color: var(--molca-muted);
+    background-color: var(--molca-control);
+    border-radius: 3px;
+    padding-left: 5px;
+    padding-right: 5px;
+    padding-top: 1px;
+    padding-bottom: 1px;
+}
+
+.molca-network__heading {
+    font-size: 11px;
+    -unity-font-style: bold;
+    color: var(--molca-heading);
+    margin-top: 8px;
+    margin-bottom: 2px;
+}
+
+.molca-network__muted {
+    font-size: 11px;
+    color: var(--molca-muted);
+    white-space: normal;
+}
+
+.molca-network__actions {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+
+.molca-network__report {
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.molca-network__report > .unity-base-text-field__input {
+    min-height: 110px;
+    font-size: 10px;
+    background-color: var(--molca-input);
+    white-space: normal;
+}
+
+/* ---- Badges and dots ---- */
+
+.molca-network__badge {
+    font-size: 9px;
+    color: var(--molca-muted);
+    background-color: var(--molca-control);
+    border-radius: 3px;
+    margin-left: 4px;
+    padding-left: 5px;
+    padding-right: 5px;
+    padding-top: 1px;
+    padding-bottom: 1px;
+}
+
+.molca-network__badge--ok { color: var(--molca-status-green); }
+.molca-network__badge--warning { color: var(--molca-status-warn); }
+.molca-network__badge--error { color: var(--molca-status-error); }
+.molca-network__badge--idle { color: var(--molca-status-grey); }
+
+.molca-network__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    background-color: var(--molca-status-grey);
+}
+
+.molca-network__dot--ok { background-color: var(--molca-status-green); }
+.molca-network__dot--warning { background-color: var(--molca-status-warn); }
+.molca-network__dot--error { background-color: var(--molca-status-error); }
+.molca-network__dot--idle { background-color: var(--molca-status-grey); }
+.molca-network__dot--none { background-color: transparent; }
+
+/* ---- Overview ---- */
+
+.molca-network__counts {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.molca-network__count-chip {
+    font-size: 10px;
+    background-color: var(--molca-control);
+    border-width: 0;
+    border-radius: 3px;
+    margin-left: 0;
+    margin-right: 4px;
+    margin-top: 2px;
+    margin-bottom: 2px;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+}
+
+.molca-network__count-chip:hover {
+    background-color: var(--molca-row-selected);
+    color: var(--molca-on-row-selected);
+}
+
+/* ---- Binding matrix ---- */
+
+.molca-network__matrix {
+    margin-top: 4px;
+}
+
+.molca-network__matrix-row {
+    flex-direction: row;
+    align-items: center;
+}
+
+.molca-network__matrix-cell {
+    width: 92px;
+    flex-shrink: 0;
+    font-size: 10px;
+    -unity-text-align: middle-center;
+    color: var(--molca-text);
+    background-color: transparent;
+    border-width: 0;
+    margin: 1px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.molca-network__matrix-cell--header {
+    color: var(--molca-muted);
+    -unity-font-style: bold;
+}
+
+.molca-network__matrix-cell--name {
+    width: 150px;
+    -unity-text-align: middle-left;
+    color: var(--molca-heading);
+}
+
+.molca-network__matrix-cell--ok { color: var(--molca-status-green); }
+.molca-network__matrix-cell--warning { color: var(--molca-status-warn); }
+.molca-network__matrix-cell--error { color: var(--molca-status-error); }
+.molca-network__matrix-cell--idle { color: var(--molca-status-grey); }
+
+/* ---- Bindings ---- */
+
+.molca-network__binding-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+.molca-network__binding-environment {
+    width: 120px;
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--molca-label);
+    margin-left: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.molca-network__binding-origin {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-left: 4px;
+    margin-right: 4px;
+}
+
+/* ---- Findings ---- */
+
+.molca-network__finding {
+    margin-top: 4px;
+    margin-bottom: 4px;
+    padding-left: 6px;
+    border-left-width: 2px;
+    border-left-color: var(--molca-border-soft);
+}
+
+.molca-network__finding-header {
+    flex-direction: row;
+    align-items: center;
+}
+
+.molca-network__finding-message {
+    flex-grow: 1;
+    flex-shrink: 1;
+    font-size: 11px;
+    color: var(--molca-text);
+    margin-left: 6px;
+}
+
+.molca-network__finding-remedy {
+    margin-left: 13px;
+    margin-top: 1px;
+}
+
+.molca-network__finding-code {
+    margin-left: 13px;
+    font-size: 9px;
+    color: var(--molca-muted);
+}
+
+/* ---- Empty state ---- */
+
+.molca-network__empty {
+    flex-grow: 1;
+}
+
+/* ---- Request console ---- */
+
+/* An editable key/value row: enable toggle, key, value, remove. The key column is fixed so a
+   column of headers reads as a column rather than as ragged pairs. */
+.molca-network__entry-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.molca-network__entry-key {
+    width: 160px;
+    flex-shrink: 0;
+    margin-right: 4px;
+}
+
+.molca-network__entry-value {
+    flex-grow: 1;
+    flex-shrink: 1;
+    margin-right: 4px;
+}
+
+/* Body and response previews. Bounded height so a 2KB body cannot push the send button off-screen;
+   the field scrolls inside itself instead. */
+.molca-network__code {
+    min-height: 90px;
+    max-height: 320px;
+    font-size: 11px;
+}
+
+.molca-network__code > .unity-text-field__input {
+    background-color: var(--molca-bg);
+    white-space: normal;
+}
+
+/* Narrow layout: the fixed key column would push the value field off-screen in a docked panel. */
+.molca-network__body--narrow .molca-network__entry-row {
+    flex-direction: column;
+    align-items: stretch;
+    margin-bottom: 6px;
+}
+
+.molca-network__body--narrow .molca-network__entry-key,
+.molca-network__body--narrow .molca-network__entry-value {
+    width: auto;
+    margin-right: 0;
+}

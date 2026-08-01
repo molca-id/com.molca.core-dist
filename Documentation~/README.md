@@ -35,16 +35,23 @@ Each guide carries YAML front-matter (`title`/`category`/`order`); the categorie
   [`SUBSYSTEMS.md`](reference/SUBSYSTEMS.md), [`DEPENDENCY_INJECTION.md`](reference/DEPENDENCY_INJECTION.md),
   [`ASYNC_CONTRACT.md`](reference/ASYNC_CONTRACT.md), [`EVENTS.md`](reference/EVENTS.md),
   [`ATTRIBUTES.md`](reference/ATTRIBUTES.md).
-- **Scene & References** — [`REFERENCE_SYSTEM.md`](reference/REFERENCE_SYSTEM.md).
+- **Scene & References** — [`REFERENCE_SYSTEM.md`](reference/REFERENCE_SYSTEM.md), and
+  [`REFERENCE_SYSTEM_MIGRATION.md`](reference/REFERENCE_SYSTEM_MIGRATION.md) for upgrading a project or
+  fork to scoped references.
 - **Sequences** — moved to the `com.molca.sequence` add-on: [`SEQUENCES.md`](../../com.molca.sequence/Documentation~/reference/SEQUENCES.md),
   [`SEQUENCE_AUTHORING.md`](../../com.molca.sequence/Documentation~/reference/SEQUENCE_AUTHORING.md),
   [`SEQUENCE_VALIDATION.md`](../../com.molca.sequence/Documentation~/reference/SEQUENCE_VALIDATION.md).
 - **Data & Networking** — [`NETWORKING.md`](reference/NETWORKING.md),
+  [`NETWORKING_CATALOG.md`](reference/NETWORKING_CATALOG.md),
+  [`NETWORKING_MIGRATION.md`](reference/NETWORKING_MIGRATION.md),
   [`DATA_PROVIDERS.md`](reference/DATA_PROVIDERS.md).
 - **UI & Presentation** — [`MODALS.md`](reference/MODALS.md), [`COLOR_ID.md`](reference/COLOR_ID.md),
+  [`COLOR_ID_MIGRATION.md`](reference/COLOR_ID_MIGRATION.md),
   [`UI_TOKENS.md`](reference/UI_TOKENS.md), [`UI_INTENT_SPEC.md`](reference/UI_INTENT_SPEC.md).
 - **Content & Assets** — [`CONTENT_PACKAGES.md`](reference/CONTENT_PACKAGES.md).
-- **Localization & Audio** — [`LOCALIZATION.md`](reference/LOCALIZATION.md), [`AUDIO.md`](reference/AUDIO.md).
+- **Localization & Audio** — [`LOCALIZATION.md`](reference/LOCALIZATION.md),
+  [`LOCALIZATION_REMOTE_CATALOGS.md`](reference/LOCALIZATION_REMOTE_CATALOGS.md),
+  [`AUDIO.md`](reference/AUDIO.md).
 - **Settings** — [`SETTINGS.md`](reference/SETTINGS.md).
 - **Tooling** — [`HUB.md`](reference/HUB.md), [`BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
   [`ONBOARDING.md`](reference/ONBOARDING.md), [`EDITOR_DESIGN_LANGUAGE.md`](reference/EDITOR_DESIGN_LANGUAGE.md),

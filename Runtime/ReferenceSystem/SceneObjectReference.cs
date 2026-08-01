@@ -83,9 +83,20 @@ namespace Molca.ReferenceSystem
         /// <param name="callerLine">Populated by the compiler with the calling line number. Do not supply.</param>
         /// <returns>The found object, or null if not found / wrong type and <paramref name="required"/> is false.</returns>
         /// <remarks>
-        /// The caller-info parameters are captured at the synchronous call site so that
+        /// <para>The caller-info parameters are captured at the synchronous call site so that
         /// resolve warnings/errors name who initiated the resolve — the runtime call stack
-        /// loses this across the <c>await</c> boundaries below.
+        /// loses this across the <c>await</c> boundaries below.</para>
+        ///
+        /// <para>Every attempt made while the target may still legitimately register is
+        /// <b>silent</b>. Only the final attempt logs, so one deferred resolve produces at most
+        /// one diagnostic describing its terminal outcome. Previously the pre-wait probe logged
+        /// "could not resolve" for the entirely expected case of a target that had not registered
+        /// yet, which trained readers to ignore the warning that mattered.</para>
+        ///
+        /// <para><paramref name="cancellationToken"/> covers the <i>whole</i> operation, including
+        /// the wait for <see cref="RuntimeManager"/> bootstrap. A caller passing
+        /// <c>destroyCancellationToken</c> therefore stops waiting when its owner is destroyed even
+        /// if bootstrap never completes.</para>
         /// </remarks>
         public async Awaitable<T> ResolveAsync<T>(
             bool required = false,
@@ -95,27 +106,48 @@ namespace Molca.ReferenceSystem
             [CallerFilePath] string callerFilePath = null,
             [CallerLineNumber] int callerLine = 0) where T : class, IReferenceable
         {
-            await RuntimeManager.WaitForInitialization();
+            // 1. Validate the serialized record before waiting on anything: an unassigned
+            //    reference can never become assigned by waiting.
+            if (!IsValid)
+            {
+                if (required)
+                    throw BuildException(ResolveFailure.NotAssigned, callerMember, callerFilePath, callerLine);
+                return null;
+            }
+
+            // 2. Bootstrap wait, under the caller's token.
+            await RuntimeManager.WaitForInitialization(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
 
             var manager = RuntimeManager.GetSubsystem<ReferenceManager>();
-            if (manager != null && IsValid &&
-                !TryResolveCore<T>(out _, out _, callerMember, callerFilePath, callerLine))
+
+            // A struct's `this` cannot be captured by a lambda, so the registration matcher works
+            // against a copy. The copy is safe: the serialized identity never changes mid-resolve.
+            var self = this;
+
+            if (manager != null && !self.TryResolveCore<T>(out _, out _, null, null, 0, logDiagnostics: false))
             {
-                // Not registered yet — wait for a matching registration instead of a
-                // fixed single-frame guess. Re-check after subscribing to close the
-                // window between the first attempt and the subscription.
-                var captured = refId;
+                var capturedId = refId;
                 var completion = new AwaitableCompletionSource<bool>();
+
+                // Wake on any registration carrying the requested id, then re-probe the full
+                // key/type contract. Completing on the id alone would finish the wait on a
+                // wrong-type or wrong-Ref-Type registration and hand the caller a failure that a
+                // later, correct registration would have satisfied.
                 Action<IReferenceable> onRegistered = obj =>
                 {
-                    if (obj != null && obj.RefId == captured)
+                    if (obj == null || obj.RefId != capturedId)
+                        return;
+                    if (self.TryResolveCore<T>(out _, out _, null, null, 0, logDiagnostics: false))
                         completion.TrySetResult(true);
                 };
 
                 manager.Registered += onRegistered;
                 try
                 {
-                    if (!TryResolveCore<T>(out _, out _, callerMember, callerFilePath, callerLine))
+                    // Re-probe after subscribing to close the window between the first attempt
+                    // and the subscription.
+                    if (!self.TryResolveCore<T>(out _, out _, null, null, 0, logDiagnostics: false))
                     {
                         try
                         {
@@ -125,8 +157,8 @@ namespace Molca.ReferenceSystem
                         }
                         catch (TimeoutException)
                         {
-                            // Fall through to a final attempt, which produces the
-                            // standard diagnostic (and throws if required).
+                            // Fall through to the final attempt, which produces the single
+                            // diagnostic for this operation (and throws if required).
                         }
                     }
                 }
@@ -136,7 +168,7 @@ namespace Molca.ReferenceSystem
                 }
             }
 
-            // Final synchronous attempt: emits diagnostics and honors required.
+            // 3. Final attempt: the only one that logs, and the one that honors `required`.
             return Resolve<T>(required, callerMember, callerFilePath, callerLine);
         }
 
@@ -203,15 +235,22 @@ namespace Molca.ReferenceSystem
         }
 
         /// <summary>
-        /// Core resolve path shared by every public entry point. Logs the same diagnostics
-        /// as before and reports the failure category via <paramref name="failure"/>.
+        /// Core resolve path shared by every public entry point. Reports the failure category via
+        /// <paramref name="failure"/> and, unless <paramref name="logDiagnostics"/> is false, emits
+        /// the matching diagnostic.
         /// </summary>
+        /// <param name="logDiagnostics">
+        /// False for the probing attempts inside <see cref="ResolveAsync{T}"/>, where a miss is an
+        /// expected intermediate state rather than a problem worth reporting. Every synchronous
+        /// public entry point passes true, so their behavior is unchanged.
+        /// </param>
         private bool TryResolveCore<T>(
             out T resolvedObject,
             out ResolveFailure failure,
             string callerMember,
             string callerFilePath,
-            int callerLine) where T : class, IReferenceable
+            int callerLine,
+            bool logDiagnostics = true) where T : class, IReferenceable
         {
             resolvedObject = null;
             failure = ResolveFailure.None;
@@ -221,7 +260,8 @@ namespace Molca.ReferenceSystem
             if (manager == null)
             {
                 failure = ResolveFailure.ManagerUnavailable;
-                Debug.LogWarning($"[SceneObjectReference] ReferenceManager is not available. Cannot resolve '{refId}'.{FormatCallSite(callerMember, callerFilePath, callerLine)}");
+                if (logDiagnostics)
+                    Debug.LogWarning($"[SceneObjectReference] ReferenceManager is not available. Cannot resolve '{refId}'.{FormatCallSite(callerMember, callerFilePath, callerLine)}");
                 return false;
             }
 
@@ -238,21 +278,24 @@ namespace Molca.ReferenceSystem
                 !manager.TryGetByRefIdOnly(refId, out obj))
             {
                 failure = ResolveFailure.NotRegistered;
-                Debug.LogWarning($"[SceneObjectReference] Could not resolve reference: {refType} | {refId}. Object may not be registered or scene not loaded.{FormatCallSite(callerMember, callerFilePath, callerLine)}");
+                if (logDiagnostics)
+                    Debug.LogWarning($"[SceneObjectReference] Could not resolve reference: {refType} | {refId}. Object may not be registered or scene not loaded.{FormatCallSite(callerMember, callerFilePath, callerLine)}");
                 return false;
             }
 
-            // 4. Fake-null guard: a destroyed UnityEngine.Object that never unregistered.
-            //    Purge the dead entry from the manager and treat it as not found.
+            // 4. The manager's lookups already reject and purge destroyed entries, so reaching here
+            //    with a fake-null object would mean a registry invariant broke. Keep the guard as a
+            //    belt-and-braces check rather than trusting the layer below unconditionally.
             if (obj is UnityEngine.Object uo && uo == null)
             {
                 manager.PurgeIfDestroyed(obj);
                 failure = ResolveFailure.NotRegistered;
-                Debug.LogWarning($"[SceneObjectReference] Reference '{refType} | {refId}' resolved to a destroyed object; purged the dead entry. Treating as not found.{FormatCallSite(callerMember, callerFilePath, callerLine)}");
+                if (logDiagnostics)
+                    Debug.LogWarning($"[SceneObjectReference] Reference '{refType} | {refId}' resolved to a destroyed object; purged the dead entry. Treating as not found.{FormatCallSite(callerMember, callerFilePath, callerLine)}");
                 return false;
             }
 
-            if (!string.IsNullOrEmpty(refType) && obj.RefType != refType)
+            if (logDiagnostics && !string.IsNullOrEmpty(refType) && obj.RefType != refType)
             {
                 Debug.LogWarning($"[SceneObjectReference] Resolved '{refId}' by id; serialized refType '{refType}' does not match current '{obj.RefType}'. Re-assign the reference in the inspector to update serialization.{FormatCallSite(callerMember, callerFilePath, callerLine)}");
             }
@@ -264,7 +307,8 @@ namespace Molca.ReferenceSystem
             }
 
             failure = ResolveFailure.WrongType;
-            Debug.LogError($"[SceneObjectReference] Resolved object for ID '{refId}' is of type '{obj.GetType().Name}' but was asked for type '{typeof(T).Name}'.{FormatCallSite(callerMember, callerFilePath, callerLine)}");
+            if (logDiagnostics)
+                Debug.LogError($"[SceneObjectReference] Resolved object for ID '{refId}' is of type '{obj.GetType().Name}' but was asked for type '{typeof(T).Name}'.{FormatCallSite(callerMember, callerFilePath, callerLine)}");
             return false;
         }
 

@@ -44,7 +44,14 @@ Status / runtime introspection:
 
 Reference system:
 
-- `molca_refids`: Ref Ids exposed by `IReferenceable` components in loaded scenes.
+- `molca_references_audit`: the shared read-only reference audit — findings with `REFnnn` codes, provider
+  and reference-site inventories, per-reference outcomes, and scan coverage. Reports `Clean`, `Warnings`,
+  `Errors` or `Incomplete`; `Incomplete` means the scan could not see everything, so it is *not* clean.
+- `molca_references_plan_fix`: builds a reviewable repair plan from a fresh audit and returns it — every
+  object, property and before/after value — without changing anything. Findings whose repair needs a human
+  decision come back under `choices` with their candidate targets.
+- `molca_refids`: **deprecated** adapter over the same snapshot, kept for existing clients. Prefer
+  `molca_references_audit`.
 
 Content packages:
 
@@ -63,15 +70,47 @@ Settings:
 
 Networking:
 
+- `molca_network_catalog`: the whole `NetworkCatalog` - environments, services and their per-environment
+  bindings, policy profiles, credential profile *metadata*, endpoint collections, and a validation summary.
+- `molca_network_validate`: catalog validation findings with their stable codes and workspace deep links, or
+  one route resolved (origin, URI, effective policy, credential scope) when `service` is supplied.
+- `molca_network_diagnostics`: the running game's redacted diagnostics - counts, per-route queue and circuit
+  state, live streaming sessions, and retained request records. Play mode only.
 - `molca_network_config`: `HttpModule` config with sensitive values redacted.
 - `molca_network_list_requests`: every `HttpRequestAsset` with redacted request details.
 - `molca_network_get_request`: one `HttpRequestAsset` in full with sensitive values masked.
 
+The catalog tools **delegate**: reads project `NetworkCatalogValidator` and the shared resolver, and writes go
+through `NetworkCatalogEditingService`. None of them holds a rule of its own, because a second copy of the
+authoring rules is how automation and the Hub start disagreeing about what a valid catalog is. Credential
+values never cross MCP - only profile names.
+
 Localization:
 
 - `molca_localization_status`: localization modules/languages and runtime language state.
-- `molca_localization_list_texts`: DynamicLocalization texts found in loaded scenes.
-- `molca_localization_coverage`: DynamicLocalization coverage, missing translations, and editable field paths.
+- `molca_localization_pseudo_preview`: non-mutating accent/expansion, missing-key, or RTL text preview.
+- `molca_localization_pseudo_catalog`: bounded read-only pseudo preview of catalog cells.
+- `molca_localization_pseudo_overflow`: reports loaded localized UI that overflows under a pseudo profile.
+- `molca_localization_list_texts`: localized text bindings found in loaded scenes.
+- `molca_localization_coverage`: schema-aware LocalizedValue coverage, findings, and editable field paths.
+- `molca_localization_migration_inventory`: stable legacy-value locators, source kinds, row counts,
+  writability, and fingerprint.
+- `molca_localization_plan_migrate_values`: read-only schema-v2 migration preview.
+- `molca_localization_migrate_values`: stale-safe, post-verified Unity Undo migration action.
+- `molca_localization_plan_add_language`: read-only add-or-repair preview bound to the current catalog
+  fingerprint, with every module/Locale/Addressables/table mutation listed.
+- `molca_localization_plan_archive_language`: read-only removal preview that lists every disable action
+  and every Locale/table/inline asset intentionally preserved.
+- `molca_localization_catalog`: stable StringTable collection/entry/locale cells with missing and
+  ownership state.
+- `molca_localization_plan_catalog_edit`: read-only cell/new-key preview with fingerprint, identity,
+  locale, ownership, and placeholder validation.
+- `molca_localization_export_csv`: deterministic stable-identity catalog CSV.
+- `molca_localization_plan_import_csv`: all-or-nothing CSV import preview with per-cell changes and
+  blocking conflicts.
+- `molca_localization_remote_status`: remote trust/allowlist readiness and active overlay status.
+- `molca_localization_sync_remote_allowlist`: guarded Unity Undo repair of the shipped stable-identity
+  and placeholder allowlist.
 
 Knowledge graph:
 
@@ -102,11 +141,40 @@ Interactive:
 
 Unity Undo-backed (`McpToolReversibility.UnityUndo`, Edit mode):
 
-- Ref Id repair: `molca_fix_refids`
+- Reference repair: `molca_references_apply_fix` — applies a plan from `molca_references_plan_fix` by
+  `planId`, as one Undo group. Rejects the plan if the project changed since it was built, skips any
+  mutation whose expected value moved, and reports the findings actually fixed, remaining, and *introduced*.
+- Ref Id repair: `molca_fix_refids` — **deprecated** adapter over the same repair system, kept for existing
+  clients. It applies without a review step, which is exactly what the plan/apply split exists to prevent;
+  prefer `molca_references_plan_fix` + `molca_references_apply_fix`.
 - Settings: `molca_settings_set_fields`
-- Networking: `molca_network_create_request`, `molca_network_set_request_fields`
-- Localization authoring: `molca_localization_set_text`, `molca_localization_add_language`
+- Network catalog: `molca_network_edit` - one `operation` per call over the shared editing service
+  (create/bind/rename/delete an environment, service, policy, credential, collection, or endpoint; set the
+  defaults). IDs are normalized and de-duplicated by the same rules the Hub uses.
+- OpenAPI import: `molca_network_import_openapi` - previews a reviewable diff (add / update / unchanged /
+  conflict, plus orphans and the spec's declared servers) and takes `apply: true` to write it in one Undo
+  group. It never overwrites a hand-authored endpoint, never binds a service to a server URL from the spec,
+  and never creates a credential profile.
+- Network migration: `molca_network_migrate` - previews the legacy scan by default; `apply: true` executes it
+  in one Undo group, creating project-owned assets and deleting no legacy asset.
+- Networking (legacy request assets): `molca_network_create_request`, `molca_network_set_request_fields`
+- Localization authoring: `molca_localization_set_text`; `molca_localization_add_language` executes only
+  a fresh `planId` from `molca_localization_plan_add_language`, applies the module, Unity Locale,
+  Addressables, and all table collections as one verified transaction, and rolls back on failure;
+  `molca_localization_archive_language` likewise requires a fresh
+  `molca_localization_plan_archive_language` plan and disables the locale without deleting authored
+  Locale, table, or inline assets; `molca_localization_catalog_edit` executes a fresh
+  `molca_localization_plan_catalog_edit` plan; `molca_localization_import_csv` executes a fresh
+  `molca_localization_plan_import_csv` plan atomically.
 - Content-package config authoring: `molca_content_define_package`, `molca_content_update_package`, `molca_content_remove_package`, `molca_content_assign_labels`, `molca_content_set_build_config`
+
+Irreversible (`McpToolReversibility.Irreversible`):
+
+- `molca_network_send` - sends one request through the routed pipeline against a **catalog route**, never a
+  raw URL. It refuses whatever preflight blocks, and refuses a production mutation outright rather than
+  prompting: automation must not bypass a per-send human confirmation, and there is nobody at an MCP call to
+  give one. Use `preflightOnly` to see the destination, effective policy, and credential decision without
+  sending. Credentials come only from profiles marked usable from the request console.
 
 File-snapshot reversible (`McpToolReversibility.FileSnapshot`, revert via `molca_undo_last_action`):
 
@@ -134,8 +202,9 @@ Play-mode runtime actions (irreversible):
 Edit-mode irreversible actions:
 
 - `molca_content_create_build_config`
+- `molca_content_settings`
+- `molca_content_settings_edit`
 - `molca_content_build`
-- `molca_content_deploy`
 - `molca_content_bind_group`
 - `molca_create_mcp_tool`
 - `molca_trigger_build`
@@ -145,7 +214,7 @@ Edit-mode irreversible actions:
 
 ## Usage Rules
 
-- Use read tools before action tools to resolve targets: `molca_refids` before Ref Id fixes, settings reads before `molca_settings_set_fields`, networking reads before request edits, and localization coverage before localization edits.
+- Use read tools before action tools to resolve targets: `molca_references_audit` before Ref Id fixes, settings reads before `molca_settings_set_fields`, networking reads before request edits, and localization coverage before localization edits.
 - Settings, localization text/language-list, and most content-config edits route through Unity Undo.
 - Doctor/validation fixes that touch scene files are snapshotted for `molca_undo_last_action`.
 - Play-mode control, content lifecycle, codegen, ClickUp writes, builds, deploys, and graph generation are irreversible.

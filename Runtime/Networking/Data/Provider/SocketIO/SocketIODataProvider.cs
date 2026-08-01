@@ -2,10 +2,8 @@
 using System;
 using System.Collections.Generic;
 using Molca.Attributes;
-using Molca.Networking.Auth;
+using Molca.Networking.Streaming;
 using SocketIOClient;
-using SocketIOClient.Newtonsoft.Json;
-using SocketIOClient.Transport;
 using UnityEngine;
 using UnityEngine.Serialization;
 
@@ -29,13 +27,38 @@ namespace Molca.Networking.Data
             dataMapping.Model != null;
     }
 
+    /// <summary>
+    /// Socket.IO data provider: subscribes to named events and parses each payload with its own mapping.
+    /// </summary>
+    /// <remarks>
+    /// The asset is <b>configuration</b> — where to connect, how to authenticate, which events to listen
+    /// for, and how to parse each one. The socket, the connecting flag, the reconnect budget, and the last
+    /// error live on a <see cref="SocketIoStreamSession"/> the network subsystem owns. The serialized
+    /// <c>_connectionStatus</c> and <c>_reconnectAttemptCount</c> fields survive for serialization
+    /// compatibility and are no longer written while the game runs.
+    /// <para>
+    /// <b>Reconnection is now the session's.</b> The Socket.IO library can retry on its own, but it reuses
+    /// the headers built when the socket was constructed — which is why this provider used to carry a hook
+    /// that tore the socket down mid-reconnect whenever the auth token had changed underneath it. That is
+    /// gone: every attempt is a fresh connect with a freshly resolved route and a freshly acquired
+    /// credential, and the backoff, jitter, attempt budget, and stable-connection window are the shared
+    /// ones. <c>Randomization Factor</c> is superseded by that shared jitter and is kept only so existing
+    /// assets deserialize.
+    /// </para>
+    /// </remarks>
     [UnityEngine.Icon("Packages/com.molca.core/Editor/Icons/molca-networking.png")]
     [CreateAssetMenu(fileName = "SocketIODataProvider", menuName = "Molca/Networking/SocketIODataProvider", order = 20)]
-    public class SocketIODataProvider : DataProvider
+    public class SocketIODataProvider : DataProvider, Diagnostics.INetworkStreamStatus
     {
         private const string DefaultPath = "/socket.io";
 
         [Header("Socket.IO Settings")]
+        [Tooltip("Connect through the network catalog: a service, an environment strategy, and a relative path. " +
+                 "When a service is set it replaces the server URL below and the connection gains the " +
+                 "catalog's allowed-host, production-scheme, and credential-scope rules.")]
+        [SerializeField] private NetworkStreamRoute _route;
+
+        [Tooltip("Direct server URL. Used only when no catalog service is set above.")]
         [SerializeField, FormerlySerializedAs("serverUrl")] private string _serverUrl;
         [SerializeField, FormerlySerializedAs("useSecureConnection")] private bool _useSecureConnection = true;
         [SerializeField, FormerlySerializedAs("socketPath")] private string _socketPath = DefaultPath;
@@ -43,10 +66,16 @@ namespace Molca.Networking.Data
 
         [Header("Reconnection")]
         [SerializeField, FormerlySerializedAs("autoReconnect")] private bool _autoReconnect = true;
-        [SerializeField, FormerlySerializedAs("maxReconnectAttempts")] private int _maxReconnectAttempts = -1; // -1 => unlimited
+        [Tooltip("0 or below = unbounded (still backed-off).")]
+        [SerializeField, FormerlySerializedAs("maxReconnectAttempts")] private int _maxReconnectAttempts = -1;
         [SerializeField, FormerlySerializedAs("reconnectDelaySeconds")] private float _reconnectDelaySeconds = 2f;
         [SerializeField, FormerlySerializedAs("reconnectDelayMaxSeconds")] private float _reconnectDelayMaxSeconds = 10f;
+        [Tooltip("Superseded by the shared reconnect policy's jitter. Kept so existing assets deserialize.")]
+#pragma warning disable CS0414 // Written by deserialization only; no code reads it since the shared policy took over jitter.
         [SerializeField, FormerlySerializedAs("randomizationFactor")] private float _randomizationFactor = 0.5f;
+#pragma warning restore CS0414
+        [Tooltip("A connection must live this long before a drop resets the backoff budget; guards against accept-then-drop servers causing a fast retry loop. 0 = any established connection resets.")]
+        [SerializeField] private float _stableConnectionSeconds = 10f;
 
         [Header("Authentication")]
         [SerializeField, FormerlySerializedAs("requireAuthentication")] private bool _requireAuthentication = false;
@@ -60,27 +89,54 @@ namespace Molca.Networking.Data
         [Header("Debug")]
         [SerializeField, FormerlySerializedAs("logMessages")] private bool _logMessages = false;
         [SerializeField, FormerlySerializedAs("logRawData")] private bool _logRawData = false;
+
+        [Tooltip("Kept for serialization compatibility. Live state lives on the session — read ConnectionStatus.")]
         [SerializeField, FormerlySerializedAs("connectionStatus"), ReadOnly] private string _connectionStatus = "Disconnected";
+
+        [Tooltip("Kept for serialization compatibility. Live state lives on the session — read ReconnectAttemptCount.")]
         [SerializeField, FormerlySerializedAs("reconnectAttemptCount"), ReadOnly] private int _reconnectAttemptCount = 0;
 
-        private SocketIOUnity _socket;
-        private bool _isManualDisconnect;
-        private bool _isConnecting;
-        private bool _isAuthenticated;
+        private SocketIoStreamSession _session;
         private Dictionary<string, SocketIOEventMapping> _mappingLookup;
-        // Auth token captured at connect time. The library's native reconnection reuses
-        // construction-time headers, so on a reconnect attempt we compare against the
-        // current token and force a fresh connect when it changed (Sprint 39 refresh).
-        private string _tokenAtConnect;
-        private bool _refreshingAuth;
 
+        /// <summary>How a token is carried to the server.</summary>
         public enum AuthTokenType
         {
+            /// <summary>An <c>Authorization: Bearer &lt;token&gt;</c> header.</summary>
             Bearer,
+
+            /// <summary>A custom header named by <c>customTokenHeaderName</c>.</summary>
             Custom,
+
+            /// <summary>A query parameter named by <c>queryParameterName</c>.</summary>
             QueryParameter
         }
 
+        /// <summary>Whether this provider connects through a catalog route rather than a direct URL.</summary>
+        public bool UsesRoutedStream => _route.IsConfigured;
+
+        /// <summary>The subsystem-owned session, or <c>null</c> while inactive.</summary>
+        public NetworkStreamSession Session => _session;
+
+        /// <summary>The binding the current attempt resolved to, or <c>null</c>.</summary>
+        public NetworkStreamBinding Binding => _session?.Binding;
+
+        /// <summary>Whether the socket is connected.</summary>
+        public bool IsConnected => _session != null && _session.IsOpen;
+
+        /// <summary>Human-readable connection state, read from the session while one exists.</summary>
+        public string ConnectionStatus => _session != null ? _session.Describe() : _connectionStatus;
+
+        /// <inheritdoc />
+        public bool IsStreamConnected => IsConnected;
+
+        /// <inheritdoc />
+        public string StreamStatus => ConnectionStatus ?? string.Empty;
+
+        /// <summary>Connection attempts made since the session started.</summary>
+        public int ReconnectAttemptCount => _session?.AttemptCount ?? _reconnectAttemptCount;
+
+        /// <inheritdoc />
         public override void Activate()
         {
             if (!ValidateConfiguration())
@@ -91,320 +147,110 @@ namespace Molca.Networking.Data
 
             base.Activate();
 
-            _connectionStatus = "Initializing";
-            _reconnectAttemptCount = 0;
-            _isManualDisconnect = false;
-
             BuildMappingLookup();
 
-            if (_requireAuthentication)
+            var network = RuntimeManager.GetSubsystem<NetworkRuntimeSubsystem>();
+            if (network == null)
             {
-                AuthEvents.StateChanged.Register(OnAuthStateChanged);
+                Debug.LogError(
+                    $"[SocketIODataProvider] {name}: no NetworkRuntimeSubsystem is active, so no session " +
+                    "can be opened. Add one to the bootstrap, or declare " +
+                    "[DependsOn(typeof(NetworkRuntimeSubsystem))] on whatever activates this provider.");
+                return;
+            }
 
-                if (AuthManager.Instance != null && AuthManager.Instance.IsAuthenticated)
-                {
-                    _isAuthenticated = true;
-                    ConnectSocket();
-                }
-                else
-                {
-                    _connectionStatus = "Waiting for Authentication";
-                    Debug.Log($"[SocketIODataProvider] {name}: Waiting for authentication...");
-                }
-            }
-            else
-            {
-                ConnectSocket();
-            }
+            _session = new SocketIoStreamSession(
+                ProviderId,
+                _route,
+                network.Resolver,
+                network.Credentials,
+                BuildSessionOptions(),
+                StreamReconnectSettings.Create(
+                    _autoReconnect,
+                    _reconnectDelaySeconds,
+                    Mathf.Max(_reconnectDelayMaxSeconds, _reconnectDelaySeconds),
+                    // This provider spells "unbounded" as -1; the shared settings spell it 0.
+                    Mathf.Max(0, _maxReconnectAttempts),
+                    _stableConnectionSeconds),
+                directUri: BuildDirectUrl());
+
+            _session.EventReceived += HandleSocketEvent;
+            network.AdoptSession(_session);
+
+            // Fire-and-forget keyed on this provider's activation token. Deactivate closes the session,
+            // which unwinds the loop.
+            _ = _session.RunAsync(LifetimeToken);
         }
 
+        /// <inheritdoc />
         public override void Deactivate()
         {
-            _isManualDisconnect = true;
-            _connectionStatus = "Disconnecting";
-
-            if (_requireAuthentication)
+            if (_session != null)
             {
-                AuthEvents.StateChanged.Unregister(OnAuthStateChanged);
+                _session.EventReceived -= HandleSocketEvent;
+                _session = null;
+
+                RuntimeManager.GetSubsystem<NetworkRuntimeSubsystem>()?.Streams?.Close(ProviderId);
             }
 
-            DisconnectSocket();
             base.Deactivate();
-            _connectionStatus = "Disconnected";
         }
 
-        public override void FetchData()
-        {
-            // Socket.IO pushes data through events. No polling required.
-        }
-
-        private void OnAuthStateChanged(AuthChangedEventData data)
-        {
-            _isAuthenticated = data.IsAuthenticated;
-
-            if (_isAuthenticated)
-            {
-                if (!IsConnected)
-                {
-                    ConnectSocket();
-                }
-            }
-            else
-            {
-                Debug.LogWarning($"[SocketIODataProvider] {name}: Authentication lost, disconnecting...");
-                DisconnectSocket();
-            }
-        }
-
-        private void ConnectSocket()
-        {
-            if (_isConnecting || IsConnected)
-            {
-                return;
-            }
-
-            Uri uri = BuildServerUri();
-            if (uri == null)
-            {
-                Debug.LogError($"[SocketIODataProvider] {name}: Invalid Socket.IO URL");
-                return;
-            }
-
-            try
-            {
-                _isConnecting = true;
-                _connectionStatus = $"Connecting ({uri})";
-
-                var options = BuildOptions();
-                // Record the token baked into these options so a later reconnect can
-                // detect a refreshed token and rebuild.
-                _tokenAtConnect = AuthManager.Instance != null ? AuthManager.Instance.AuthToken : null;
-                _socket = new SocketIOUnity(uri, options);
-                _socket.JsonSerializer = new NewtonsoftJsonSerializer();
-
-                RegisterSocketCallbacks();
-                RegisterEventHandlers();
-
-                _socket.Connect();
-            }
-            catch (Exception ex)
-            {
-                _isConnecting = false;
-                _connectionStatus = "Connection Failed";
-                Debug.LogError($"[SocketIODataProvider] {name}: Connection error: {ex.Message}");
-            }
-        }
-
-        private void DisconnectSocket()
-        {
-            if (_socket == null) return;
-
-            try
-            {
-                if (_socket.Connected)
-                {
-                    _socket.Disconnect();
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"[SocketIODataProvider] {name}: Error during disconnect: {ex.Message}");
-            }
-            finally
-            {
-                _socket.Dispose();
-                _socket = null;
-                _isConnecting = false;
-            }
-        }
-
-        private void RegisterSocketCallbacks()
-        {
-            _socket.OnConnected += (sender, args) =>
-            {
-                _isConnecting = false;
-                _reconnectAttemptCount = 0;
-                _connectionStatus = "Connected";
-
-                if (_logMessages)
-                {
-                    Debug.Log($"[SocketIODataProvider] {name}: Connected to {_serverUrl}");
-                }
-            };
-
-            _socket.OnDisconnected += (sender, reason) =>
-            {
-                _connectionStatus = $"Disconnected ({reason})";
-
-                if (_logMessages)
-                {
-                    Debug.Log($"[SocketIODataProvider] {name}: Disconnected ({reason})");
-                }
-            };
-
-            _socket.OnError += (sender, error) =>
-            {
-                _connectionStatus = $"Error: {error}";
-                Debug.LogError($"[SocketIODataProvider] {name}: Socket error: {error}");
-            };
-
-            _socket.OnReconnectAttempt += (sender, attempt) =>
-            {
-                _reconnectAttemptCount = attempt;
-                _connectionStatus = $"Reconnecting (attempt {attempt})";
-
-                if (_logMessages)
-                {
-                    Debug.Log($"[SocketIODataProvider] {name}: Reconnecting (attempt {attempt})");
-                }
-
-                RefreshAuthOnReconnect();
-            };
-
-            _socket.OnReconnectFailed += (sender, args) =>
-            {
-                _connectionStatus = "Reconnect Failed";
-                Debug.LogError($"[SocketIODataProvider] {name}: Reconnect failed");
-            };
-
-            _socket.OnReconnectError += (sender, exception) =>
-            {
-                Debug.LogError($"[SocketIODataProvider] {name}: Reconnect error: {exception?.Message}");
-            };
-        }
-
-        private void RegisterEventHandlers()
-        {
-            if (_socketIOEventMappings == null) return;
-
-            foreach (var mapping in _socketIOEventMappings)
-            {
-                if (mapping == null || string.IsNullOrEmpty(mapping.eventName)) continue;
-
-                _socket.OnUnityThread(mapping.eventName, response =>
-                {
-                    HandleSocketEvent(mapping.eventName, response);
-                });
-            }
-        }
-
-        private void HandleSocketEvent(string eventName, SocketIOResponse response)
-        {
-            if (!_mappingLookup.TryGetValue(eventName, out var mapping))
-            {
-                if (_logMessages)
-                {
-                    Debug.LogWarning($"[SocketIODataProvider] {name}: Received event '{eventName}' with no mapping");
-                }
-                return;
-            }
-
-            try
-            {
-                string payload = response.Count > 0 ? response.GetValue().GetRawText() : "{}";
-
-                if (_logRawData)
-                {
-                    Debug.Log($"[SocketIODataProvider] {name}: Event {eventName} payload: {payload}");
-                }
-
-                string cacheKey = string.IsNullOrEmpty(mapping.customCacheKey)
-                    ? $"{ProviderId}_{eventName}"
-                    : mapping.customCacheKey;
-
-                var cache = DataManager.Instance.GetOrCreateCache(cacheKey, mapping.dataMapping.Model);
-                var parsedData = mapping.dataMapping.ParseJson(payload);
-
-                if (parsedData.IsValid)
-                {
-                    cache.AddData(parsedData);
-                    DataManager.TriggerDataUpdated(cacheKey, parsedData);
-                }
-                else
-                {
-                    Debug.LogWarning($"[SocketIODataProvider] {name}: Parsed data for event '{eventName}' is invalid");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"[SocketIODataProvider] {name}: Error handling event '{eventName}': {ex.Message}");
-            }
-        }
+        /// <inheritdoc />
+        /// <remarks>Socket.IO pushes data through events. No polling required.</remarks>
+        public override void FetchData() { }
 
         /// <summary>
-        /// On a native reconnect attempt, if the live auth token differs from the one
-        /// baked into the current connection's options, tear down and reconnect with
-        /// fresh options so the refreshed token is sent. No-op when auth isn't required
-        /// or the token is unchanged (the library's own reconnect then proceeds).
+        /// Drops the current connection so the session reconnects.
         /// </summary>
-        private void RefreshAuthOnReconnect()
-        {
-            if (!_requireAuthentication || _refreshingAuth)
-                return;
-
-            string current = AuthManager.Instance != null ? AuthManager.Instance.AuthToken : null;
-            if (current == _tokenAtConnect)
-                return;
-
-            _refreshingAuth = true;
-            try
-            {
-                if (_logMessages)
-                {
-                    Debug.Log($"[SocketIODataProvider] {name}: auth token changed; reconnecting with fresh credentials");
-                }
-                DisconnectSocket();
-                ConnectSocket();
-            }
-            finally
-            {
-                _refreshingAuth = false;
-            }
-        }
-
+        /// <remarks>
+        /// The reconnect still runs through the shared backoff and attempt budget, so a manual retry
+        /// cannot be used to bypass them.
+        /// </remarks>
         public void Reconnect()
         {
+            if (_session == null)
+            {
+                Debug.LogWarning($"[SocketIODataProvider] {name}: Cannot reconnect - not active");
+                return;
+            }
+
             if (_logMessages)
             {
                 Debug.Log($"[SocketIODataProvider] {name}: Manual reconnect requested");
             }
 
-            DisconnectSocket();
-            ConnectSocket();
+            _session.DropConnection();
         }
 
+        /// <summary>
+        /// Emits an event on the live connection.
+        /// </summary>
+        /// <param name="eventName">The event name.</param>
+        /// <param name="payloadJson">A JSON payload, or <c>null</c> to emit with no data.</param>
         public void Emit(string eventName, string payloadJson = null)
         {
-            if (_socket == null || !_socket.Connected)
+            if (_session == null)
             {
-                Debug.LogWarning($"[SocketIODataProvider] {name}: Cannot emit '{eventName}' - not connected");
+                Debug.LogWarning($"[SocketIODataProvider] {name}: Cannot emit '{eventName}' - not active");
                 return;
             }
 
-            if (string.IsNullOrEmpty(payloadJson))
-            {
-                _socket.Emit(eventName);
-            }
-            else
-            {
-                _socket.EmitStringAsJSON(eventName, payloadJson);
-            }
-
-            if (_logMessages)
+            if (_session.Emit(eventName, payloadJson) && _logMessages)
             {
                 Debug.Log($"[SocketIODataProvider] {name}: Emitted event '{eventName}'");
             }
         }
 
-        public bool IsConnected => _socket != null && _socket.Connected;
-        public string ConnectionStatus => _connectionStatus;
-        public int ReconnectAttemptCount => _reconnectAttemptCount;
-
+        /// <inheritdoc />
         public override bool ValidateConfiguration()
         {
-            if (string.IsNullOrEmpty(_serverUrl))
+            // A routed provider has no URL to validate: its destination comes from the catalog binding
+            // and is checked when the route resolves.
+            if (!UsesRoutedStream && string.IsNullOrEmpty(_serverUrl))
             {
-                Debug.LogError($"[SocketIODataProvider] {name}: Server URL is not set!");
+                Debug.LogError(
+                    $"[SocketIODataProvider] {name}: set a catalog service on Route, or a direct server URL.");
                 return false;
             }
 
@@ -449,22 +295,52 @@ namespace Molca.Networking.Data
                 return false;
             }
 
-            if (_randomizationFactor < 0 || _randomizationFactor > 1)
-            {
-                Debug.LogError($"[SocketIODataProvider] {name}: Randomization factor must be between 0 and 1.");
-                return false;
-            }
-
             return true;
         }
 
-        private Uri BuildServerUri()
+        /// <summary>Snapshots the connection settings for the session's lifetime.</summary>
+        internal SocketIoSessionOptions BuildSessionOptions()
         {
-            string trimmed = _serverUrl?.Trim();
-            if (string.IsNullOrEmpty(trimmed))
+            var events = new List<string>();
+            if (_socketIOEventMappings != null)
             {
-                return null;
+                foreach (var mapping in _socketIOEventMappings)
+                {
+                    if (mapping != null && !string.IsNullOrEmpty(mapping.eventName))
+                        events.Add(mapping.eventName);
+                }
             }
+
+            return new SocketIoSessionOptions
+            {
+                SocketPath = string.IsNullOrEmpty(_socketPath) ? DefaultPath : _socketPath,
+                ConnectionTimeoutSeconds = _connectionTimeoutSeconds,
+                RequireAuthentication = _requireAuthentication,
+                AuthHeaderName = _tokenType == AuthTokenType.Custom && !string.IsNullOrEmpty(_customTokenHeaderName)
+                    ? _customTokenHeaderName
+                    : "Authorization",
+                AuthScheme = _tokenType == AuthTokenType.Bearer ? "Bearer " : string.Empty,
+                AuthQueryParameter = _tokenType == AuthTokenType.QueryParameter
+                    ? (string.IsNullOrEmpty(_queryParameterName) ? "token" : _queryParameterName)
+                    : string.Empty,
+                Events = events,
+                LogEvents = _logMessages,
+            };
+        }
+
+        /// <summary>
+        /// The authored server URL with its scheme applied, or empty when this provider is routed.
+        /// </summary>
+        /// <remarks>
+        /// Empty in routed mode on purpose: the session must have no URL to fall back to, or a provider
+        /// whose catalog binding was deleted would quietly resume connecting to a stale address.
+        /// </remarks>
+        internal string BuildDirectUrl()
+        {
+            if (UsesRoutedStream || string.IsNullOrWhiteSpace(_serverUrl))
+                return string.Empty;
+
+            string trimmed = _serverUrl.Trim();
 
             if (!trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
                 !trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
@@ -472,81 +348,57 @@ namespace Molca.Networking.Data
                 trimmed = (_useSecureConnection ? "https://" : "http://") + trimmed;
             }
 
+            return trimmed;
+        }
+
+        /// <summary>
+        /// Parses one event payload with its mapping and publishes it to the data cache.
+        /// </summary>
+        /// <remarks>
+        /// Interpretation stays on the provider: the mapping, the model, and the cache key are asset
+        /// configuration. The session owns the connection and knows nothing about data models.
+        /// </remarks>
+        private void HandleSocketEvent(string eventName, SocketIOResponse response)
+        {
+            if (_mappingLookup == null || !_mappingLookup.TryGetValue(eventName, out var mapping))
+            {
+                if (_logMessages)
+                {
+                    Debug.LogWarning($"[SocketIODataProvider] {name}: Received event '{eventName}' with no mapping");
+                }
+                return;
+            }
+
             try
             {
-                return new Uri(trimmed);
+                string payload = response.Count > 0 ? response.GetValue().GetRawText() : "{}";
+
+                if (_logRawData)
+                {
+                    Debug.Log($"[SocketIODataProvider] {name}: Event {eventName} payload: {payload}");
+                }
+
+                string cacheKey = string.IsNullOrEmpty(mapping.customCacheKey)
+                    ? $"{ProviderId}_{eventName}"
+                    : mapping.customCacheKey;
+
+                var cache = DataManager.Instance.GetOrCreateCache(cacheKey, mapping.dataMapping.Model);
+                var parsedData = mapping.dataMapping.ParseJson(payload);
+
+                if (parsedData.IsValid)
+                {
+                    cache.AddData(parsedData);
+                    DataManager.TriggerDataUpdated(cacheKey, parsedData);
+                }
+                else
+                {
+                    Debug.LogWarning($"[SocketIODataProvider] {name}: Parsed data for event '{eventName}' is invalid");
+                }
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SocketIODataProvider] {name}: Invalid server URL '{_serverUrl}'. {ex.Message}");
-                return null;
+                Debug.LogError($"[SocketIODataProvider] {name}: Error handling event '{eventName}': {ex.Message}");
             }
-        }
-
-        private SocketIOOptions BuildOptions()
-        {
-            var options = new SocketIOOptions
-            {
-                Path = string.IsNullOrEmpty(_socketPath) ? DefaultPath : _socketPath,
-                Transport = TransportProtocol.WebSocket,
-                AutoUpgrade = false,
-                ConnectionTimeout = TimeSpan.FromSeconds(_connectionTimeoutSeconds),
-                Reconnection = _autoReconnect,
-                ReconnectionDelay = Math.Max(100, _reconnectDelaySeconds * 1000f),
-                ReconnectionDelayMax = Mathf.Max((int)(_reconnectDelayMaxSeconds * 1000f), (int)(_reconnectDelaySeconds * 1000f)),
-                RandomizationFactor = _randomizationFactor,
-                ReconnectionAttempts = _maxReconnectAttempts <= 0 ? int.MaxValue : _maxReconnectAttempts,
-                Query = BuildQueryParameters(),
-                ExtraHeaders = BuildHeaders()
-            };
-
-            return options;
-        }
-
-        private IEnumerable<KeyValuePair<string, string>> BuildQueryParameters()
-        {
-            var query = new Dictionary<string, string>();
-
-            if (_requireAuthentication && _tokenType == AuthTokenType.QueryParameter)
-            {
-                string token = AuthManager.Instance != null ? AuthManager.Instance.AuthToken : null;
-                if (!string.IsNullOrEmpty(token))
-                {
-                    string key = string.IsNullOrEmpty(_queryParameterName) ? "token" : _queryParameterName;
-                    query[key] = token;
-                }
-            }
-
-            return query.Count > 0 ? query : null;
-        }
-
-        private Dictionary<string, string> BuildHeaders()
-        {
-            if (!_requireAuthentication)
-            {
-                return null;
-            }
-
-            string token = AuthManager.Instance != null ? AuthManager.Instance.AuthToken : null;
-            if (string.IsNullOrEmpty(token))
-            {
-                return null;
-            }
-
-            var headers = new Dictionary<string, string>();
-
-            switch (_tokenType)
-            {
-                case AuthTokenType.Bearer:
-                    headers["Authorization"] = $"Bearer {token}";
-                    break;
-                case AuthTokenType.Custom:
-                    string headerName = string.IsNullOrEmpty(_customTokenHeaderName) ? "Authorization" : _customTokenHeaderName;
-                    headers[headerName] = token;
-                    break;
-            }
-
-            return headers.Count > 0 ? headers : null;
         }
 
         private void BuildMappingLookup()

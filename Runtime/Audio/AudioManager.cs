@@ -10,6 +10,10 @@ using Molca.Localization;
 
 namespace Molca.Audio
 {
+    // Declared, not implied: without an AudioModule this subsystem logs an error and abandons its own
+    // initialization, so the requirement is real. Declaring it turns that runtime failure into an
+    // edit-time bootstrap.module-missing finding with a repair.
+    [RequiresSettingModule(typeof(AudioModule))]
     public class AudioManager : RuntimeSubsystem
     {
         [Header("Audio Sources")]

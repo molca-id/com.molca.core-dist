@@ -62,7 +62,7 @@ namespace Molca.Utilities
         [Tooltip("PanelSettings asset required by UIDocument. Must be assigned for the overlay to render.")]
         [SerializeField] private PanelSettings _panelSettings;
 
-        [Tooltip("Font for the overlay labels. Leave unassigned to use the bundled Poppins font. Without a resolvable font the shipped PanelSettings has no text settings, so metric labels draw no glyphs at runtime and only the bars are visible.")]
+        [Tooltip("Font for the overlay labels. Leave unassigned to fall back to a project Resources font, then an OS font. A PanelSettings carries no text settings unless one is assigned to it, so with no font resolved the metric labels draw no glyphs at runtime and only the bars are visible.")]
         [SerializeField] private Font _hudFont;
 
         private BudgetMetricCollector _collector;

@@ -1,202 +1,78 @@
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
+using Molca.Editor.ReferenceSystem;
+using Molca.ReferenceSystem;
 using UnityEditor;
 using UnityEngine;
-using Molca.ReferenceSystem;
-using Molca.Settings;
 
 namespace Molca.Editor.Doctor
 {
     /// <summary>
-    /// Validates serialized <see cref="SceneObjectReference"/> fields in prefabs and
-    /// currently open scenes against the Ref Ids recorded in
-    /// <see cref="ReferenceManagerSettings"/>. An id that is set but unknown will
-    /// fail to resolve at runtime.
+    /// Reports reference-system findings from the shared read-only audit: unresolvable
+    /// <see cref="SceneObjectReference"/> fields, duplicated provider ids, ambiguous compatibility
+    /// fallbacks, type mismatches, and incomplete scan coverage.
     /// </summary>
     /// <remarks>
-    /// ScriptableObjects are intentionally not scanned: a <see cref="SceneObjectReference"/>
-    /// resolves only against scene-loaded objects via <c>ReferenceManager</c>, so one stored
-    /// in an SO can never resolve at runtime (the "SOs-out" boundary documented on
-    /// <see cref="ReferenceManagerSettings"/>). Scanning every SO was also the dominant cost
-    /// on large projects.
+    /// <para>This check owns no scanning logic. It runs <see cref="ReferenceAuditEngine"/> and projects
+    /// its findings, so Doctor, the build gate, Sequence validation, the Inspector and MCP cannot disagree
+    /// about what "broken" means. The previous implementation had its own scanner and its own rules, and
+    /// validated against the cached id lists in <c>ReferenceManagerSettings</c> rather than against the
+    /// objects that actually provide the references — so a stale cache produced false findings and a
+    /// missing cache entry produced false confidence.</para>
     ///
-    /// Closed scenes are not scanned (opening every scene from a validation pass is
-    /// too invasive); run the check with the relevant scenes open, or rely on the
-    /// scene-save validation in ReferenceManagerSettings.
+    /// <para>ScriptableObjects are now scanned. An SO cannot be a runtime <i>target</i>, but it can
+    /// certainly hold an outbound reference that resolves a loaded scene object, and conflating the two
+    /// is why a real broken reference in this repository went unreported.</para>
+    ///
+    /// <para>Closed scenes are still not opened: doing so from a validation pass would replace the user's
+    /// open scenes. They are reported as skipped coverage instead, which is visible in the Doctor output
+    /// rather than silently assumed clean.</para>
     /// </remarks>
     public class SceneObjectReferenceCheck : IDoctorCheck
     {
+        /// <inheritdoc/>
         public string Id => "unresolvable-scene-reference";
-        public string Description => "SceneObjectReference ids not present in ReferenceManagerSettings";
 
-        // This check stays on the main thread (AssetDatabase, SerializedObject, and
-        // SceneManager are main-thread only) and yields before each heavy prefab/scene so
-        // a large project doesn't freeze the editor and the run stays cancellable mid-scan.
+        /// <inheritdoc/>
+        public string Description => "Scene object references resolve, are unambiguous, and are fully covered by the scan";
 
+        /// <inheritdoc/>
         public async Awaitable<IReadOnlyList<DoctorIssue>> RunAsync(DoctorContext context, CancellationToken cancellationToken)
         {
             var issues = new List<DoctorIssue>();
 
-            var settings = FindSettings();
-            if (settings == null)
+            context.ReportStatus("Auditing references");
+
+            var scope = ReferenceAuditService
+                // mayOpenScenes: false — a validation pass must not replace the user's open scenes.
+                .DefaultScope(mayOpenScenes: false)
+                .WithIgnoreFilter(context.IsIgnored);
+
+            // The audit is main-thread work (AssetDatabase, SerializedObject, SceneManager), so the async
+            // entry point is the one to use: it hands the main thread back periodically, which keeps the
+            // Doctor window painting and makes Cancel responsive to about one asset.
+            var snapshot = await ReferenceAuditService.RefreshAsync(
+                scope,
+                (phase, _) => context.ReportStatus(phase),
+                cancellationToken);
+
+            foreach (var finding in snapshot.Findings)
             {
-                issues.Add(new DoctorIssue(Id, DoctorSeverity.Info,
-                    "No ReferenceManagerSettings asset found — SceneObjectReference ids cannot be validated."));
-                return issues;
-            }
-
-            var knownByType = settings.GetReferenceTypes()
-                .ToDictionary(t => t, t => new HashSet<string>(settings.GetReferenceIds(t)));
-            var allKnown = new HashSet<string>(knownByType.Values.SelectMany(s => s));
-
-            // Prefabs: mirror the reference-system scan — only those inside PrefabScanPaths.
-            // When no scan paths are configured, prefab referenceable ids are never registered
-            // in the DB, so validating prefab references would only produce false "unknown"
-            // findings. Skipping them is also what kept large-project runs from loading every
-            // prefab in the project (the dominant cost).
-            var scanPaths = settings.PrefabScanPaths;
-            if (scanPaths != null && scanPaths.Count > 0)
-            {
-                // Resolve the in-scope prefab paths up front so progress has a real total.
-                var prefabPaths = AssetDatabase.FindAssets("t:Prefab", new[] { "Assets" })
-                    .Select(AssetDatabase.GUIDToAssetPath)
-                    .Where(p => !context.IsIgnored(p) && IsInScanPaths(p, scanPaths))
-                    .ToList();
-
-                for (int p = 0; p < prefabPaths.Count; p++)
-                {
-                    var path = prefabPaths[p];
-
-                    // Each prefab is heavy (load + per-component SerializedObject scan), so
-                    // yield before every one — this keeps Cancel responsive to ~one prefab.
-                    context.ReportStatus($"Prefabs {p + 1}/{prefabPaths.Count}");
-                    await EditorYieldAsync(cancellationToken);
-
-                    if (AssetDatabase.LoadMainAssetAtPath(path) is not GameObject go)
-                        continue;
-
-                    var targets = go.GetComponentsInChildren<MonoBehaviour>(true)
-                        .Where(c => c != null).Cast<Object>();
-                    issues.AddRange(ScanObjects(targets, path, knownByType, allKnown));
-                }
-            }
-
-            // Components in all open scenes.
-            for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
-            {
-                var scene = UnityEngine.SceneManagement.SceneManager.GetSceneAt(i);
-                if (!scene.isLoaded)
-                    continue;
-                if (!string.IsNullOrEmpty(scene.path) && context.IsIgnored(scene.path))
-                    continue;
-
-                context.ReportStatus($"Scene {scene.name}");
-                await EditorYieldAsync(cancellationToken);
-                var behaviours = scene.GetRootGameObjects()
-                    .SelectMany(r => r.GetComponentsInChildren<MonoBehaviour>(true))
-                    .Where(c => c != null)
-                    .Cast<Object>();
-                issues.AddRange(ScanObjects(behaviours, scene.path ?? scene.name, knownByType, allKnown));
+                issues.Add(new DoctorIssue(
+                    Id,
+                    ToDoctorSeverity(finding.Severity),
+                    finding.ToMessage(),
+                    string.IsNullOrEmpty(finding.AssetPath) ? null : finding.AssetPath));
             }
 
             return issues;
         }
 
-        // Yields until the next editor tick. Uses EditorApplication.update rather than
-        // Awaitable.NextFrameAsync because the player loop that drives NextFrameAsync does
-        // not advance in Edit Mode, so awaiting a frame there never resumes.
-        private static Awaitable EditorYieldAsync(CancellationToken cancellationToken)
+        private static DoctorSeverity ToDoctorSeverity(ReferenceFindingSeverity severity) => severity switch
         {
-            var source = new AwaitableCompletionSource();
-
-            void Tick()
-            {
-                EditorApplication.update -= Tick;
-                if (cancellationToken.IsCancellationRequested)
-                    source.SetCanceled();
-                else
-                    source.SetResult();
-            }
-
-            EditorApplication.update += Tick;
-            return source.Awaitable;
-        }
-
-        // Mirrors ReferenceManagerSettingsEditor.IsPrefabInScanList: a prefab is in scope
-        // when its path starts with a scan-path folder entry or matches one exactly.
-        private static bool IsInScanPaths(string assetPath, IReadOnlyList<string> scanPaths)
-        {
-            assetPath = assetPath.Replace('\\', '/');
-            foreach (var entry in scanPaths)
-            {
-                if (string.IsNullOrWhiteSpace(entry))
-                    continue;
-                var norm = entry.Replace('\\', '/').TrimEnd('/');
-                if (assetPath.StartsWith(norm + "/", System.StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(assetPath, norm, System.StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-            return false;
-        }
-
-        private IEnumerable<DoctorIssue> ScanObjects(
-            IEnumerable<Object> objects, string assetPath,
-            Dictionary<string, HashSet<string>> knownByType, HashSet<string> allKnown)
-        {
-            foreach (var obj in objects)
-            {
-                var serialized = new SerializedObject(obj);
-                var property = serialized.GetIterator();
-                bool enterChildren = true;
-                while (property.Next(enterChildren))
-                {
-                    enterChildren = true;
-                    if (property.propertyType != SerializedPropertyType.Generic)
-                        continue;
-
-                    var refId = property.FindPropertyRelative("refId");
-                    var refType = property.FindPropertyRelative("refType");
-                    if (refId == null || refType == null || refId.propertyType != SerializedPropertyType.String)
-                        continue;
-
-                    enterChildren = false; // it's a SceneObjectReference; don't descend
-                    var id = refId.stringValue;
-                    if (string.IsNullOrEmpty(id))
-                        continue; // unset references are legal
-
-                    bool known = knownByType.TryGetValue(refType.stringValue ?? "", out var ids)
-                        ? ids.Contains(id)
-                        : allKnown.Contains(id); // type list may be stale; fall back to any-type match
-
-                    if (!known)
-                    {
-                        yield return new DoctorIssue(Id, DoctorSeverity.Error,
-                            $"SceneObjectReference `{property.propertyPath}` on {obj.name} points at unknown Ref Id \"{id}\" (type \"{refType.stringValue}\"). Re-scan references or fix the id.",
-                            assetPath);
-                    }
-                }
-            }
-        }
-
-        private static ReferenceManagerSettings FindSettings()
-        {
-            // Prefer the module wired into GlobalSettings; fall back to any asset.
-            // GetModule may throw in edit mode when project settings are absent.
-            try
-            {
-                var fromGlobals = GlobalSettings.GetModule<ReferenceManagerSettings>();
-                if (fromGlobals != null)
-                    return fromGlobals;
-            }
-            catch (System.Exception)
-            {
-                // fall through to the asset search
-            }
-
-            var guid = AssetDatabase.FindAssets("t:ReferenceManagerSettings").FirstOrDefault();
-            return guid == null ? null
-                : AssetDatabase.LoadAssetAtPath<ReferenceManagerSettings>(AssetDatabase.GUIDToAssetPath(guid));
-        }
+            ReferenceFindingSeverity.Error => DoctorSeverity.Error,
+            ReferenceFindingSeverity.Warning => DoctorSeverity.Warning,
+            _ => DoctorSeverity.Info,
+        };
     }
 }

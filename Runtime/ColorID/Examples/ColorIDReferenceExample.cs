@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.Serialization;
 using UnityEngine.UI;
 using TMPro;
+using Molca;
 using Molca.ColorID;
 
 namespace Molca.ColorID.Examples
@@ -52,10 +53,13 @@ namespace Molca.ColorID.Examples
                 _actionButton.colors = buttonColors;
             }
             
-            // Apply to renderer components
-            if (_targetRenderer != null && _targetRenderer.material != null)
-                _targetRenderer.material.color = _primaryColor.Color;
-                
+            // Apply to renderer components.
+            // Never read _targetRenderer.material here: that instantiates a per-renderer copy of
+            // the shared material. The applier writes through a MaterialPropertyBlock instead.
+            if (_targetRenderer != null)
+                ColorTargetApplier.ApplyToRenderer(_targetRenderer, _primaryColor.Color);
+
+
             if (_lineRenderer != null)
             {
                 _lineRenderer.startColor = _accentColor.Color;
@@ -71,12 +75,16 @@ namespace Molca.ColorID.Examples
         {
             string[] availableColors = ColorIDReference.GetAvailableColorIds();
             if (availableColors.Length == 0) return;
-            
-            // Cycle through available colors
-            int currentIndex = System.Array.IndexOf(availableColors, _primaryColor.ColorId);
+
+            // GetAvailableColorIds returns dotted composites ("Default.Primary"), so the current
+            // value has to be composed the same way to be found, and the next value has to be
+            // parsed back into both fields. Assigning the composite straight into ColorId (as this
+            // example used to) produced "Default.Default.Primary" and resolved to magenta.
+            string currentComposite = $"{_primaryColor.SwatchName}.{_primaryColor.ColorId}";
+            int currentIndex = System.Array.IndexOf(availableColors, currentComposite);
             int nextIndex = (currentIndex + 1) % availableColors.Length;
-            
-            _primaryColor.ColorId = availableColors[nextIndex];
+
+            _primaryColor.SetFromComposite(availableColors[nextIndex]);
             ApplyColors();
         }
 
@@ -88,10 +96,12 @@ namespace Molca.ColorID.Examples
             // Create a new color reference dynamically
             var dynamicColor = new ColorIDReference("Success");
             
-            // Use it directly
+            // Read the colour explicitly. The implicit ColorIDReference -> Color conversion is deprecated:
+            // it hides the fact that this resolves through global state that must already be initialized.
             if (_backgroundImage != null)
-                _backgroundImage.color = dynamicColor;
-                
+                _backgroundImage.color = dynamicColor.Color;
+
+
             // Or get with custom alpha
             Color customAlphaColor = dynamicColor.GetColorWithAlpha(0.3f);
             
@@ -103,19 +113,38 @@ namespace Molca.ColorID.Examples
         }
 
         /// <summary>
-        /// Example of implicit conversions
+        /// Example of reading a legacy reference, and of the V2 shape that replaces it.
         /// </summary>
+        /// <remarks>
+        /// This method used to demonstrate the implicit <c>ColorIDReference</c> -> <see cref="Color"/>
+        /// conversion. That conversion is deprecated and scheduled for removal in Core 2.0.0, so the
+        /// example shows what to write instead — an example that teaches a deprecated idiom is worse than
+        /// no example.
+        /// <para/>
+        /// The method name is kept as-is despite no longer demonstrating an implicit conversion, because a
+        /// UnityEvent in a demo scene may reference it by name and a rename would break that silently.
+        /// </remarks>
         public void DemonstrateImplicitConversions()
         {
-            // Implicit conversion from string
+            // Implicit conversion from string is still fine: it builds a reference, it does not resolve one.
             ColorIDReference colorRef = "Warning";
-            
-            // Implicit conversion to Color
-            Color color = colorRef;
-            
-            // Use directly in assignments
+
+            // Reading .Color is the like-for-like replacement for the implicit conversion. It still depends
+            // on ColorModule (or the V2 compatibility provider) already being initialized.
             if (_backgroundImage != null)
-                _backgroundImage.color = colorRef;
+                _backgroundImage.color = colorRef.Color;
+
+            // Better, where a theme service is reachable: failure is a return value, not magenta, and the
+            // dependency on an initialized theme is visible at the call site.
+            var themeService = RuntimeManager.GetService<IColorThemeService>();
+            if (themeService != null && colorRef.TryResolve(themeService, out Color resolved)
+                && _titleText != null)
+            {
+                _titleText.color = resolved;
+            }
+
+            // Best, for anything authored rather than computed: hold a ColorTokenReference instead, or drop
+            // a ColorThemeBinding on the object so it follows variant switches without any code here.
         }
 
         private void OnValidate()

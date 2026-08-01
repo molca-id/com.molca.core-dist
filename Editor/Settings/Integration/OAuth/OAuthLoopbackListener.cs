@@ -23,6 +23,14 @@ namespace Molca.Settings.Integration.OAuth
     /// <see cref="CancellationToken"/>; cancellation/timeout unblocks the accept loop by stopping the
     /// listener.
     /// </para>
+    /// <para>
+    /// The accept loop never leaves the main thread: it awaits <c>HttpListener.GetContextAsync()</c>
+    /// (whose I/O completes on a pool thread but resumes on the captured synchronization context) rather
+    /// than hopping with <c>Awaitable.BackgroundThreadAsync</c> around a blocking <c>GetContext()</c>.
+    /// A Unity <c>Awaitable</c> completed on a pool thread raises a native
+    /// <c>Scripting object is not properly attached</c> assert, which surfaced as flaky failures in the
+    /// EditMode loopback tests.
+    /// </para>
     /// </remarks>
     public sealed class OAuthLoopbackListener : IDisposable
     {
@@ -71,77 +79,67 @@ namespace Molca.Settings.Integration.OAuth
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             linked.CancelAfter(timeout);
 
-            // Stopping the listener unblocks the blocking GetContext call below.
+            // Stopping the listener faults the pending GetContextAsync below.
             using var registration = linked.Token.Register(() =>
             {
                 try { _listener?.Stop(); } catch { /* already stopped */ }
             });
 
-            await Awaitable.BackgroundThreadAsync();
-            try
+            while (true)
             {
-                while (true)
+                HttpListenerContext context;
+                try
                 {
-                    HttpListenerContext context;
-                    try
-                    {
-                        context = _listener.GetContext();
-                    }
-                    catch
-                    {
-                        // Listener was stopped by caller-cancellation or the timeout, or faulted.
-                        await Awaitable.MainThreadAsync();
-                        if (cancellationToken.IsCancellationRequested)
-                            throw new OperationCanceledException(cancellationToken);
-                        return LoopbackResult.Fail("Timed out waiting for the authorization redirect.");
-                    }
-
-                    var request = context.Request;
-
-                    // Ignore stray requests (e.g. /favicon.ico) so the real redirect still lands.
-                    if (!string.Equals(request.Url.AbsolutePath.TrimEnd('/'),
-                            _callbackPath.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
-                    {
-                        Respond(context, 404, "Not found.");
-                        continue;
-                    }
-
-                    var error = request.QueryString["error"];
-                    var code = request.QueryString["code"];
-                    var state = request.QueryString["state"];
-
-                    LoopbackResult result;
-                    string page;
-                    if (!string.IsNullOrEmpty(error))
-                    {
-                        result = LoopbackResult.Fail($"Authorization was denied or failed: {error}.");
-                        page = "Authorization failed. You can close this tab and return to Unity.";
-                    }
-                    else if (!string.Equals(state, expectedState, StringComparison.Ordinal))
-                    {
-                        // CSRF guard: the redirected state must match the one we generated.
-                        result = LoopbackResult.Fail("State mismatch — the authorization response was rejected.");
-                        page = "Authorization could not be verified. You can close this tab.";
-                    }
-                    else if (string.IsNullOrEmpty(code))
-                    {
-                        result = LoopbackResult.Fail("Authorization redirect carried no code.");
-                        page = "Authorization incomplete. You can close this tab.";
-                    }
-                    else
-                    {
-                        result = LoopbackResult.Ok(code);
-                        page = "Connected. You can close this tab and return to Unity.";
-                    }
-
-                    Respond(context, string.IsNullOrEmpty(error) && result.Success ? 200 : 400, page);
-                    await Awaitable.MainThreadAsync();
-                    return result;
+                    context = await _listener.GetContextAsync();
                 }
-            }
-            finally
-            {
-                await Awaitable.MainThreadAsync();
+                catch
+                {
+                    // Listener was stopped by caller-cancellation or the timeout, or faulted.
+                    if (cancellationToken.IsCancellationRequested)
+                        throw new OperationCanceledException(cancellationToken);
+                    return LoopbackResult.Fail("Timed out waiting for the authorization redirect.");
+                }
+
+                var request = context.Request;
+
+                // Ignore stray requests (e.g. /favicon.ico) so the real redirect still lands.
+                if (!string.Equals(request.Url.AbsolutePath.TrimEnd('/'),
+                        _callbackPath.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+                {
+                    Respond(context, 404, "Not found.");
+                    continue;
+                }
+
+                var error = request.QueryString["error"];
+                var code = request.QueryString["code"];
+                var state = request.QueryString["state"];
+
+                LoopbackResult result;
+                string page;
+                if (!string.IsNullOrEmpty(error))
+                {
+                    result = LoopbackResult.Fail($"Authorization was denied or failed: {error}.");
+                    page = "Authorization failed. You can close this tab and return to Unity.";
+                }
+                else if (!string.Equals(state, expectedState, StringComparison.Ordinal))
+                {
+                    // CSRF guard: the redirected state must match the one we generated.
+                    result = LoopbackResult.Fail("State mismatch — the authorization response was rejected.");
+                    page = "Authorization could not be verified. You can close this tab.";
+                }
+                else if (string.IsNullOrEmpty(code))
+                {
+                    result = LoopbackResult.Fail("Authorization redirect carried no code.");
+                    page = "Authorization incomplete. You can close this tab.";
+                }
+                else
+                {
+                    result = LoopbackResult.Ok(code);
+                    page = "Connected. You can close this tab and return to Unity.";
+                }
+
+                Respond(context, string.IsNullOrEmpty(error) && result.Success ? 200 : 400, page);
+                return result;
             }
         }
 

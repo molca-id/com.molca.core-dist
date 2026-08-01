@@ -16,7 +16,7 @@ namespace Molca.ContentPackage.Services
     /// Core service providing all package management operations including installation, uninstallation,
     /// updates, and state tracking. Integrates directly with Unity Addressables for content delivery.
     /// </summary>
-    public class PackageService
+    public partial class PackageService
     {
         #region Events
 
@@ -57,9 +57,16 @@ namespace Molca.ContentPackage.Services
         private readonly ContentPackageSettings _settings;
 
         /// <summary>
-        /// Handles JSON persistence of package states to PlayerPrefs.
+        /// Durable store for package install state. Held as the interface so the service has no
+        /// dependency on a file; the default implementation is <see cref="PackageManifest"/>.
         /// </summary>
-        private readonly PackageManifest _manifest;
+        private readonly IPackageStateStore _manifest;
+
+        /// <summary>
+        /// Why the definition set was rejected, or null when it loaded cleanly. Initialization
+        /// refuses to proceed while this is set.
+        /// </summary>
+        private string _definitionError;
 
         /// <summary>
         /// Optional telemetry sink for operation outcomes. Null when no telemetry is configured;
@@ -118,6 +125,20 @@ namespace Molca.ContentPackage.Services
         #endregion
 
         #region Public Properties
+
+        /// <summary>
+        /// Why the package definition set was rejected, or null when it loaded cleanly.
+        ///
+        /// Non-null means no definitions are loaded and initialization will refuse to run, so
+        /// every package query answers as if nothing were configured. Surfaced rather than logged
+        /// only, because "no packages appear" is otherwise indistinguishable from "none are
+        /// configured" and the author needs to be told which IDs collided.
+        /// </summary>
+        public string DefinitionError => _definitionError;
+
+        /// <summary>True when the package definitions loaded without conflicts.</summary>
+        public bool HasValidDefinitions => string.IsNullOrEmpty(_definitionError);
+
 
         /// <summary>
         /// Live snapshot of cloud connectivity state. Updated on every
@@ -206,11 +227,19 @@ namespace Molca.ContentPackage.Services
         /// outcomes are emitted to it. Pass <c>null</c> to disable telemetry.
         /// </param>
         /// <exception cref="ArgumentNullException">Thrown when settings is null.</exception>
-        public PackageService(ContentPackageSettings settings, TelemetrySubsystem telemetry = null)
+        /// <param name="stateStore">
+        /// Where install state is persisted. Defaults to the on-disk <see cref="PackageManifest"/>;
+        /// pass an alternative to test the service without a file, or to exercise the failure paths
+        /// a real disk will not reproduce on demand.
+        /// </param>
+        public PackageService(
+            ContentPackageSettings settings,
+            TelemetrySubsystem telemetry = null,
+            IPackageStateStore stateStore = null)
         {
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _telemetry = telemetry;
-            _manifest = new PackageManifest();
+            _manifest = stateStore ?? new PackageManifest();
             _definitions = new Dictionary<string, ContentPackageSettings.PackageConfig>();
             _states = new Dictionary<string, PackageState>();
             _activeOperations = new Dictionary<string, ActiveInstall>();
@@ -238,13 +267,39 @@ namespace Molca.ContentPackage.Services
 
             try
             {
+                // Fail closed on a malformed definition set rather than proceeding with an
+                // arbitrary subset. Continuing here would let install and dependency resolution
+                // disagree about what a package id means.
+                if (!string.IsNullOrEmpty(_definitionError))
+                {
+                    LogError($"[PackageService] Initialization aborted: {_definitionError}");
+                    return;
+                }
+
                 // Initialize Addressables if needed
                 Log("[PackageService] Initializing Addressables...");
                 await Addressables.InitializeAsync().Task;
                 Log("[PackageService] Addressables initialized successfully");
 
-                // Refresh catalog if configured
-                if (_settings.CheckForCatalogUpdates)
+                // Resolve content. The release protocol and the legacy catalog path are alternatives,
+                // never both: running the legacy refresh after a release activation would load a
+                // second catalog over the one the coordinator just committed, and the addresses an
+                // app resolves would depend on which finished last.
+                if (_settings.EnableReleaseProtocol)
+                {
+                    Log("[PackageService] Release protocol enabled, resolving the active release...");
+                    var activation = await ActivateLatestReleaseAsync(null, cancellationToken);
+
+                    if (activation.Success)
+                        Log($"[PackageService] Active release {activation.ActiveReleaseId} in force");
+                    else if (activation.Cancelled)
+                        Log("[PackageService] Release activation cancelled during initialization");
+                    else
+                        // Not fatal: a project with nothing promoted, and a player one app version
+                        // too old, are both ordinary states that keep the installed release running.
+                        LogWarning($"[PackageService] No release activated ({activation.Reason}): {activation.Detail}");
+                }
+                else if (_settings.CheckForCatalogUpdates)
                 {
                     Log("[PackageService] Automatic catalog updates enabled, refreshing catalog...");
                     var refreshResult = await RefreshCatalogAsync(cancellationToken);
@@ -394,6 +449,27 @@ namespace Molca.ContentPackage.Services
         /// <param name="packageId">The unique identifier of the package.</param>
         /// <param name="status">The new status to set.</param>
         /// <param name="errorMessage">Optional error message if the status is Failed.</param>
+        /// <summary>
+        /// Ends the in-flight operation for a package without changing whether it is installed.
+        ///
+        /// This is the correct unwind for cancellation. The distinction it draws — "stop what you
+        /// were doing" versus "the package is gone" — is the one the single-enum model could not
+        /// make, and conflating them meant cancelling an update silently uninstalled content the
+        /// user still had.
+        /// </summary>
+        /// <param name="packageId">The package whose operation ended.</param>
+        private void EndOperationPreservingInstall(string packageId)
+        {
+            if (string.IsNullOrEmpty(packageId)) return;
+            var state = GetOrCreateState(packageId);
+            if (state == null) return;
+
+            state.EndOperation(null);
+            if (!_manifest.SetState(state))
+                LogError($"[PackageService] Could not persist operation end for '{packageId}'.");
+            OnPackageStateChanged?.Invoke(packageId, state.status);
+        }
+
         private void UpdateState(string packageId, PackageStatus status, string errorMessage = null)
         {
             if (string.IsNullOrEmpty(packageId))
@@ -412,30 +488,49 @@ namespace Molca.ContentPackage.Services
             // Store previous status for logging
             var previousStatus = state.status;
 
-            // Update state properties
-            state.status = status;
-            state.errorMessage = errorMessage;
-            state.lastModified = DateTime.UtcNow.ToString("O");
-
-            // Clear error message if status is not Failed
-            if (status != PackageStatus.Failed)
+            // The legacy enum is a projection now, so a request to "set the status" is translated
+            // into the record change it actually meant. Assigning `status` directly would leave the
+            // records stale and IsInstalled answering from nothing.
+            //
+            // The important asymmetry is Failed: it records an operation failure and deliberately
+            // does NOT clear installed presence. A failed update leaves the previous version usable.
+            switch (status)
             {
-                state.errorMessage = null;
-            }
+                case PackageStatus.Downloading:
+                    state.BeginOperation(
+                        state.IsInstalled ? PackageOperation.Updating : PackageOperation.Installing,
+                        state.totalBytes);
+                    break;
 
-            // Reset progress if not downloading
-            if (status != PackageStatus.Downloading)
-            {
-                state.downloadProgress = 0f;
-                state.downloadedBytes = 0;
-                state.totalBytes = 0;
+                case PackageStatus.Failed:
+                    state.EndOperation(string.IsNullOrEmpty(errorMessage) ? "unknown_error" : errorMessage);
+                    break;
+
+                case PackageStatus.Installed:
+                    // Callers that know the release supply it through MarkPackageInstalled; this
+                    // path only covers legacy call sites and preserves whatever is already recorded.
+                    state.MarkInstalled(state.install?.releaseId, state.install?.packageVersion, state.installedSizeBytes);
+                    break;
+
+                case PackageStatus.UpdateAvailable:
+                    state.MarkUpdateAvailable(state.update?.targetReleaseId, state.update?.targetPackageVersion);
+                    break;
+
+                case PackageStatus.Available:
+                    state.MarkUninstalled();
+                    break;
             }
 
             try
             {
-                // Persist state change immediately
-                _manifest.SetState(state);
-                
+                // Persist state change immediately. A failed write is reported rather than swallowed:
+                // the manifest is the only record that installed content exists.
+                if (!_manifest.SetState(state))
+                {
+                    LogError($"[PackageService] State change for '{packageId}' did not reach disk; " +
+                             "it will be lost on the next launch.");
+                }
+
                 Log($"[PackageService] Package '{packageId}' state changed: {previousStatus} → {status}");
 
                 // Dispatch state change event
@@ -471,15 +566,37 @@ namespace Molca.ContentPackage.Services
                 return;
             }
 
+            var duplicates = new List<string>();
+
             foreach (var config in _settings.packageConfigs)
             {
                 if (config == null || string.IsNullOrEmpty(config.packageId))
                     continue;
 
+                // Two configs claiming one id is not something to resolve by picking a winner.
+                // Last-wins meant dependency resolution, install, and cache accounting could each
+                // silently act on a different definition than the author was looking at.
+                if (_definitions.ContainsKey(config.packageId))
+                {
+                    duplicates.Add(config.packageId);
+                    continue;
+                }
+
                 _definitions[config.packageId] = config;
                 Log($"[PackageService] Loaded package config: {config.packageId}");
             }
 
+            if (duplicates.Count > 0)
+            {
+                _definitionError =
+                    $"Duplicate package definition(s) in settings: {string.Join(", ", duplicates.Distinct())}. " +
+                    "Package IDs must be unique; resolve the duplicates in Content Package settings.";
+                LogError($"[PackageService] {_definitionError}");
+                _definitions.Clear();
+                return;
+            }
+
+            _definitionError = null;
             Log($"[PackageService] Loaded {_definitions.Count} package configs");
         }
 
@@ -513,15 +630,11 @@ namespace Molca.ContentPackage.Services
                 {
                     if (state != null && !string.IsNullOrEmpty(state.packageId))
                     {
-                        // A persisted Downloading state means the app was killed mid-download.
-                        // No operation will resume it, so reset to Available so the user can retry.
-                        if (state.status == PackageStatus.Downloading)
-                        {
-                            state.status          = PackageStatus.Available;
-                            state.downloadProgress = 0f;
-                            state.downloadedBytes  = 0;
-                            state.totalBytes       = 0;
-                        }
+                        // A persisted in-flight operation means the app was killed mid-transfer.
+                        // Nothing resumes it, so end the operation and let the user retry. Ending
+                        // the operation deliberately does not touch installed presence: a killed
+                        // *update* must leave the previous version installed and usable.
+                        if (state.IsBusy) state.EndOperation(null);
 
                         _states[state.packageId] = state;
                     }
@@ -647,9 +760,22 @@ namespace Molca.ContentPackage.Services
         /// <param name="cancellationToken">Token to cancel the installation operation.</param>
         /// <returns>An OperationResult indicating success or failure of the installation.</returns>
         public async Awaitable<OperationResult> InstallPackageAsync(
-            string packageId, 
+            string packageId,
             IProgress<float> progress = null,
             CancellationToken cancellationToken = default)
+            => await InstallPackageAsync(packageId, progress, cancellationToken, reinstallOverInstalled: false);
+
+        /// <param name="reinstallOverInstalled">
+        /// Skips the already-installed short-circuit so the update path can reinstall in place.
+        /// The update path previously faked an uninstall to get past that guard, which meant a
+        /// failed update had already discarded the working version before the download started.
+        /// </param>
+        /// <inheritdoc cref="InstallPackageAsync(string, IProgress{float}, CancellationToken)"/>
+        private async Awaitable<OperationResult> InstallPackageAsync(
+            string packageId,
+            IProgress<float> progress,
+            CancellationToken cancellationToken,
+            bool reinstallOverInstalled)
         {
             // 1. Validate package exists in definitions
             if (string.IsNullOrEmpty(packageId))
@@ -676,7 +802,7 @@ namespace Molca.ContentPackage.Services
 
             // 2. Check if already installed (return success)
             var state = GetOrCreateState(packageId);
-            if (state.IsInstalled)
+            if (state.IsInstalled && !reinstallOverInstalled)
             {
                 Log($"[PackageService] Package '{packageId}' is already installed");
                 return OperationResult.CreateSuccess();
@@ -702,7 +828,10 @@ namespace Molca.ContentPackage.Services
             catch (OperationCanceledException)
             {
                 Log($"[PackageService] Installation of package '{packageId}' was cancelled");
-                UpdateState(packageId, PackageStatus.Available);
+                // End the operation without touching installed presence. Cancelling an *update*
+                // must leave the previous version installed and usable; transitioning to Available
+                // here would uninstall content the user still has and never asked to remove.
+                EndOperationPreservingInstall(packageId);
                 result = OperationResult.CreateCancelled();
             }
             catch (Exception ex)
@@ -852,7 +981,8 @@ namespace Molca.ContentPackage.Services
 
                 if (result.WasCancelled)
                 {
-                    UpdateState(packageId, PackageStatus.Available);
+                    // As above: a cancelled update keeps the version it was replacing.
+                    EndOperationPreservingInstall(packageId);
                     return TrackReturn("content_package.install", packageId, result, stopwatch);
                 }
 
@@ -869,14 +999,44 @@ namespace Molca.ContentPackage.Services
                 progress?.Report(1f);
                 OnDownloadProgress?.Invoke(packageId, 1f);
 
-                // Mark as installed. Capture bytes before UpdateState clears the counters.
+                // Mark as installed. Capture bytes before the transition clears the counters.
                 var finalState = GetOrCreateState(packageId);
                 long installedBytes = finalState.totalBytes;
-                finalState.installedVersion = definition.metadata?.version ?? "1.0.0";
-                finalState.installedSizeBytes = installedBytes; // for cache-budget accounting / LRU
-                UpdateState(packageId, PackageStatus.Installed);
 
-                Log($"[PackageService] Successfully installed package: {packageId}");
+                // The installed version is what the remote manifest says was downloaded, not what
+                // the app-baked definition claims. Those disagree the moment content ships
+                // independently of the app -- which is the whole point of remote content -- and
+                // taking the local value made every installed package look current forever, so
+                // update detection could never fire.
+                var remote = GetRemoteMetadata(packageId);
+                string installedVersion = remote?.version;
+                if (string.IsNullOrEmpty(installedVersion))
+                {
+                    // No remote entry: record the local claim but say so, rather than silently
+                    // presenting a guess as a verified fact.
+                    installedVersion = definition.metadata?.version ?? "1.0.0";
+                    LogWarning($"[PackageService] No remote manifest entry for '{packageId}'; " +
+                               $"recording the local definition version '{installedVersion}'. " +
+                               "Update detection for this package is unreliable until a catalog refresh succeeds.");
+                }
+
+                finalState.MarkInstalled(_manifest.InstalledReleaseId, installedVersion, installedBytes);
+
+                // Installed presence is only true once it is durably recorded. Claiming otherwise
+                // produces a package that is installed in memory and unknown after a restart.
+                if (!_manifest.SetState(finalState))
+                {
+                    finalState.MarkUninstalled();
+                    const string persistError = "Install completed but could not be saved; state was not committed.";
+                    LogError($"[PackageService] {persistError}");
+                    UpdateState(packageId, PackageStatus.Failed, persistError);
+                    return TrackReturn("content_package.install", packageId,
+                        OperationResult.CreateFailure(persistError), stopwatch, installedBytes);
+                }
+
+                OnPackageStateChanged?.Invoke(packageId, finalState.status);
+
+                Log($"[PackageService] Successfully installed package: {packageId} v{installedVersion}");
                 return TrackReturn("content_package.install", packageId, OperationResult.CreateSuccess(), stopwatch, installedBytes);
             }
             catch (OperationCanceledException)
@@ -930,9 +1090,7 @@ namespace Molca.ContentPackage.Services
                         : downloadHandle.PercentComplete;
 
                     var currentState = GetOrCreateState(packageId);
-                    currentState.downloadProgress  = pct;
-                    currentState.downloadedBytes   = dlStatus.DownloadedBytes;
-                    currentState.totalBytes        = dlStatus.TotalBytes;
+                    currentState.ReportProgress(pct, dlStatus.DownloadedBytes, dlStatus.TotalBytes);
 
                     if (pct - lastReportedPct >= minProgressDelta
                         || Time.realtimeSinceStartup - lastReportTime >= maxReportIntervalSeconds)
@@ -1137,12 +1295,15 @@ namespace Molca.ContentPackage.Services
                 if (!clearResult.Success)
                     return TrackReturn("content_package.update", packageId, clearResult, stopwatch);
 
-                // Reset to Available so InstallPackageAsync proceeds past the IsInstalled guard.
-                UpdateState(packageId, PackageStatus.Available);
+                // Reinstall in place rather than pretending the package was uninstalled. The old
+                // approach cleared installed presence before the download began, so a failed or
+                // cancelled update left the user with nothing -- the previous version was already
+                // forgotten even though its bundles may still have been on disk.
 
                 // The inner install also emits a content_package.install event; this update event
                 // records the overall update outcome (clear + re-download) and its total duration.
-                var installResult = await InstallPackageAsync(packageId, progress, cancellationToken);
+                var installResult = await InstallPackageAsync(
+                    packageId, progress, cancellationToken, reinstallOverInstalled: true);
                 long bytes = GetOrCreateState(packageId).totalBytes;
                 return TrackReturn("content_package.update", packageId, installResult, stopwatch, bytes);
             }
@@ -1271,7 +1432,9 @@ namespace Molca.ContentPackage.Services
                 // those that happen to have a persisted/materialized state.
                 var availablePackages = _definitions.Keys
                     .Select(GetOrCreateState)
-                    .Where(state => state != null && state.status == PackageStatus.Available)
+                    // "Available" means not installed. Reading it off the projection would also
+                    // exclude a failed package, which is still available to retry.
+                    .Where(state => state != null && !state.IsInstalled && !state.IsBusy)
                     .ToList();
 
                 Log($"[PackageService] Found {availablePackages.Count} available packages");
@@ -1442,8 +1605,13 @@ namespace Molca.ContentPackage.Services
         /// Required packages and <paramref name="excludePackageId"/> are never included.
         /// </summary>
         /// <remarks>
-        /// Pure selection only — it does not check installed dependents; <see cref="FreeUpSpaceAsync"/>
-        /// performs the safe uninstall (which validates dependents) and skips any that cannot be removed.
+        /// Dependents are honoured here, not only at uninstall time. This list is what the UI
+        /// previews as "space you will reclaim", and it previously included packages that
+        /// <see cref="FreeUpSpaceAsync"/> would then refuse to remove — so the preview promised
+        /// bytes the operation could not deliver, with no indication of which ones were blocked.
+        ///
+        /// A package whose dependents are all themselves being evicted in the same pass is still a
+        /// candidate: by the time it is removed, nothing installed will require it.
         /// </remarks>
         public List<string> GetEvictionCandidates(long bytesToFree, string excludePackageId = null)
         {
@@ -1455,13 +1623,38 @@ namespace Molca.ContentPackage.Services
                 .ToList();
 
             var result = new List<string>();
+            var selected = new HashSet<string>();
+            var remaining = new List<PackageState>(ordered);
             long freed = 0;
-            foreach (var state in ordered)
+
+            // Repeated passes, least-recently-used first within each pass.
+            //
+            // A single pass is not enough: LRU order is independent of dependency order, so a
+            // package is routinely scanned before the dependent that blocks it. Selecting the
+            // dependent later must make the earlier one eligible again, or a dependency chain is
+            // reported as unevictable purely because of the order its packages were installed in.
+            bool progressed = true;
+            while (progressed && (bytesToFree <= 0 || freed < bytesToFree))
             {
-                if (bytesToFree > 0 && freed >= bytesToFree) break;
-                result.Add(state.packageId);
-                freed += Math.Max(0, state.installedSizeBytes);
+                progressed = false;
+
+                for (int index = 0; index < remaining.Count; index++)
+                {
+                    var state = remaining[index];
+                    if (bytesToFree > 0 && freed >= bytesToFree) break;
+
+                    bool blocked = GetInstalledDependents(state.packageId)
+                        .Any(dependent => !selected.Contains(dependent.packageId));
+                    if (blocked) continue;
+
+                    result.Add(state.packageId);
+                    selected.Add(state.packageId);
+                    freed += Math.Max(0, state.installedSizeBytes);
+                    remaining.RemoveAt(index--);
+                    progressed = true;
+                }
             }
+
             return result;
         }
 
@@ -1634,7 +1827,20 @@ namespace Molca.ContentPackage.Services
                 return OperationResult.CreateSuccess();
             }
 
-            // Check for installed dependents
+            // A required package is content the app cannot run without. This was previously
+            // enforced only by the SDK UI hiding the button, which meant automation, MCP, and any
+            // direct API caller could remove it and leave the app unable to start.
+            if (definition.isRequired)
+            {
+                string requiredMessage =
+                    $"Cannot uninstall package '{definition.displayName}' ({packageId}): it is marked required. " +
+                    "Required content is part of the app's baseline and can only be replaced by a version switch.";
+                LogWarning($"[PackageService] {requiredMessage}");
+                return OperationResult.CreateFailure(requiredMessage);
+            }
+
+            // Check for installed dependents. IsInstalled deliberately includes packages with an
+            // available update -- they are installed content and still depend on this package.
             var dependents = GetInstalledDependents(packageId);
             if (dependents.Count > 0)
             {
@@ -1665,8 +1871,23 @@ namespace Molca.ContentPackage.Services
         /// </summary>
         /// <param name="cancellationToken">Token to cancel the catalog refresh operation.</param>
         /// <returns>An OperationResult indicating success or failure of the catalog refresh.</returns>
+        /// <remarks>
+        /// Refuses under the release protocol. <see cref="InitializeAsync"/> already treats the two
+        /// content paths as alternatives, but only for itself — any other caller could still run this
+        /// afterwards and load a second catalog over the one the coordinator committed, at which
+        /// point which addresses an app resolves depends on which load finished last. The invariant
+        /// belongs to the service, not to one of its callers, so it is enforced here.
+        /// </remarks>
         public async Awaitable<OperationResult> RefreshCatalogAsync(CancellationToken cancellationToken = default)
         {
+            if (IsReleaseProtocolEnabled)
+            {
+                return OperationResult.CreateFailure(
+                    "This project resolves content through the release protocol. Call " +
+                    "ActivateLatestReleaseAsync instead; refreshing the legacy catalog would load a " +
+                    "second catalog over the active release.");
+            }
+
             Log("[PackageService] Starting catalog refresh...");
 
             try
@@ -2056,17 +2277,23 @@ namespace Molca.ContentPackage.Services
         }
 
         /// <summary>
-        /// Uninstalls the current content version and installs the specified target version.
-        /// Clears all cached package bundles, loads the new Addressables catalog, fetches the
-        /// per-version package manifest, resets all package states, and re-installs content.
-        /// Safe to call with the version that is already installed — returns success immediately.
+        /// Switches to the specified content version, keeping the current one until the target's
+        /// required content is in place. Safe to call with the version that is already installed —
+        /// returns success immediately.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// Content carry-forward: all <em>required</em> packages are re-installed, and every
-        /// <em>optional</em> package that was installed before the switch is re-installed too, so
-        /// the user's content is not silently dropped. An optional package that does not exist in
-        /// the target version is skipped with a warning.
+        /// Nothing local is cleared or reset up front. The catalog is loaded, required packages are
+        /// downloaded, and only then is the target recorded as installed. A failure or cancellation
+        /// at any point leaves the previous version installed and running; the superseded bundles are
+        /// left on disk for <see cref="Molca.ContentPackage.Release.ReleaseCachePolicy"/> to reclaim
+        /// as a separate, reviewable decision.
+        /// </para>
+        /// <para>
+        /// Content carry-forward: a <em>required</em> package that fails fails the whole switch. An
+        /// <em>optional</em> package that was installed before the switch is re-installed too, and
+        /// its failure is reported without falsifying the result — including one that no longer
+        /// exists in the target version.
         /// </para>
         /// <para>
         /// Per-package download progress during these re-installs is reported via
@@ -2133,15 +2360,14 @@ namespace Molca.ContentPackage.Services
                             "Local content has not been modified.");
                 }
 
-                // 1. Clear all installed package caches — safe because catalog is confirmed reachable.
-                foreach (var state in _states.Values.Where(s => s.IsInstalled || s.HasUpdate).ToList())
-                {
-                    if (!_definitions.TryGetValue(state.packageId, out var def)) continue;
-                    cancellationToken.ThrowIfCancellationRequested();
-                    await ClearPackageCacheAsync(state.packageId, def, cancellationToken);
-                }
-
-                // 2. Load the new Addressables catalog.
+                // 1. Load the new Addressables catalog.
+                //
+                // Nothing is cleared first. This used to clear every installed package's cache here,
+                // before a single byte of the target version had been fetched -- so a failure any
+                // time after this point left the device with no content at all, and a reachability
+                // probe is not a guarantee that the whole download will succeed. The old bundles are
+                // superseded by the new catalog rather than deleted, and reclaiming their space is a
+                // separate decision made once the target version is actually in place.
 
                 Log($"[PackageService] Loading catalog for version {targetVersion}: {entry.catalogUrl}");
                 var loadHandle = Addressables.LoadContentCatalogAsync(entry.catalogUrl, false);
@@ -2180,9 +2406,8 @@ namespace Molca.ContentPackage.Services
                     }
                 }
 
-                // 4. Capture previously-installed OPTIONAL packages before resetting state, so the
-                //    user's content carries across the version switch instead of being silently
-                //    dropped. Required packages are handled by step 6 and excluded here.
+                // 3. Capture what was installed before the switch, so the user's content carries
+                //    across it instead of being silently dropped.
                 var previouslyInstalledOptional = _states.Values
                     .Where(s => s.IsInstalled || s.HasUpdate)
                     .Select(s => s.packageId)
@@ -2192,51 +2417,60 @@ namespace Molca.ContentPackage.Services
                 if (previouslyInstalledOptional.Count > 0)
                     Log($"[PackageService] {previouslyInstalledOptional.Count} optional package(s) will be re-installed after the version switch: [{string.Join(", ", previouslyInstalledOptional)}]");
 
-                // 5. Reset all package states to Available — one batch write instead of N.
-                foreach (var state in _states.Values)
-                {
-                    state.status           = PackageStatus.Available;
-                    state.installedVersion = null;
-                    state.downloadProgress = 0f;
-                    state.downloadedBytes  = 0;
-                    state.totalBytes       = 0;
-                    state.errorMessage     = null;
-                }
-                _manifest.SetStatesBatch(_states.Values);
-
-                // 6. Persist the new installed content version.
-                _manifest.InstalledContentVersion = targetVersion;
-                Log($"[PackageService] Content version switched to '{targetVersion}'");
-
-                // 7. Re-install required packages.
-                // Progress is not forwarded here — each install would reset it to 0,
-                // producing confusing backwards jumps for the caller. The caller can
-                // subscribe to OnDownloadProgress for per-package granularity instead.
+                // 4. Download every required package for the target version.
+                //
+                // Required means required: one failure fails the switch. This used to log a warning
+                // and carry on to return success, so a caller was told the version had switched while
+                // content the app cannot run without was missing. The states are not reset first
+                // either -- a package that fails here is still installed from the previous version,
+                // and saying otherwise would make the app re-download content already on disk.
+                //
+                // Progress is not forwarded: each install would reset a single reporter to 0,
+                // producing backwards jumps. Callers subscribe to OnDownloadProgress instead.
                 foreach (var config in _definitions.Values.Where(c => c.isRequired))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    Log($"[PackageService] Re-installing required package '{config.packageId}' after version switch");
+                    Log($"[PackageService] Installing required package '{config.packageId}' for version {targetVersion}");
                     var result = await InstallPackageAsync(config.packageId, null, cancellationToken);
-                    if (!result.Success && !result.WasCancelled)
-                        LogWarning($"[PackageService] Required package '{config.packageId}' failed to re-install: {result.ErrorMessage}");
+                    if (result.WasCancelled) throw new OperationCanceledException(cancellationToken);
+                    if (!result.Success)
+                    {
+                        LogError($"[PackageService] Required package '{config.packageId}' failed for version '{targetVersion}': {result.ErrorMessage}");
+                        return TrackVersionSwitch(targetVersion, fromVersion, OperationResult.CreateFailure(
+                            $"Content version '{targetVersion}' was not activated: required package " +
+                            $"'{config.packageId}' could not be installed ({result.ErrorMessage}). " +
+                            $"Version '{fromVersion ?? "none"}' is still installed."), stopwatch);
+                    }
                 }
 
-                // 8. Re-install previously-installed optional packages so the user's content
-                //    carries forward. A package that no longer exists in this version is skipped
-                //    with a warning rather than silently lost.
+                // 5. Only now is the target version genuinely in place.
+                _manifest.InstalledContentVersion = targetVersion;
+                Log($"[PackageService] Content version switched to '{targetVersion}'");
+
+                // 6. Carry previously-installed optional packages forward. Their failures are
+                //    reported and do not falsify the switch: a user with one stale optional download
+                //    must still be able to move to a working version.
+                var optionalFailures = new List<string>();
                 foreach (var pkgId in previouslyInstalledOptional)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     if (!_definitions.ContainsKey(pkgId))
                     {
                         LogWarning($"[PackageService] Optional package '{pkgId}' was installed before the switch but is not defined in version '{targetVersion}' — skipping.");
+                        optionalFailures.Add(pkgId);
                         continue;
                     }
                     Log($"[PackageService] Re-installing optional package '{pkgId}' after version switch");
                     var result = await InstallPackageAsync(pkgId, null, cancellationToken);
                     if (!result.Success && !result.WasCancelled)
+                    {
                         LogWarning($"[PackageService] Optional package '{pkgId}' failed to re-install: {result.ErrorMessage}");
+                        optionalFailures.Add(pkgId);
+                    }
                 }
+                if (optionalFailures.Count > 0)
+                    LogWarning($"[PackageService] {optionalFailures.Count} optional package(s) did not carry forward to " +
+                               $"version '{targetVersion}': [{string.Join(", ", optionalFailures)}]");
 
                 OnCatalogRefreshed?.Invoke();
                 return TrackVersionSwitch(targetVersion, fromVersion, OperationResult.CreateSuccess(), stopwatch);
@@ -2286,31 +2520,27 @@ namespace Molca.ContentPackage.Services
         /// understand semantic-version pre-release suffixes (e.g. <c>"1.2.0-beta"</c>); such a
         /// value parses as unbounded and warns.
         /// </remarks>
+        /// <summary>
+        /// Whether an app version falls inside a content compatibility range.
+        /// </summary>
+        /// <remarks>
+        /// Delegates to <see cref="Molca.ContentPackage.Release.ReleaseCompatibility"/> so there is
+        /// one comparison rather than two that disagree. This used to use
+        /// <see cref="Version.TryParse"/>, which is not SemVer: it rejects <c>2.4.0-beta.1</c>
+        /// outright, and an unparseable app version was treated as compatible with everything. Every
+        /// internal build carries a prerelease suffix, so the population most likely to sit near a
+        /// range boundary was the one whose check silently switched itself off.
+        /// </remarks>
+        /// <param name="appVersion">The running app version.</param>
+        /// <param name="min">Inclusive lower bound, or empty for unbounded.</param>
+        /// <param name="max">Inclusive upper bound, or empty for unbounded.</param>
         private bool IsVersionCompatible(string appVersion, string min, string max)
         {
-            if (!Version.TryParse(appVersion, out var v))
-            {
-                LogWarning($"[PackageService] App version '{appVersion}' is not a parseable numeric version; treating all content versions as compatible.");
-                return true;
-            }
-
-            if (!string.IsNullOrEmpty(min))
-            {
-                if (!Version.TryParse(min, out var vMin))
-                    LogWarning($"[PackageService] minAppVersion '{min}' is not parseable; treating as no lower bound.");
-                else if (v < vMin)
-                    return false;
-            }
-
-            if (!string.IsNullOrEmpty(max))
-            {
-                if (!Version.TryParse(max, out var vMax))
-                    LogWarning($"[PackageService] maxAppVersion '{max}' is not parseable; treating as no upper bound.");
-                else if (v > vMax)
-                    return false;
-            }
-
-            return true;
+            bool inRange = Molca.ContentPackage.Release.ReleaseCompatibility.IsInRange(
+                appVersion, min, max, out string explanation);
+            if (!string.IsNullOrEmpty(explanation) && inRange)
+                LogWarning($"[PackageService] {explanation}");
+            return inRange;
         }
 
         #endregion

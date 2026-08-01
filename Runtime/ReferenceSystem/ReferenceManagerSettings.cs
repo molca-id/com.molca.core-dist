@@ -24,20 +24,27 @@ namespace Molca.ReferenceSystem
         [SerializeField] private bool enableDebugLogging = false;
 
         [Header("Reference Management")]
+        [Tooltip("Deprecated and no longer used: analysis is part of every scan, so there is nothing to " +
+                 "switch off. Retained so existing authored assets keep deserializing.")]
         [SerializeField] private bool autoValidateOnScan = true;
         [SerializeField] private bool showValidationResults = true;
         [SerializeField] private bool comprehensiveSceneScanning = false;
 
         [Header("On Scene Save")]
-        [Tooltip("When enabled, validates RefIds in the scene being saved (missing or duplicate within scene).")]
+        [Tooltip("When enabled, reports missing or duplicate provider Ref Ids in the scene being saved. " +
+                 "Read-only: nothing is modified.")]
         [SerializeField] private bool validateRefIdsOnSceneSave = false;
-        [Tooltip("When enabled, auto-fixes missing or duplicate RefIds in the scene being saved. Only applies when Validate Ref Ids On Scene Save is enabled.")]
+        [Tooltip("Deprecated and no longer used. Reassigning a provider's Ref Id during a save silently " +
+                 "broke every reference pointing at it, with no preview and no record of what moved. " +
+                 "Fix reported duplicates deliberately instead.")]
         [SerializeField] private bool fixRefIdsOnSceneSave = false;
 
-        [Tooltip("ScriptableObject / asset reference IDs (filled by full project scan).")]
+        [Tooltip("Legacy cached asset reference IDs. No longer written or trusted — the audit reads live " +
+                 "providers. Safe to remove from the Reference Manager Settings inspector.")]
         [SerializeField] private List<ReferenceTypeData> assetKnownIds = new List<ReferenceTypeData>();
 
-        [Tooltip("Per-scene reference IDs (filled by scene scan or refresh).")]
+        [Tooltip("Legacy cached per-scene reference IDs. No longer written or trusted — the audit reads " +
+                 "live providers. Safe to remove from the Reference Manager Settings inspector.")]
         [SerializeField] private List<SceneKnownIdsCollection> sceneKnownIds = new List<SceneKnownIdsCollection>();
 
         [Header("Prefab Scanning")]
@@ -77,12 +84,34 @@ namespace Molca.ReferenceSystem
         // has created one; outside bootstrap (edit mode, tooling) they fall back to
         // the authored defaults. The SerializeFields themselves are never written
         // at runtime (SO cardinal rule).
+        /// <summary>Whether the reference system logs its own diagnostics.</summary>
         public bool EnableDebugLogging => TypedState?.EnableDebugLogging ?? enableDebugLogging;
+
+        /// <summary>
+        /// Deprecated. Analysis is now part of every scan, so this toggle has no effect.
+        /// </summary>
+        [Obsolete("No longer has any effect: analysis is part of every scan. Removed next major.")]
         public bool AutoValidateOnScan => TypedState?.AutoValidateOnScan ?? autoValidateOnScan;
+
+        /// <summary>Whether validation results are written to the Console.</summary>
+        [Obsolete(
+            "No longer has any effect: the References workspace and Doctor decide their own presentation. "
+            + "Removed next major.")]
         public bool ShowValidationResults => TypedState?.ShowValidationResults ?? showValidationResults;
+
+        /// <summary>Whether a project audit may open closed scenes to reach complete scene coverage.</summary>
         public bool ComprehensiveSceneScanning => comprehensiveSceneScanning;
+
+        /// <summary>Whether saving a scene reports its provider identity problems. Read-only either way.</summary>
         public bool ValidateRefIdsOnSceneSave => validateRefIdsOnSceneSave;
+
+        /// <summary>
+        /// Deprecated. Auto-fixing Ref Ids on save silently broke inbound references, so it no longer runs.
+        /// </summary>
+        [Obsolete("No longer has any effect: reassigning ids on save silently broke inbound references. Removed next major.")]
         public bool FixRefIdsOnSceneSave => fixRefIdsOnSceneSave;
+
+        /// <summary>Prefab asset or folder paths included in reference scans. Empty skips prefabs.</summary>
         public IReadOnlyList<string> PrefabScanPaths => prefabScanPaths;
 
         #endregion
@@ -107,7 +136,7 @@ namespace Molca.ReferenceSystem
 
             if (EnableDebugLogging)
             {
-                Debug.Log($"[ReferenceManagerSettings] Settings loaded: Debug={EnableDebugLogging}, Validation={AutoValidateOnScan}");
+                Debug.Log($"[ReferenceManagerSettings] Settings loaded: Debug={EnableDebugLogging}, ComprehensiveSceneScanning={ComprehensiveSceneScanning}");
             }
         }
 
@@ -248,6 +277,9 @@ namespace Molca.ReferenceSystem
         /// <summary>
         /// Get reference statistics (distinct IDs per type across asset and all scenes).
         /// </summary>
+        [Obsolete(
+            "The authored id lists are no longer the operational index and may be stale or empty. Project a "
+            + "ReferenceAuditSnapshot instead. Removed next major.")]
         public Dictionary<string, int> GetReferenceStats()
         {
             var merged = BuildMergedIdSets();
@@ -257,6 +289,9 @@ namespace Molca.ReferenceSystem
         /// <summary>
         /// Get all known reference types.
         /// </summary>
+        [Obsolete(
+            "The authored id lists are no longer the operational index. Use ReferenceAuditSnapshot.Providers. "
+            + "Removed next major.")]
         public List<string> GetReferenceTypes()
         {
             return BuildMergedIdSets().Keys.ToList();
@@ -265,6 +300,9 @@ namespace Molca.ReferenceSystem
         /// <summary>
         /// Get all distinct IDs for a specific reference type.
         /// </summary>
+        [Obsolete(
+            "The authored id lists are no longer the operational index. Use ReferenceAuditSnapshot.Providers. "
+            + "Removed next major.")]
         public List<string> GetReferenceIds(string refType)
         {
             var merged = BuildMergedIdSets();
@@ -276,6 +314,14 @@ namespace Molca.ReferenceSystem
         /// <summary>
         /// Find duplicate IDs (same id registered more than once across asset + scene collections).
         /// </summary>
+        /// <remarks>
+        /// Counts entries in the authored lists, which is not the same question as "do two live providers
+        /// claim one key". The audit answers that one properly, on the exact key the runtime registers
+        /// under, and reports it as <c>REF002</c>.
+        /// </remarks>
+        [Obsolete(
+            "Counts authored list entries rather than real providers. Use ReferenceAuditSnapshot findings "
+            + "(REF002). Removed next major.")]
         public Dictionary<string, List<string>> FindDuplicateIds()
         {
             var duplicates = new Dictionary<string, List<string>>();

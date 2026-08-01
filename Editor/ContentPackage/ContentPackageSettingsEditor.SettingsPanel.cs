@@ -24,6 +24,8 @@ namespace Molca.Editor.ContentPackage
             if (_settingsFoldout)
             {
                 EditorGUILayout.Space(2);
+                DrawReleaseProtocolSection();
+                EditorGUILayout.Space(4);
                 DrawRemoteSection();
                 EditorGUILayout.Space(4);
 
@@ -34,18 +36,74 @@ namespace Molca.Editor.ContentPackage
             EditorGUILayout.EndFoldoutHeaderGroup();
         }
 
+        /// <summary>
+        /// The <c>contentRelease</c> protocol settings.
+        /// </summary>
+        /// <remarks>
+        /// Drawn above the legacy remote section because it supersedes it. The two are alternatives
+        /// at runtime, so the panel says which one is in force rather than showing both as if they
+        /// combined.
+        /// </remarks>
+        private void DrawReleaseProtocolSection()
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.LabelField("Release Protocol", EditorStyles.boldLabel);
+
+            var enabled = Prop("_enableReleaseProtocol");
+            EditorGUILayout.PropertyField(enabled, new GUIContent(
+                "Use Release Protocol",
+                "Resolve content through Molca's signed release protocol instead of a directly " +
+                "configured catalog URL. Content is verified before it can change local state."));
+
+            if (!enabled.boolValue)
+            {
+                EditorGUILayout.HelpBox(
+                    "Off: this project uses the legacy catalog URL below.", MessageType.None);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            EditorGUILayout.PropertyField(Prop("_contentServiceId"), new GUIContent(
+                "Content Service",
+                "Network catalog service id for the Molca content host. The origin is resolved from " +
+                "the catalog, so the build token can only reach a host this project authorized."));
+            EditorGUILayout.PropertyField(Prop("_contentPathPrefix"), new GUIContent("API Path Prefix"));
+            EditorGUILayout.PropertyField(Prop("_trustedReleaseKeys"), new GUIContent(
+                "Trusted Signing Keys",
+                "Public keys permitted to sign a release for this project."), true);
+
+            var keys = Prop("_trustedReleaseKeys");
+            if (keys.arraySize == 0)
+            {
+                // Not a warning about aesthetics: with no key, verification refuses every release,
+                // and the failure at runtime reads like tampering rather than like missing setup.
+                EditorGUILayout.HelpBox(
+                    "No trusted signing keys. Every release will be refused as untrusted at runtime.",
+                    MessageType.Error);
+            }
+
+            EditorGUILayout.HelpBox(
+                "The legacy catalog URL below is ignored while this is on.", MessageType.None);
+            EditorGUILayout.EndVertical();
+        }
+
         private void DrawRemoteSection()
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("Remote Content", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Remote Content (legacy)", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(Prop("_checkForCatalogUpdates"), new GUIContent("Check for Updates"));
             EditorGUILayout.Space(2);
-            using (new EditorGUI.DisabledScope(true))
-            {
-                EditorGUILayout.PropertyField(Prop("_remoteCatalogUrl"),          new GUIContent("Catalog URL"));
-                EditorGUILayout.PropertyField(Prop("_remotePackagesManifestUrl"), new GUIContent("Packages Manifest URL"));
-            }
-            EditorGUILayout.HelpBox("Both URLs are auto-populated from Build Config after a successful build. No manual entry needed.", MessageType.None);
+
+            // Editable, and no longer claimed to be automatic. These used to be disabled with a
+            // note saying a build populates them -- a build-time write-back that was removed when
+            // the build stopped mutating this shared asset. The note outlived the behaviour, so an
+            // author saw an empty field, an explanation for it that was false, and no way to fix it.
+            EditorGUILayout.PropertyField(Prop("_remoteCatalogUrl"),          new GUIContent("Catalog URL"));
+            EditorGUILayout.PropertyField(Prop("_remotePackagesManifestUrl"), new GUIContent("Packages Manifest URL"));
+            EditorGUILayout.HelpBox(
+                "Set these for the legacy delivery path. Builds no longer write them back — a build " +
+                "would otherwise change version-controlled settings to whoever built last.",
+                MessageType.None);
             EditorGUILayout.Space(4);
             EditorGUILayout.PropertyField(Prop("_enableContentVersioning"), new GUIContent(
                 "Enable Content Versioning",
@@ -231,11 +289,35 @@ namespace Molca.Editor.ContentPackage
 
         private void ValidateAllPackages()
         {
-            var errors = ((ContentPackageSettings)target).ValidateConfigurations();
-            if (errors.Count == 0)
-                EditorUtility.DisplayDialog("Validation", "All configurations are valid.", "OK");
-            else
-                EditorUtility.DisplayDialog("Validation Errors", string.Join("\n", errors), "OK");
+            // Runs the same engine as the Doctor, automation, and the publish flow. It used to run
+            // ContentPackageSettings.ValidateConfigurations, which checked a different and smaller
+            // set, so this button could say "all valid" about a configuration the Doctor rejected.
+            var settings = (ContentPackageSettings)target;
+            var report = Molca.ContentPackage.Editor.ContentValidation.ValidateSettings(settings.packageConfigs);
+
+            // Said plainly rather than implied: this button does not build, so it cannot know
+            // whether a package actually ships anything.
+            const string scope = "\n\nThis checks the configuration only. Content is verified when you " +
+                                 "build a release.";
+
+            if (report.Issues.Count == 0)
+            {
+                EditorUtility.DisplayDialog("Validation", "All configurations are valid." + scope, "OK");
+                return;
+            }
+
+            var lines = report.Issues.Select(issue =>
+            {
+                string marker = issue.Severity == Molca.ContentPackage.Editor.ContentIssueSeverity.Error ? "✕"
+                    : issue.Severity == Molca.ContentPackage.Editor.ContentIssueSeverity.Warning ? "!" : "·";
+                return string.IsNullOrEmpty(issue.PackageId)
+                    ? $"{marker} {issue.Message}"
+                    : $"{marker} [{issue.PackageId}] {issue.Message}";
+            });
+
+            string title = report.CanPublish ? "Validation — no blocking problems" : "Validation Errors";
+            string summary = $"{report.ErrorCount} error(s), {report.WarningCount} warning(s).\n\n";
+            EditorUtility.DisplayDialog(title, summary + string.Join("\n\n", lines) + scope, "OK");
         }
 
         private void ExportSettingsAsJson()

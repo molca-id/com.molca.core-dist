@@ -179,11 +179,16 @@ namespace Molca.Editor.ContentPackage
                 if (EditorUtility.DisplayDialog("Delete Package",
                     $"Remove '{cfg.displayName ?? cfg.packageId}' from configuration?", "Delete", "Cancel"))
                 {
-                    configsProp.DeleteArrayElementAtIndex(idx);
+                    // Through the service, so removal behaves the same here, from automation, and
+                    // from a remediation pass -- including reporting the dependents it orphans,
+                    // which this button used to remove in silence.
+                    var result = Editing.RemovePackage(cfg.packageId);
+                    if (!result.Changed) Debug.LogWarning($"[ContentPackage] {result.Message}");
+                    else if (result.Message.Contains("Still referenced")) Debug.LogWarning($"[ContentPackage] {result.Message}");
+
+                    serializedObject.Update();
                     _selectedPackageId    = null;
                     _selectedPackageIndex = -1;
-                    serializedObject.ApplyModifiedProperties();
-                    EditorUtility.SetDirty(target);
                 }
                 EditorGUILayout.EndHorizontal();
                 EditorGUILayout.EndVertical();
@@ -310,24 +315,13 @@ namespace Molca.Editor.ContentPackage
             menu.ShowAsContext();
         }
 
-        // GenericMenu callback — re-resolve SerializedProperty by index.
+        // GenericMenu callback — fires outside the layout pass, so it must not touch GUI state.
         private void SetDependencyPackageId(string ownerPackageId, int depIndex, string newId)
         {
+            var result = Editing.SetDependency(ownerPackageId, depIndex, newId);
+            if (!result.Changed) Debug.LogWarning($"[ContentPackage] {result.Message}");
+
             serializedObject.Update();
-
-            var s   = target as ContentPackageSettings;
-            int idx = s.packageConfigs.FindIndex(p => p.packageId == ownerPackageId);
-            if (idx < 0) return;
-
-            var idProp = serializedObject
-                .FindProperty("packageConfigs")
-                .GetArrayElementAtIndex(idx)
-                .FindPropertyRelative("dependencies")
-                .GetArrayElementAtIndex(depIndex)
-                .FindPropertyRelative("packageId");
-
-            idProp.stringValue = newId;
-            serializedObject.ApplyModifiedProperties();
             Repaint();
         }
 
@@ -415,35 +409,20 @@ namespace Molca.Editor.ContentPackage
 
         private void AddNewPackage(ContentPackageSettings settings)
         {
-            // Generate a unique placeholder ID
-            string baseId = "new-package";
-            string id     = baseId;
-            int    n      = 1;
-            while (settings.GetPackageConfig(id) != null)
-                id = $"{baseId}-{n++}";
+            // The service owns the new-package shape -- id uniqueness, default version, empty label
+            // and dependency arrays. It used to be spelled out here in SerializedProperty calls, so
+            // a package created by automation and one created by this button could differ in their
+            // defaults, and only the second one was ever looked at.
+            var result = Editing.AddPackage();
+            if (!result.Changed)
+            {
+                Debug.LogWarning($"[ContentPackage] {result.Message}");
+                return;
+            }
 
-            // Use SerializedProperty so the array is immediately in sync within this repaint frame.
-            var configsProp = serializedObject.FindProperty("packageConfigs");
-            int newIdx      = configsProp.arraySize;
-            configsProp.InsertArrayElementAtIndex(newIdx);
-
-            var p = configsProp.GetArrayElementAtIndex(newIdx);
-            p.FindPropertyRelative("packageId").stringValue      = id;
-            p.FindPropertyRelative("displayName").stringValue    = "";
-            p.FindPropertyRelative("isVisible").boolValue        = true;
-            p.FindPropertyRelative("isRequired").boolValue       = false;
-            p.FindPropertyRelative("addressableLabels").arraySize = 0;
-            p.FindPropertyRelative("dependencies").arraySize     = 0;
-
-            var meta = p.FindPropertyRelative("metadata");
-            meta.FindPropertyRelative("version").stringValue       = "1.0.0";
-            meta.FindPropertyRelative("description").stringValue   = "";
-            meta.FindPropertyRelative("author").stringValue        = "";
-            meta.FindPropertyRelative("tags").arraySize            = 0;
-
-            serializedObject.ApplyModifiedProperties();
-            _selectedPackageId    = id;
-            _selectedPackageIndex = newIdx;
+            serializedObject.Update();
+            _selectedPackageId    = result.After;
+            _selectedPackageIndex = settings.packageConfigs.FindIndex(config => config?.packageId == result.After);
             Repaint();
         }
 

@@ -99,6 +99,45 @@ namespace Molca.ContentPackage
         /// </summary>
         [SerializeField, Min(0)] private long _maxCacheBytes = 0;
 
+        [Header("Release Protocol (contentRelease 1)")]
+        /// <summary>
+        /// When enabled, content is resolved through the Molca release protocol rather than a
+        /// directly configured catalog URL.
+        /// </summary>
+        /// <remarks>
+        /// Off by default and deliberately opt-in. Turning it on changes where every byte of content
+        /// comes from, and a project that has not yet configured
+        /// <see cref="ContentServiceId"/> and <see cref="TrustedReleaseKeys"/> would fail closed at
+        /// runtime rather than fall back — which is correct, but only if it was asked for.
+        /// </remarks>
+        [SerializeField] private bool _enableReleaseProtocol = false;
+
+        /// <summary>
+        /// Network catalog service id for the Molca content host.
+        /// </summary>
+        /// <remarks>
+        /// A service id rather than a URL. The routed pipeline resolves the origin from the
+        /// catalog, so the build token cannot be sent anywhere the project did not authorize —
+        /// a URL field here would put that guarantee in a string an asset diff can change.
+        /// </remarks>
+        [SerializeField] private string _contentServiceId = "molca-content";
+
+        /// <summary>Path prefix of the content API on that service.</summary>
+        [SerializeField] private string _contentPathPrefix = "/content/v1";
+
+        /// <summary>
+        /// Public keys permitted to sign a release manifest for this project.
+        /// </summary>
+        /// <remarks>
+        /// Serialized so key rotation is a reviewable change to a version-controlled asset rather
+        /// than a code edit. An empty list means nothing can verify, and the release protocol will
+        /// refuse every release — the intended behaviour for a project that enabled the protocol
+        /// without provisioning trust.
+        /// </remarks>
+        [SerializeField]
+        private List<Molca.ContentPackage.Release.ReleaseTrustedKey> _trustedReleaseKeys =
+            new List<Molca.ContentPackage.Release.ReleaseTrustedKey>();
+
         // ── Internal accessors (for SettingState seeding) ────────────────────
 
         internal string DefaultRemoteCatalogUrl           => _remoteCatalogUrl;
@@ -110,6 +149,25 @@ namespace Molca.ContentPackage
         internal string DefaultAppVersion                 => _appVersion;
         internal int    DefaultMaxConcurrentDownloads     => _maxConcurrentDownloads;
         internal long   DefaultMaxCacheBytes              => _maxCacheBytes;
+
+        // Release-protocol configuration is build trust, not mutable install state, so it is read
+        // straight from the authored asset and never routed through SettingState. Plan section 11.5
+        // is explicit that the two must stay separated.
+
+        /// <summary>Whether content resolves through the <c>contentRelease</c> protocol.</summary>
+        public bool EnableReleaseProtocol => _enableReleaseProtocol;
+
+        /// <summary>Network catalog service id for the Molca content host.</summary>
+        public string ContentServiceId => _contentServiceId;
+
+        /// <summary>Path prefix of the content API on that service.</summary>
+        public string ContentPathPrefix => string.IsNullOrWhiteSpace(_contentPathPrefix)
+            ? "/content/v1"
+            : _contentPathPrefix;
+
+        /// <summary>Public keys permitted to sign a release manifest for this project.</summary>
+        public IReadOnlyList<Molca.ContentPackage.Release.ReleaseTrustedKey> TrustedReleaseKeys =>
+            _trustedReleaseKeys ?? new List<Molca.ContentPackage.Release.ReleaseTrustedKey>();
 
         // ── Public runtime properties ────────────────────────────────────────
         // In Edit mode State is null; fall back to the serialized default so Editor

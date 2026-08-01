@@ -17,17 +17,21 @@ namespace Molca.Editor.Mcp.Providers
 {
     /// <summary>
     /// Content Package build/deploy MCP tool family (Tier 3) — the edit-time pipeline complement to the
-    /// authoring tools: create/patch a <see cref="ContentPackageBuildConfig"/>, build Addressables content
-    /// (full or incremental) and write <c>packages.json</c>, verify per-package bundle output, and deploy
-    /// the build folder to the configured CDN via the storage provider's CLI.
+    /// authoring tools for the <b>legacy schema-v1 delivery path</b>: create/patch a
+    /// <see cref="ContentPackageBuildConfig"/>, build Addressables content (full or incremental) and write
+    /// <c>packages.json</c>, and verify per-package bundle output.
     /// </summary>
     /// <remarks>
-    /// These are heavy, network/disk-bound operations: <c>molca_content_build</c> and
-    /// <c>molca_content_deploy</c> are <see cref="McpToolReversibility.Irreversible"/>
-    /// <see cref="McpToolKind.Action"/> tools (allowlist + confirmation gated, Sprint 17). Build wraps
-    /// <see cref="AddressablesBuildUtility"/> and mirrors the inspector's Build &amp; Deploy panel, including
-    /// the Addressables profile-path sync. Deploy spawns the provider's external CLI process on a background
-    /// thread per the async contract. Build-config resolution mirrors the inspector: the active config is
+    /// There is no deploy tool. <c>molca_content_deploy</c> spawned an external <c>aws</c>/<c>gcloud</c>
+    /// process configured by a storage-provider asset held in the project — the credential handling the
+    /// release protocol exists to remove. Publishing goes through the Hub's Content workspace, which
+    /// uploads to short-lived presigned URLs.
+    ///
+    /// <c>molca_content_build</c> is a heavy, disk-bound <see cref="McpToolReversibility.Irreversible"/>
+    /// <see cref="McpToolKind.Action"/> tool (allowlist + confirmation gated). It wraps
+    /// <see cref="AddressablesBuildUtility"/> and mirrors the inspector's Build panel. It no longer syncs
+    /// Addressables profile paths: that wrote into a shared, version-controlled asset on every build.
+    /// Build-config resolution mirrors the inspector: the active config is
     /// the one stored under the inspector's EditorPrefs GUID, else the project's single config, else pass
     /// <c>configPath</c> explicitly.
     /// </remarks>
@@ -91,14 +95,13 @@ namespace Molca.Editor.Mcp.Providers
         private static McpToolDefinition CreateContentSetBuildConfigTool() => new McpToolDefinition(
             name: "molca_content_set_build_config",
             description: "Patches the active (or specified) ContentPackageBuildConfig: local build path, "
-                       + "remote load URL, and/or storage provider (by asset path). Edit mode only; "
+                       + "remote load URL. Edit mode only; "
                        + "revert with Ctrl+Z.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
                 "\"configPath\":{\"type\":\"string\",\"description\":\"Build config asset path; omit to use the active one.\"}," +
                 "\"localBuildPath\":{\"type\":\"string\"}," +
-                "\"remoteLoadURL\":{\"type\":\"string\"}," +
-                "\"storageProviderPath\":{\"type\":\"string\",\"description\":\"Asset path of a ContentPackageStorageProvider.\"}}," +
+                "\"remoteLoadURL\":{\"type\":\"string\"}}," +
                 "\"additionalProperties\":false}",
             execute: ExecuteContentSetBuildConfig,
             mode: McpToolMode.Edit,
@@ -115,14 +118,6 @@ namespace Molca.Editor.Mcp.Providers
 
             if (args["localBuildPath"] != null) cfg.localBuildPath = args.Value<string>("localBuildPath");
             if (args["remoteLoadURL"] != null)  cfg.remoteLoadURL  = args.Value<string>("remoteLoadURL");
-            if (args["storageProviderPath"] != null)
-            {
-                var provPath = args.Value<string>("storageProviderPath");
-                var provider = AssetDatabase.LoadAssetAtPath<ContentPackageStorageProvider>(provPath);
-                if (provider == null) return Error($"No ContentPackageStorageProvider at '{provPath}'.");
-                cfg.storageProvider = provider;
-            }
-
             EditorUtility.SetDirty(cfg);
             AssetDatabase.SaveAssetIfDirty(cfg);
             return BuildConfigToJson(cfg, AssetDatabase.GetAssetPath(cfg));
@@ -134,7 +129,7 @@ namespace Molca.Editor.Mcp.Providers
             name: "molca_content_build",
             description: "Builds Addressables content for the content packages and writes packages.json. "
                        + "Full build by default; pass incremental=true to rebuild only changed groups (requires "
-                       + "a prior full build). Syncs Addressables profile paths from the build config first. "
+                       + "a prior full build). Reports (never rewrites) any Addressables profile mismatch. "
                        + "Edit mode only; writes build artifacts to disk (not undoable).",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
@@ -162,8 +157,11 @@ namespace Molca.Editor.Mcp.Providers
             bool incremental = args["incremental"] != null && args.Value<bool>("incremental");
             bool clean       = args["clean"] != null && args.Value<bool>("clean");
 
-            McpProgress.Report("Syncing Addressables profile paths…", 0.1f, "build");
-            SyncAddressablesPaths(addrSettings, cfg);
+            // Reported, never written. This used to rewrite the shared AddressableAssetSettings asset
+            // from the build config -- version-controlled configuration silently changed to whichever
+            // machine built last, surfacing as a diff in someone else's commit. An automated build is
+            // the worst place for that, because nobody is watching it happen.
+            string profileMismatch = DescribeProfileMismatch(addrSettings, cfg);
 
             var options = new AddressablesBuildUtility.BuildOptions
             {
@@ -202,7 +200,8 @@ namespace Molca.Editor.Mcp.Providers
                 ["totalBytes"] = result.TotalSize,
                 ["durationSeconds"] = result.Duration,
                 ["builtGroups"] = new JArray(result.BuiltGroups),
-                ["error"] = result.ErrorMessage
+                ["error"] = result.ErrorMessage,
+                ["profileMismatch"] = profileMismatch
             }.ToString(Formatting.None);
         }
 
@@ -210,8 +209,9 @@ namespace Molca.Editor.Mcp.Providers
 
         private static McpToolDefinition CreateContentVerifyTool() => new McpToolDefinition(
             name: "molca_content_verify",
-            description: "Verifies the last build: for each visible package, reports the number of bundles "
-                       + "and total bytes found in the build output for its labels. Read-only.",
+            description: "Verifies the last build: for each package, reports the number of bundles "
+                       + "and total bytes found in the build output for its labels, including hidden "
+                       + "packages. Read-only.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
                 "\"configPath\":{\"type\":\"string\",\"description\":\"Build config asset path; omit to use the active one.\"}}," +
@@ -238,7 +238,11 @@ namespace Molca.Editor.Mcp.Providers
             if (addrSettings == null) return Error("Addressables is not configured in this project.");
 
             var packages = new JArray();
-            foreach (var pkg in settings.GetVisiblePackages())
+            // Every package, not only the visible ones. Visibility affects presentation, not
+            // correctness -- a hidden *required* package is still built, uploaded, and installed, and
+            // skipping it here meant the one package a player cannot run without went unverified.
+            foreach (var pkg in settings.packageConfigs.Where(config => config != null &&
+                                                              !string.IsNullOrEmpty(config.packageId)))
             {
                 if (string.IsNullOrEmpty(pkg.packageId)) continue;
 
@@ -264,97 +268,6 @@ namespace Molca.Editor.Mcp.Providers
             }
 
             return new JObject { ["buildPath"] = buildPath, ["packages"] = packages }.ToString(Formatting.None);
-        }
-
-        // ── molca_content_deploy ─────────────────────────────────────────────────────────────
-
-        private static McpToolDefinition CreateContentDeployTool() => new McpToolDefinition(
-            name: "molca_content_deploy",
-            description: "Deploys the local build output to the configured CDN by running the storage "
-                       + "provider's CLI (e.g. aws/gsutil). Uploads bytes to a remote bucket — irreversible. "
-                       + "Requires a built output folder and a storage provider assigned on the build config. "
-                       + "Edit mode only.",
-            inputSchemaJson:
-                "{\"type\":\"object\",\"properties\":{" +
-                "\"configPath\":{\"type\":\"string\",\"description\":\"Build config asset path; omit to use the active one.\"}}," +
-                "\"additionalProperties\":false}",
-            executeAsync: ExecuteContentDeployAsync,
-            mode: McpToolMode.Edit,
-            kind: McpToolKind.Action,
-            reversibility: McpToolReversibility.Irreversible);
-
-        private static async Awaitable<string> ExecuteContentDeployAsync(string argumentsJson)
-        {
-            var args = ParseArgs(argumentsJson);
-            var cfg = ResolveBuildConfig(args.Value<string>("configPath"), out var cfgError);
-            if (cfg == null) return Error(cfgError);
-
-            var provider = cfg.storageProvider;
-            if (provider == null)
-                return Error("No storage provider assigned on the build config. Set one with molca_content_set_build_config.");
-
-            var buildTarget = EditorUserBuildSettings.activeBuildTarget.ToString();
-            var localPath = cfg.ResolvedLocalBuildPath(buildTarget);
-            if (!Directory.Exists(localPath))
-                return Error($"Build output folder not found at '{localPath}'. Run molca_content_build first.");
-
-            McpProgress.Report("Checking storage provider…", 0.1f, "deploy");
-            if (!provider.CheckAvailability(out var availError))
-                return Error($"Storage provider not ready: {availError}");
-
-            var fileName  = provider.ExecutableName;
-            var arguments = provider.BuildDeployArguments(localPath, buildTarget);
-            var command   = provider.BuildDeployCommand(localPath, buildTarget);
-            Debug.Log($"[ContentPackage] Deploy (MCP): {command}");
-
-            int exitCode;
-            string stdout, stderr;
-
-            // Duration is unknown (depends on bundle size + network), so report indeterminate progress
-            // before handing off; the main thread is free during the upload so the row stays live.
-            McpProgress.Report($"Uploading to {provider.GetDestinationDescription(buildTarget)}…", null, "deploy");
-
-            // The CLI upload blocks; run it off the main thread per the async contract.
-            await Awaitable.BackgroundThreadAsync();
-            try
-            {
-                using var proc = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = fileName,
-                        Arguments = arguments,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
-                };
-                proc.Start();
-                stdout = proc.StandardOutput.ReadToEnd();
-                stderr = proc.StandardError.ReadToEnd();
-                proc.WaitForExit();
-                exitCode = proc.ExitCode;
-            }
-            catch (System.Exception ex)
-            {
-                await Awaitable.MainThreadAsync();
-                return Error($"Deploy failed to launch '{fileName}': {ex.Message}");
-            }
-            await Awaitable.MainThreadAsync();
-
-            McpProgress.Report(exitCode == 0 ? "Deploy complete." : $"Deploy failed (exit {exitCode}).", 1f, "deploy");
-
-            return new JObject
-            {
-                ["provider"] = provider.DisplayName,
-                ["command"] = command,
-                ["destination"] = provider.GetDestinationDescription(buildTarget),
-                ["exitCode"] = exitCode,
-                ["success"] = exitCode == 0,
-                ["stdout"] = Tail(stdout, 4000),
-                ["stderr"] = Tail(stderr, 4000)
-            }.ToString(Formatting.None);
         }
 
         // ── Shared plumbing ──────────────────────────────────────────────────────────────────
@@ -400,28 +313,35 @@ namespace Molca.Editor.Mcp.Providers
         }
 
         /// <summary>
-        /// Syncs the active Addressables profile's remote build/load paths and remote-catalog settings from
-        /// the build config — a static port of the inspector's pre-build sync so the MCP build matches it.
+        /// Describes where the active Addressables profile disagrees with the build config, or null.
         /// </summary>
-        private static void SyncAddressablesPaths(AddressableAssetSettings addrSettings, ContentPackageBuildConfig cfg)
+        /// <remarks>
+        /// Read-only by design; see the call site. The result is returned in the build response so an
+        /// automated caller can act on it, rather than discovering later that its build used paths
+        /// nobody set deliberately.
+        /// </remarks>
+        private static string DescribeProfileMismatch(
+            AddressableAssetSettings addrSettings, ContentPackageBuildConfig cfg)
         {
-            var profileId = addrSettings.activeProfileId;
+            if (addrSettings == null || cfg == null) return null;
 
-            void SetVar(string key, string value)
+            var profileId = addrSettings.activeProfileId;
+            var problems = new System.Collections.Generic.List<string>();
+
+            void Compare(string key, string expected)
             {
-                if (addrSettings.profileSettings.GetValueByName(profileId, key) != null)
-                    addrSettings.profileSettings.SetValue(profileId, key, value);
-                else
-                    Debug.LogWarning($"[ContentPackage] Addressables profile variable '{key}' not found. Create it in the Addressables Profiles window.");
+                string actual = addrSettings.profileSettings.GetValueByName(profileId, key);
+                if (actual == null) problems.Add($"Profile variable '{key}' does not exist.");
+                else if (!string.Equals(actual, expected, System.StringComparison.Ordinal))
+                    problems.Add($"'{key}' is '{actual}', build config expects '{expected}'.");
             }
 
-            SetVar("RemoteBuildPath", cfg.localBuildPath);
-            SetVar("RemoteLoadPath",  cfg.remoteLoadURL);
+            Compare("RemoteBuildPath", cfg.localBuildPath);
+            Compare("RemoteLoadPath", cfg.remoteLoadURL);
+            if (!addrSettings.BuildRemoteCatalog)
+                problems.Add("Build Remote Catalog is off, so no catalog will be produced.");
 
-            addrSettings.BuildRemoteCatalog = true;
-            addrSettings.RemoteCatalogBuildPath.SetVariableByName(addrSettings, "RemoteBuildPath");
-            addrSettings.RemoteCatalogLoadPath.SetVariableByName(addrSettings, "RemoteLoadPath");
-            EditorUtility.SetDirty(addrSettings);
+            return problems.Count == 0 ? null : string.Join(" ", problems);
         }
 
         /// <summary>Path to the Addressables content-state file used as the incremental-build baseline.</summary>
@@ -434,14 +354,11 @@ namespace Molca.Editor.Mcp.Providers
 
         private static string BuildConfigToJson(ContentPackageBuildConfig cfg, string path, JObject extra = null)
         {
-            var providerPath = cfg.storageProvider != null ? AssetDatabase.GetAssetPath(cfg.storageProvider) : null;
             var obj = new JObject
             {
                 ["path"] = path,
                 ["localBuildPath"] = cfg.localBuildPath,
                 ["remoteLoadURL"] = cfg.remoteLoadURL,
-                ["storageProvider"] = providerPath,
-                ["storageProviderName"] = cfg.storageProvider != null ? cfg.storageProvider.DisplayName : null
             };
             if (extra != null)
                 foreach (var prop in extra.Properties())

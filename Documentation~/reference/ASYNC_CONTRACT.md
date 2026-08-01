@@ -189,13 +189,24 @@ the main thread at your dispatch boundary and everything downstream stays simple
 **The log write path can be entered from any thread and must never call a main-thread-only Unity
 API.** Unity invokes `ILogHandler.LogFormat` / `LogException` on whatever thread called `Debug.Log`,
 including background and network threads (third-party libraries and worker threads elsewhere in a
-project log directly). Consequences enforced in `LogHandler` / `LogManager`:
+project log directly). Consequences enforced in `LogCapture`, `MolcaLogPipeline` and the sinks — see
+[Logging](LOGGING.md):
 
-- `LogHandler`'s re-entrancy guard (`_isLogging`) is `[ThreadStatic]`, so one thread's guard never
-  gates or releases another thread's unrelated log call.
+- `LogCapture`'s re-entrancy guard is `[ThreadStatic]`, so one thread's guard never gates or releases
+  another thread's unrelated log call, and a thread that dies mid-handler cannot leave the flag stuck
+  true and silence the process.
+- The context object's `name` is read **only** on the main thread. `UnityEngine.Object.name` throws off
+  it, so `MolcaLogEntry.ContextName` is resolved at capture time or left `null` — and only the resolved
+  string is carried forward, never the object.
+- `MolcaLogPipeline`'s sink list is copy-on-write, so dispatch takes no lock and cannot serialise worker
+  threads behind the main thread.
+- `ILogSink.Write` must not block. `FileLogSink` only enqueues; the disk write happens in `Flush`, which
+  the main thread drives. Doing I/O in `Write` would put disk latency on the logging thread.
 - `LogManager`'s flush-interval clock uses a `System.Diagnostics.Stopwatch`, never
   `Time.realtimeSinceStartup` (the Unity API throws off the main thread).
-- `File.AppendAllText` and friends are plain BCL I/O, safe from any thread.
+- A consumer that must touch Unity objects — `ModalManager` showing a toast — checks
+  `MolcaLogEntry.IsMainThread` and marshals the rest through `Update`. `AddMessage` reaches
+  `StartCoroutine`, which throws off the main thread.
 
 If you extend logging, keep the write path free of Unity main-thread APIs and use a `Stopwatch` for
 any timing.

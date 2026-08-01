@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Molca.ContentPackage;
 using Molca.ContentPackage.Core;
+using Molca.ContentPackage.Editor;
 
 namespace Molca.Editor.ContentPackage
 {
@@ -396,7 +397,7 @@ namespace Molca.Editor.ContentPackage
                     description     = config.metadata?.description ?? "",
                     author          = config.metadata?.author ?? "",
                     tags            = config.metadata?.tags ?? Array.Empty<string>(),
-                    bundleSizeBytes = CalculatePackageBundleSize(config, addrSettings, buildPath),
+                    bundleSizeBytes = GetPackageBundleInfo(config, addrSettings, buildPath).bytes,
                     changelog       = ""
                 };
 
@@ -416,28 +417,19 @@ namespace Molca.Editor.ContentPackage
                 return;
             }
 
-            // Auto-populate both remote URLs on ContentPackageSettings from the build output.
-            if (buildConfig != null)
+            // Deliberately does NOT write the resolved URLs back into ContentPackageSettings.
+            //
+            // It used to. That made a local build mutate a shared, version-controlled asset with
+            // whoever-built-last's Addressables profile, so the runtime endpoint depended on a
+            // developer's machine and arrived in code review as an unexplained diff. It also cannot
+            // be right any more: a governed release is resolved from the control plane at runtime,
+            // and the URL a build happened to produce is not the URL a player should fetch.
+            //
+            // Authored endpoints stay authored. If a build needs to report where it wrote, it logs.
+            if (buildConfig != null && !string.IsNullOrEmpty(resolvedCatalogUrl))
             {
-                var so = new SerializedObject(packageSettings);
-                so.Update();
-
-                var manifestUrl = buildConfig.GetPackagesManifestUrl(buildTarget);
-                if (!string.IsNullOrEmpty(manifestUrl))
-                {
-                    so.FindProperty("_remotePackagesManifestUrl").stringValue = manifestUrl;
-                    Debug.Log($"[AddressablesBuild] Auto-set RemotePackagesManifestUrl → {manifestUrl}");
-                }
-
-                if (!string.IsNullOrEmpty(resolvedCatalogUrl))
-                {
-                    so.FindProperty("_remoteCatalogUrl").stringValue = resolvedCatalogUrl;
-                    Debug.Log($"[AddressablesBuild] Auto-set RemoteCatalogUrl → {resolvedCatalogUrl}");
-                }
-
-                so.ApplyModifiedPropertiesWithoutUndo();
-                EditorUtility.SetDirty(packageSettings);
-                AssetDatabase.SaveAssetIfDirty(packageSettings);
+                Debug.Log($"[AddressablesBuild] Build catalog location: {resolvedCatalogUrl}. " +
+                          "Runtime endpoints are resolved from the control plane and were not modified.");
             }
         }
 
@@ -446,73 +438,55 @@ namespace Molca.Editor.ContentPackage
         /// belong to Addressables groups containing at least one entry with a label matching this package.
         /// Returns <c>(count, totalBytes)</c>.
         /// </summary>
+        /// <summary>
+        /// Bundle count and exact download bytes for a package, resolved from the Addressables
+        /// build layout.
+        ///
+        /// This used to infer both by lowercasing a group name, stripping its spaces, and matching
+        /// bundle filename prefixes. That silently excluded every bundle a package depends on but
+        /// does not label, so the number shown to authors was smaller than what a player actually
+        /// downloads, and two groups sharing a prefix claimed each other's content.
+        ///
+        /// There is deliberately no heuristic fallback. When the layout report is missing this
+        /// reports nothing and says why: a number that might be wrong is worse than no number,
+        /// because nobody re-checks a plausible one.
+        /// </summary>
+        /// <param name="config">The package to measure.</param>
+        /// <param name="addrSettings">Unused; retained so existing callers keep compiling.</param>
+        /// <param name="buildPath">Unused; sizes now come from the layout, not a directory scan.</param>
+        /// <returns>Bundle count and bytes, or (0, 0) when the build layout is unavailable.</returns>
         public static (int count, long bytes) GetPackageBundleInfo(
             ContentPackageSettings.PackageConfig config,
             AddressableAssetSettings addrSettings,
             string buildPath)
         {
-            long bytes = CalculatePackageBundleSize(config, addrSettings, buildPath);
-            if (bytes == 0) return (0, 0);
+            if (config == null || string.IsNullOrEmpty(config.packageId)) return (0, 0);
 
-            // Count matched files for the caller.
-            if (config.addressableLabels == null || config.addressableLabels.Length == 0) return (0, 0);
-            var packageLabels = new HashSet<string>(
-                config.addressableLabels.Where(l => !string.IsNullOrEmpty(l)),
-                StringComparer.OrdinalIgnoreCase);
-            var matchedGroupNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var group in addrSettings.groups)
-                if (group != null && group.entries.Any(e => e != null && e.labels.Overlaps(packageLabels)))
-                    matchedGroupNames.Add(group.Name);
+            if (!ContentBuildGraph.LayoutExists())
+            {
+                Debug.LogWarning(
+                    "[AddressablesBuild] No Addressables build layout report, so package sizes cannot be " +
+                    "resolved. Enable Preferences > Addressables > 'Debug Build Layout' and rebuild. " +
+                    "Reporting no size rather than guessing.");
+                return (0, 0);
+            }
 
-            int count = Directory.EnumerateFiles(buildPath, "*.bundle")
-                .Count(f =>
+            try
+            {
+                var graph = ContentBuildGraph.Resolve(new Dictionary<string, string[]>
                 {
-                    var name = Path.GetFileName(f).ToLowerInvariant();
-                    return matchedGroupNames.Any(g => name.StartsWith(g.ToLowerInvariant().Replace(" ", "")));
+                    [config.packageId] = config.addressableLabels ?? System.Array.Empty<string>(),
                 });
-            return (count, bytes);
-        }
 
-        /// <summary>
-        /// Sums the sizes of all <c>.bundle</c> files in <paramref name="buildPath"/> that belong to
-        /// Addressables groups containing at least one entry with a label matching this package.
-        /// </summary>
-        private static long CalculatePackageBundleSize(
-            ContentPackageSettings.PackageConfig config,
-            AddressableAssetSettings addrSettings,
-            string buildPath)
-        {
-            if (config.addressableLabels == null || config.addressableLabels.Length == 0)
-                return 0;
-
-            var packageLabels = new HashSet<string>(
-                config.addressableLabels.Where(l => !string.IsNullOrEmpty(l)),
-                StringComparer.OrdinalIgnoreCase);
-
-            if (packageLabels.Count == 0) return 0;
-
-            // Find the names of groups that contain at least one entry matching this package's labels.
-            var matchedGroupNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var group in addrSettings.groups)
-            {
-                if (group == null) continue;
-                if (group.entries.Any(e => e != null && e.labels.Overlaps(packageLabels)))
-                    matchedGroupNames.Add(group.Name);
+                var node = graph.Packages.FirstOrDefault();
+                if (node == null) return (0, 0);
+                return (node.DirectBundles.Count + node.DependencyBundles.Count, node.DownloadSizeBytes);
             }
-
-            if (matchedGroupNames.Count == 0) return 0;
-
-            // Addressables names bundle files by lowercasing the group name and removing spaces
-            // (not replacing with underscores). E.g. "Test DLC_Exclude" → "testdlc_exclude_assets_all_<hash>.bundle"
-            long total = 0;
-            foreach (var bundleFile in Directory.EnumerateFiles(buildPath, "*.bundle"))
+            catch (System.Exception ex)
             {
-                var fileName = Path.GetFileName(bundleFile).ToLowerInvariant();
-                if (matchedGroupNames.Any(g => fileName.StartsWith(g.ToLowerInvariant().Replace(" ", ""))))
-                    total += new FileInfo(bundleFile).Length;
+                Debug.LogWarning($"[AddressablesBuild] Could not resolve size for '{config.packageId}': {ex.Message}");
+                return (0, 0);
             }
-
-            return total;
         }
 
         /// <summary>

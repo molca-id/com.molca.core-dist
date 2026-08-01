@@ -11,7 +11,9 @@
         "Molca.ReferenceSystem",
         "Unity.Addressables",
         "Unity.Addressables.Editor",
-        "Unity.Localization"
+        "Unity.Localization",
+        "Unity.Localization.Editor",
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [
         "Editor"

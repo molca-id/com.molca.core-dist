@@ -8,9 +8,9 @@ order: 900
 
 The **Molca Hub** (menu **Molca → Hub**) is the single editor window that fronts the framework's
 tooling: project settings, the [Doctor](DOCTOR_CHECKS.md), the [Assistant](ASSISTANT_RESILIENCE.md),
-sequence tools, licensed add-ons, MCP status, networking, and this docs browser. It is organized as a home **Settings**
-workspace plus a set of **workspace tabs**, and both are extension points a fork or project can add to
-without editing Core.
+sequence tools, localization authoring, licensed add-ons, MCP status, networking, and this docs browser.
+It is organized as a home **Settings** workspace plus a set of **workspace tabs**, and both are extension
+points a fork or project can add to without editing Core.
 
 ## Layout
 
@@ -19,7 +19,10 @@ without editing Core.
   **Docs** branch, which renders every `Documentation~/reference/*.md` shipped by an installed
   `com.molca.*` package (see [Authoring Hub Docs](DOCS_AUTHORING.md)).
 - **Workspace tabs.** Full-window tools contributed alongside Settings — Core ships **Doctor**,
-  **Assistant**, and **Sequence**.
+  **References** (see [Scene Reference System](REFERENCE_SYSTEM.md#the-references-workspace)),
+  **Network** (see [Routes & Catalog](NETWORKING_CATALOG.md)),
+  **Localization** (see [Localization](LOCALIZATION.md)), and **Assistant**;
+  `com.molca.sequence` contributes **Sequence** on the same seam.
 
 ### The toolbar at any width
 
@@ -33,8 +36,21 @@ measures itself and degrades in order:
    **Manage tabs…** entry that lands on Settings ▸ Editor. Nothing is ever silently dropped.
 
 Which tabs keep a slot is decided by: Settings (anchored), then pinned tabs, then the active tab, then
-recently used, then declared order. **Pin** a tab from its right-click menu or the Settings ▸ Editor ▸
-Workspace Tabs card. Hiding still wins over pinning, and the default is no pins.
+recently used, then declared order. A pinned tab carries a small accent dot in its top-right corner, so what
+is holding a slot is visible without opening a menu. Hiding still wins over pinning, and the default is no
+pins.
+
+### Managing which tabs are shown
+
+The **⋮ tabs menu** at the right end of the strip is always visible and is the primary surface for this: it
+lists every workspace the project *could* show, checked when it is currently in the toolbar, so clicking one
+shows or hides it. It also carries a **Pin** submenu for the tabs that are in the toolbar, and a
+**Manage tabs…** entry that lands on the fuller Settings ▸ Editor ▸ Workspace Tabs card (rows, counts, and
+both toggles at once).
+
+Right-clicking an individual tab is the shortcut for the same operations on that one tab — **Pin/Unpin** and
+**Hide tab**. Note that it can only *hide*: a hidden workspace is filtered out of the tab set entirely, so
+nothing is left to right-click, and showing it again goes through the tabs menu or the settings card.
 
 ## Extension seams
 
@@ -77,10 +93,15 @@ collide with a Core section name.
 ### Semantic groups
 
 A workspace tab declares a **group** rather than guessing a global `Order` integer:
-`MolcaHubWorkspaceGroups.Quality`, `.Assistance`, `.Authoring`, `.Integrations`, `.General` (the default),
-`.Reference`. Tabs sort by group rank first, so `Order` only has to be chosen *within* your own group —
+`MolcaHubWorkspaceGroups.Quality`, `.Infrastructure`, `.Assistance`, `.Authoring`, `.Integrations`,
+`.General` (the default), `.Reference`. Tabs sort by group rank first, so `Order` only has to be chosen
+*within* your own group —
 the one scope you can actually observe. A group Core does not declare is fine; it sorts after the declared
 ones. Groups also drive the toolbar's group separators and the overflow menu's submenus.
+
+`Infrastructure` is for surfaces describing how the project itself is wired — Core's **Network** workspace
+is the first. It is distinct from `Integrations`, which is about connecting to one external product, and it
+sits next to `Quality` because you check project health, then configure how the project talks to the world.
 
 Core's **Add-ons** are their own Settings-rail root with **Browse** (`MolcaHubSection.AddOnsBrowse`) and
 **Installed** (`MolcaHubSection.AddOnsInstalled`) leaves, not the seams above; see

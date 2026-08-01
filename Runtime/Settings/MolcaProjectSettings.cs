@@ -25,7 +25,8 @@ namespace Molca
         private const string ASSET_PATH = "Assets/_Molca/Settings/MolcaProjectSettings.asset";
         // Read-only seed shipped inside the Core package. Cloned into ASSET_PATH on first
         // access when the consumer has no live instance yet. Never written to at runtime.
-        private const string DEFAULT_TEMPLATE_PATH = "Packages/com.molca.core/Runtime/Settings/Defaults/MolcaProjectSettings.asset";
+        // No packaged template path: the live asset is generated from field initializers, never cloned
+        // from a .asset inside the package. See CreateEditorInstance.
         // Legacy location migrated forward into ASSET_PATH if still present.
         private const string OLD_ASSET_PATH = "Assets/_Molca/Resources/MolcaProjectSettings.asset";
         private const string ADDRESSABLE_KEY = "MolcaProjectSettings"; // Addressable address/key for runtime loading
@@ -167,6 +168,27 @@ namespace Molca
             set => projectCode = value;
         }
 
+        [SerializeField] private string contentChannel = "stable";
+        /// <summary>
+        /// Content channel this project's builds request: <c>stable</c>, <c>beta</c>, or <c>internal</c>.
+        /// </summary>
+        /// <remarks>
+        /// Serialized on the project asset rather than in per-user <c>EditorPrefs</c>, deliberately. Which
+        /// channel a build ships against is a reviewable project decision — two developers building the same
+        /// commit must produce players that resolve the same content, and a per-user preference silently
+        /// breaks that.
+        ///
+        /// It is a <em>request</em>, not an entitlement. The control plane records the channel on the build
+        /// token only if the requesting developer holds <c>project.build.channel.select</c>, and thereafter
+        /// resolves content from the stored row rather than from anything a player sends. Setting this to
+        /// <c>internal</c> without that capability fails at mint time, not at runtime.
+        /// </remarks>
+        public string ContentChannel
+        {
+            get => string.IsNullOrWhiteSpace(contentChannel) ? "stable" : contentChannel;
+            set => contentChannel = value;
+        }
+
         [SerializeField, TextArea(2, 5)] private string projectBinding = "";
         /// <summary>
         /// Signed, non-secret receipt proving an authorized owner/manager connected this repository.
@@ -290,26 +312,24 @@ namespace Molca
             AssetDatabase.LoadAssetAtPath<MolcaProjectSettings>(ASSET_PATH) != null;
 
         /// <summary>
-        /// Seeds the live project instance at <see cref="ASSET_PATH"/> when none exists yet.
-        /// Clones the read-only package default at <see cref="DEFAULT_TEMPLATE_PATH"/> into
-        /// consumer space so the Core package is never written to; falls back to a fresh
-        /// blank instance if the template is missing.
+        /// Seeds the live project instance at <see cref="ASSET_PATH"/> when none exists yet, generated
+        /// from this type's own field initializers.
         /// </summary>
         /// <returns>The newly created live <see cref="MolcaProjectSettings"/> instance.</returns>
+        /// <remarks>
+        /// This used to clone a <c>.asset</c> shipped inside the Core package. Generating instead means the
+        /// package ships no editable configuration at all: nothing to re-GUID when it is copied, nothing to
+        /// drift from the schema when a field is added, and no asset a consumer can edit only to have the
+        /// next package upgrade replace it. The defaults are the ones declared on the fields, so they are
+        /// defined in exactly one place.
+        /// <para>What this deliberately does not do is configure the project. It produces the minimum that
+        /// lets the editor load and the bootstrap check run; choosing a RuntimeManager and enabling features
+        /// is the starter's job (<c>Molca ▸ Hub ▸ Remediation</c> and the onboarding wizard).</para>
+        /// </remarks>
         private static MolcaProjectSettings CreateEditorInstance()
         {
             EnsureAssetDirectory(ASSET_PATH);
 
-            // Prefer cloning the shipped default so consumers inherit sensible Core defaults.
-            var template = AssetDatabase.LoadAssetAtPath<MolcaProjectSettings>(DEFAULT_TEMPLATE_PATH);
-            if (template != null && AssetDatabase.CopyAsset(DEFAULT_TEMPLATE_PATH, ASSET_PATH))
-            {
-                AssetDatabase.SaveAssets();
-                return AssetDatabase.LoadAssetAtPath<MolcaProjectSettings>(ASSET_PATH);
-            }
-
-            // Template unavailable — create an empty instance so the project still boots.
-            Debug.LogWarning($"MolcaProjectSettings default template not found at '{DEFAULT_TEMPLATE_PATH}'. Creating a blank instance at '{ASSET_PATH}'.");
             var created = CreateInstance<MolcaProjectSettings>();
             AssetDatabase.CreateAsset(created, ASSET_PATH);
             AssetDatabase.SaveAssets();

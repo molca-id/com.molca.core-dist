@@ -24,14 +24,14 @@ namespace Molca.Editor.Mcp.Providers
     {
         private static McpToolDefinition CreateLocalizationSetTextTool() => new McpToolDefinition(
             name: "molca_localization_set_text",
-            description: "Sets (or adds) a translation on a DynamicLocalization field for a given language "
+            description: "Sets (or adds) an inline translation on a LocalizedValue field for a given language "
                        + "code. Resolve the owning GameObject by hierarchy path or instance id; 'field' is "
                        + "the property path reported by molca_localization_coverage (optional when the "
                        + "GameObject has exactly one DynamicLocalization). One Unity Undo group.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
-                "\"target\":{\"type\":\"string\",\"description\":\"GameObject hierarchy path or instance id owning the DynamicLocalization.\"}," +
-                "\"field\":{\"type\":\"string\",\"description\":\"Serialized property path of the DynamicLocalization (from molca_localization_coverage). Optional when only one exists on the target.\"}," +
+                "\"target\":{\"type\":\"string\",\"description\":\"GameObject hierarchy path or instance id owning the LocalizedValue.\"}," +
+                "\"field\":{\"type\":\"string\",\"description\":\"Serialized property path of the LocalizedValue (from molca_localization_coverage). Optional when only one exists on the target.\"}," +
                 "\"languageCode\":{\"type\":\"string\",\"description\":\"BCP-47 code, e.g. \\\"en\\\".\"}," +
                 "\"text\":{\"type\":\"string\"}}," +
                 "\"required\":[\"target\",\"languageCode\",\"text\"],\"additionalProperties\":false}",
@@ -42,16 +42,54 @@ namespace Molca.Editor.Mcp.Providers
 
         private static McpToolDefinition CreateLocalizationAddLanguageTool() => new McpToolDefinition(
             name: "molca_localization_add_language",
-            description: "Adds a language entry (code + optional display name) to a LocalizationModule asset. "
-                       + "'modulePath' is optional when the project has exactly one module. Rejects a code "
-                       + "the module already defines. One Unity Undo group.",
+            description: "Executes a previously previewed add-or-repair locale transaction. The plan "
+                       + "atomically updates the Molca module, Unity Locale registry, Addressables, and "
+                       + "every String/Asset Table collection. Refuses stale catalog fingerprints and "
+                       + "rolls back partial changes on failure. Use molca_localization_plan_add_language first.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
-                "\"code\":{\"type\":\"string\",\"description\":\"BCP-47 code to add, e.g. \\\"id\\\".\"}," +
-                "\"name\":{\"type\":\"string\",\"description\":\"Optional display name; defaults to the code.\"}," +
+                "\"planId\":{\"type\":\"string\",\"description\":\"Opaque plan id returned by molca_localization_plan_add_language.\"}}," +
+                "\"required\":[\"planId\"],\"additionalProperties\":false}",
+            execute: ExecuteLocalizationAddLanguage,
+            mode: McpToolMode.Edit,
+            kind: McpToolKind.Action,
+            reversibility: McpToolReversibility.UnityUndo);
+
+        private static McpToolDefinition CreateLocalizationPlanAddLanguageTool() => new McpToolDefinition(
+            name: "molca_localization_plan_add_language",
+            description: "Previews an add-or-repair locale transaction without changing the project. "
+                       + "Returns explicit mutations, warnings, errors, and a catalog-bound plan id. "
+                       + "'modulePath' is optional only when the project has exactly one module.",
+            inputSchemaJson:
+                "{\"type\":\"object\",\"properties\":{" +
+                "\"code\":{\"type\":\"string\",\"description\":\"BCP-47 code to add or repair, e.g. \\\"id\\\".\"}," +
+                "\"name\":{\"type\":\"string\",\"description\":\"Optional Molca display name; defaults to the canonical code.\"}," +
                 "\"modulePath\":{\"type\":\"string\",\"description\":\"Asset path of the target LocalizationModule. Optional when only one exists.\"}}," +
                 "\"required\":[\"code\"],\"additionalProperties\":false}",
-            execute: ExecuteLocalizationAddLanguage,
+            execute: ExecuteLocalizationPlanAddLanguage);
+
+        private static McpToolDefinition CreateLocalizationPlanArchiveLanguageTool() => new McpToolDefinition(
+            name: "molca_localization_plan_archive_language",
+            description: "Previews non-destructive locale removal without changing the project. The plan "
+                       + "disables the Molca row, Unity registration, tables, and Addressables while "
+                       + "preserving Locale/table assets and inline rows for restore or explicit deletion.",
+            inputSchemaJson:
+                "{\"type\":\"object\",\"properties\":{" +
+                "\"code\":{\"type\":\"string\",\"description\":\"Configured BCP-47 code to archive.\"}," +
+                "\"modulePath\":{\"type\":\"string\",\"description\":\"Asset path of the target LocalizationModule. Optional when only one exists.\"}}," +
+                "\"required\":[\"code\"],\"additionalProperties\":false}",
+            execute: ExecuteLocalizationPlanArchiveLanguage);
+
+        private static McpToolDefinition CreateLocalizationArchiveLanguageTool() => new McpToolDefinition(
+            name: "molca_localization_archive_language",
+            description: "Executes a fresh non-destructive locale archive plan. Preserves authored assets "
+                       + "and inline values, verifies postconditions, and applies as one Unity Undo group. "
+                       + "Use molca_localization_plan_archive_language first.",
+            inputSchemaJson:
+                "{\"type\":\"object\",\"properties\":{" +
+                "\"planId\":{\"type\":\"string\",\"description\":\"Opaque plan id returned by molca_localization_plan_archive_language.\"}}," +
+                "\"required\":[\"planId\"],\"additionalProperties\":false}",
+            execute: ExecuteLocalizationArchiveLanguage,
             mode: McpToolMode.Edit,
             kind: McpToolKind.Action,
             reversibility: McpToolReversibility.UnityUndo);
@@ -94,16 +132,14 @@ namespace Molca.Editor.Mcp.Providers
                 {
                     enter = true;
                     if (it.propertyType != SerializedPropertyType.Generic) continue;
-                    var translations = it.FindPropertyRelative("translations");
-                    var useLocalized = it.FindPropertyRelative("useLocalizedString");
-                    if (translations == null || !translations.isArray || useLocalized == null) continue;
-                    enter = false; // it's a DynamicLocalization; don't descend
+                    if (!LocalizedValueSerializedUtility.TryDescribe(it, out _)) continue;
+                    enter = false;
                     candidates.Add((so, it.Copy(), mb.GetType().Name, it.propertyPath));
                 }
             }
 
             if (candidates.Count == 0)
-                return Error($"GameObject '{GameObjectEditingService.GetHierarchyPath(go)}' has no DynamicLocalization field.");
+                return Error($"GameObject '{GameObjectEditingService.GetHierarchyPath(go)}' has no LocalizedValue field.");
 
             var fieldPath = args.Value<string>("field");
             (SerializedObject so, SerializedProperty prop, string component, string path) chosen;
@@ -111,7 +147,7 @@ namespace Molca.Editor.Mcp.Providers
             {
                 var matches = candidates.Where(c => c.path == fieldPath).ToList();
                 if (matches.Count == 0)
-                    return Error($"No DynamicLocalization with field path '{fieldPath}' on the target. "
+                    return Error($"No LocalizedValue with field path '{fieldPath}' on the target. "
                                + $"Available: {string.Join(", ", candidates.Select(c => $"{c.component}.{c.path}"))}.");
                 chosen = matches[0];
             }
@@ -121,20 +157,28 @@ namespace Molca.Editor.Mcp.Providers
             }
             else
             {
-                return Error("Target has multiple DynamicLocalization fields; pass 'field'. "
+                return Error("Target has multiple LocalizedValue fields; pass 'field'. "
                            + $"Candidates: {string.Join(", ", candidates.Select(c => $"{c.component}.{c.path}"))}.");
             }
 
-            if (chosen.prop.FindPropertyRelative("useLocalizedString").boolValue)
-                return Error("This DynamicLocalization uses a LocalizedString (useLocalizedString=true); "
-                           + "the translations list is not used. Edit the LocalizedString asset instead.");
+            if (!LocalizedValueSerializedUtility.TryDescribe(
+                    chosen.prop,
+                    out var descriptor))
+                return Error("The selected LocalizedValue changed shape; rescan and retry.");
+            if (descriptor.SourceKind == LocalizedValueSourceKind.Catalog)
+                return Error("This LocalizedValue uses a catalog source. Edit the StringTable entry instead.");
+            if (descriptor.SourceKind == LocalizedValueSourceKind.None || descriptor.Rows == null)
+                return Error("This LocalizedValue has no inline source. Choose Inline in the Inspector first.");
 
-            var translationsProp = chosen.prop.FindPropertyRelative("translations");
+            var translationsProp = descriptor.Rows;
             SerializedProperty entry = null;
             for (int i = 0; i < translationsProp.arraySize; i++)
             {
                 var el = translationsProp.GetArrayElementAtIndex(i);
-                if (el.FindPropertyRelative("languageCode")?.stringValue == languageCode)
+                if (string.Equals(
+                        el.FindPropertyRelative(descriptor.CodeField)?.stringValue,
+                        languageCode,
+                        System.StringComparison.OrdinalIgnoreCase))
                 {
                     entry = el;
                     break;
@@ -147,9 +191,9 @@ namespace Molca.Editor.Mcp.Providers
                 int idx = translationsProp.arraySize;
                 translationsProp.InsertArrayElementAtIndex(idx);
                 entry = translationsProp.GetArrayElementAtIndex(idx);
-                entry.FindPropertyRelative("languageCode").stringValue = languageCode;
+                entry.FindPropertyRelative(descriptor.CodeField).stringValue = languageCode;
             }
-            entry.FindPropertyRelative("text").stringValue = text;
+            entry.FindPropertyRelative(descriptor.ValueField).stringValue = text;
 
             // ApplyModifiedProperties records the change on the Unity Undo stack and dirties the object;
             // mark the scene dirty too so the edit is persisted on save.
@@ -164,6 +208,8 @@ namespace Molca.Editor.Mcp.Providers
                 ["path"] = GameObjectEditingService.GetHierarchyPath(go),
                 ["component"] = chosen.component,
                 ["field"] = chosen.path,
+                ["schemaVersion"] = descriptor.SchemaVersion.intValue,
+                ["legacy"] = descriptor.IsLegacy,
                 ["languageCode"] = languageCode,
                 ["added"] = added
             }.ToString(Formatting.None);
@@ -172,55 +218,101 @@ namespace Molca.Editor.Mcp.Providers
         private static string ExecuteLocalizationAddLanguage(string argumentsJson)
         {
             var args = ParseArgs(argumentsJson);
-            var code = args.Value<string>("code");
-            if (string.IsNullOrEmpty(code))
-                return Error("'code' is required and must not be blank.");
-            var name = args.Value<string>("name");
-            if (string.IsNullOrEmpty(name)) name = code;
-
-            var modules = FindLocalizationModules();
-            if (modules.Count == 0)
-                return Error("No LocalizationModule asset found in the project.");
-
-            LocalizationModule module;
-            var modulePath = args.Value<string>("modulePath");
-            if (!string.IsNullOrEmpty(modulePath))
-            {
-                module = modules.FirstOrDefault(m => AssetDatabase.GetAssetPath(m) == modulePath);
-                if (module == null)
-                    return Error($"No LocalizationModule at '{modulePath}'. "
-                               + $"Available: {string.Join(", ", modules.Select(AssetDatabase.GetAssetPath))}.");
-            }
-            else if (modules.Count == 1)
-            {
-                module = modules[0];
-            }
-            else
-            {
-                return Error("Multiple LocalizationModule assets exist; pass 'modulePath'. "
-                           + $"Available: {string.Join(", ", modules.Select(AssetDatabase.GetAssetPath))}.");
-            }
-
-            if (module.Languages != null && module.Languages.Any(l => l.Code == code))
-                return Error($"Language code '{code}' is already defined in '{AssetDatabase.GetAssetPath(module)}'.");
-
-            Undo.RecordObject(module, $"MCP Add Language {code}");
-            var list = new List<LocalizationModule.LanguageEntry>(module.Languages ?? System.Array.Empty<LocalizationModule.LanguageEntry>())
-            {
-                new LocalizationModule.LanguageEntry { Code = code, Name = name }
-            };
-            module.Languages = list.ToArray();
-            EditorUtility.SetDirty(module);
-            AssetDatabase.SaveAssetIfDirty(module);
+            var planId = args.Value<string>("planId");
+            if (!LocalizationAuthoringService.TryGetPlan(planId, out var plan))
+                return Error("The locale plan is missing or expired. Run molca_localization_plan_add_language again.");
+            var result = LocalizationAuthoringService.ExecuteAddLocale(plan);
+            if (!result.Succeeded)
+                return Error(result.Error);
 
             return new JObject
             {
-                ["assetPath"] = AssetDatabase.GetAssetPath(module),
-                ["code"] = code,
-                ["name"] = name,
-                ["languageCount"] = module.Languages.Length
+                ["planId"] = plan.PlanId,
+                ["assetPath"] = plan.ModulePath,
+                ["code"] = plan.Code,
+                ["name"] = plan.DisplayName,
+                ["languageCount"] = plan.Module.Languages.Length,
+                ["createdAssetPaths"] = new JArray(result.CreatedAssetPaths),
+                ["postAuditSnapshotId"] = result.PostAudit?.SnapshotId,
+                ["postAuditStatus"] = result.PostAudit?.Status.ToString(),
+                ["postAuditFingerprint"] = result.PostAudit?.CatalogFingerprint
             }.ToString(Formatting.None);
         }
+
+        private static string ExecuteLocalizationPlanAddLanguage(string argumentsJson)
+        {
+            var args = ParseArgs(argumentsJson);
+            var plan = LocalizationAuthoringService.PreviewAddLocale(
+                args.Value<string>("code"),
+                args.Value<string>("name"),
+                args.Value<string>("modulePath"));
+            return SerializeLocalizationPlan(plan).ToString(Formatting.None);
+        }
+
+        private static string ExecuteLocalizationPlanArchiveLanguage(string argumentsJson)
+        {
+            var args = ParseArgs(argumentsJson);
+            var plan = LocalizationAuthoringService.PreviewArchiveLocale(
+                args.Value<string>("code"),
+                args.Value<string>("modulePath"));
+            return SerializeLocalizationArchivePlan(plan).ToString(Formatting.None);
+        }
+
+        private static string ExecuteLocalizationArchiveLanguage(string argumentsJson)
+        {
+            var args = ParseArgs(argumentsJson);
+            if (!LocalizationAuthoringService.TryGetArchivePlan(
+                    args.Value<string>("planId"),
+                    out var plan))
+                return Error(
+                    "The locale archive plan is missing or expired. " +
+                    "Run molca_localization_plan_archive_language again.");
+            var result = LocalizationAuthoringService.ExecuteArchiveLocale(plan);
+            if (!result.Succeeded)
+                return Error(result.Error);
+
+            return new JObject
+            {
+                ["planId"] = plan.PlanId,
+                ["assetPath"] = plan.ModulePath,
+                ["code"] = plan.Code,
+                ["preservedLocaleAsset"] = AssetDatabase.GetAssetPath(plan.LocaleAsset),
+                ["preservedTableAssets"] = new JArray(
+                    plan.Tables.Select(item => AssetDatabase.GetAssetPath(item.table))),
+                ["postAuditSnapshotId"] = result.PostAudit?.SnapshotId,
+                ["postAuditStatus"] = result.PostAudit?.Status.ToString(),
+                ["postAuditFingerprint"] = result.PostAudit?.CatalogFingerprint,
+            }.ToString(Formatting.None);
+        }
+
+        private static JObject SerializeLocalizationPlan(LocalizationLocaleAuthoringPlan plan) =>
+            new()
+            {
+                ["planId"] = plan.PlanId,
+                ["createdAtUtc"] = plan.CreatedAtUtc,
+                ["code"] = plan.Code,
+                ["name"] = plan.DisplayName,
+                ["modulePath"] = plan.ModulePath,
+                ["sourceFingerprint"] = plan.SourceFingerprint,
+                ["executable"] = plan.IsExecutable,
+                ["changes"] = new JArray(plan.Changes),
+                ["warnings"] = new JArray(plan.Warnings),
+                ["errors"] = new JArray(plan.Errors),
+            };
+
+        private static JObject SerializeLocalizationArchivePlan(LocalizationLocaleArchivePlan plan) =>
+            new()
+            {
+                ["planId"] = plan.PlanId,
+                ["createdAtUtc"] = plan.CreatedAtUtc,
+                ["code"] = plan.Code,
+                ["modulePath"] = plan.ModulePath,
+                ["sourceFingerprint"] = plan.SourceFingerprint,
+                ["executable"] = plan.IsExecutable,
+                ["changes"] = new JArray(plan.Changes),
+                ["warnings"] = new JArray(plan.Warnings),
+                ["errors"] = new JArray(plan.Errors),
+            };
 
         private static string ExecuteLocalizationSetLanguage(string argumentsJson)
         {

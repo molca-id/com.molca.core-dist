@@ -6,182 +6,258 @@ order: 700
 
 # Localization
 
-Molca's localization layer sits on top of Unity's **Localization** package. `LocalizationManager` (a
-`RuntimeSubsystem`) owns locale selection and change notifications; `LocalizedText` binds a TMP label to
-a `LocalizedString`; and `DynamicLocalization` handles strings whose translations are authored on a
-component or supplied at runtime. Which languages exist, and which one is active, is configured through a
-`LocalizationModule` settings asset.
+Molca localization builds on Unity Localization. `LocalizationManager` owns locale policy and change
+coordination, `LocalizedText` binds a StringTable entry to TextMeshPro, and `LocalizedValue`
+represents an explicit catalog, inline, or empty source. `DynamicLocalization` is the compatibility
+name for serialized schema-v1 fields.
 
-## Pieces at a glance
+Unity Localization's `SelectedLocale` is the runtime source of truth. `LocalizationModule` declares the
+supported-language policy and persists the last valid selection; it is not a second runtime authority.
 
-| Type | Kind | Role |
-|---|---|---|
-| `LocalizationManager` | `RuntimeSubsystem` (`Runtime/Localization/`) | Applies locales, broadcasts language changes, backs the Dynamic string table. |
-| `LocalizationModule` | `SettingModule` ScriptableObject | Declares the supported `Languages` and stores the active one in `LocalizationState`. |
-| `LocalizedText` | `MonoBehaviour` (`[RequireComponent(typeof(TextMeshProUGUI))]`) | Displays a `LocalizedString` on a TMP label and restyles/refreshes on locale change. |
-| `LocalizedTextStyleInfo` | `ScriptableObject` (`IReferenceable`) | Reusable font/style/size preset applied by `LocalizedText`. |
-| `DynamicLocalization` | `[Serializable]` plain class | Embeddable field for per-component or runtime-authored translations. |
-| `DynamicLocalizationEntry` | `[Serializable]` record | One `languageCode` + `text` row inside a `DynamicLocalization`. |
+## Runtime pieces
 
-All types live in the `Molca.Localization` namespace under `Packages/com.molca.core/Runtime/Localization/`.
-
-## Configuring languages — `LocalizationModule`
-
-Locale selection is driven by a `LocalizationModule` settings asset, authored through
-**Create → Molca → Settings → Localization**. It carries a `Languages` array of entries:
-
-```csharp
-[Serializable]
-public struct LanguageEntry
-{
-    public string Name;   // display name
-    public string Code;   // BCP-47 code, e.g. "en", "id"
-    public Sprite Flag;   // optional flag sprite
-}
-```
-
-The **first** entry is treated as the default language. The active code is persisted in the module's
-`LocalizationState` (`ActiveLanguage`), so a chosen locale survives across sessions. Useful members:
-
-| Member | Returns |
+| Type | Role |
 |---|---|
-| `LanguageCode` | `string[]` of all configured codes (derived fresh each access). |
-| `ActiveLanguage` | The current active code. |
-| `ActiveLanguageEntry` | The full `LanguageEntry` for the active code. |
-| `GetFlagForLanguage(code)` | The flag sprite for a code, or `null`. |
-| `SetLanguage(int index)` / `SetLanguage(string code)` | Sets and saves the active language. |
+| `LocalizationManager` | Validates startup configuration, selects locales, persists valid changes, and refreshes consumers. |
+| `LocalizationModule` | Declares supported BCP-47 codes, presentation profiles, and explicit fallback edges. |
+| `LocalizedText` | Reactively displays a `LocalizedString` and applies a reusable text style. |
+| `LocalePresentationProfile` | Declares TMP font chain, required glyphs, writing direction, and line-breaking guidance. |
+| `LocalizedLayoutDirectionAdapter` | Explicitly opts selected text and horizontal layouts into RTL adaptation. |
+| `LocalizedValue` | Schema-v2 catalog, inline, or empty localized value and binding factory. |
+| `DynamicLocalization` | Compatibility subclass that preserves schema-v1 serialization and APIs. |
+| `LocalizedTextStyleInfo` | Reusable TMP font, style, and size preset. |
 
-See [Settings](SETTINGS.md) for how `SettingModule` / `SettingState` assets are registered and loaded.
+All runtime types are in `Molca.Localization`.
 
-## Reading and switching the locale — `LocalizationManager`
+## Configure languages
 
-`LocalizationManager` is a subsystem, so resolve it the usual way — never `FindObjectOfType`:
+Create a module with **Create > Molca > Settings > Localization**, then register it in
+`GlobalSettings`. Every `Languages` row must have:
+
+- a non-empty, unique BCP-47 code;
+- a matching Unity Locale asset in **Available Locales**;
+- an optional display name and flag sprite;
+- a locale presentation profile with an explicit writing direction and primary/fallback TMP fonts;
+- any explicit fallback locale codes.
+
+The first valid row is the default fallback. Startup fails clearly when the module is missing, contains
+no valid codes, or none of its codes has a Unity Locale asset. A previously persisted code is used only
+when it is still valid; otherwise Molca uses the current valid Unity locale or the first valid row.
+
+Useful policy APIs:
+
+| Member | Purpose |
+|---|---|
+| `LanguageCode` | Returns configured codes. |
+| `ActiveLanguage` | Returns the last valid persisted selection. |
+| `ActiveLanguageEntry` | Returns the matching descriptor. |
+| `HasLanguage(code)` | Performs case-insensitive policy membership validation. |
+| `GetFlagForLanguage(code)` | Returns the configured flag. |
+| `SetLanguage(index)` | Requests a configured row; invalid indexes are rejected. |
+
+## Select and read locales
+
+Resolve the subsystem through injection or `RuntimeManager`:
 
 ```csharp
-// Injected into a subsystem, MonoBehaviour, or DI-created object.
 [Inject] private LocalizationManager _localization;
-
-// Or, from a non-injectable context:
-var localization = RuntimeManager.GetSubsystem<LocalizationManager>();
-```
-
-For code that has no instance handy, static entry points route through the service locator:
-
-| Static member | Purpose |
-|---|---|
-| `LocalizationManager.CurrentLanguage` | BCP-47 code of the active locale (empty if not ready). |
-| `LocalizationManager.DefaultLanguageCode` | First code defined in the module. |
-| `LocalizationManager.SetLanguage(string lang)` | Switches the active locale. |
-| `LocalizationManager.GetLocalizedString(collection, entryKey)` | Builds a `LocalizedString` for any string-table collection + entry. |
-
-Instance methods cover the rest:
-
-| Instance member | Purpose |
-|---|---|
-| `GetAvailableLanguages()` | All BCP-47 codes registered in `LocalizationSettings`. |
-| `HasLanguage(code)` | `true` if the code is a registered locale. |
-| `GetLocalizedStringAsync(key, languageCode = null)` | Resolves a Dynamic-table key; returns the key itself as fallback. |
-| `RegisterText` / `UnregisterText` | Subscribe a `LocalizedText` to language-change refreshes. |
-| `RegisterDynamicLocalization` / `UnregisterDynamicLocalization` | Same, for `DynamicLocalization`. |
-
-When the locale changes, the manager updates the module's active language, dispatches
-`TypedEvents.LanguageChanged` with the new code, and refreshes every registered `LocalizedText` and
-`DynamicLocalization`. Listen for the switch through the event dispatcher rather than polling:
-
-```csharp
-TypedEvents.LanguageChanged.Register(this, code =>
-{
-    // React to the new active language code.
-});
-```
-
-Because it is a subsystem, wait for the runtime before touching it:
-
-```csharp
-private async void Start()
-{
-    await RuntimeManager.WaitForInitialization();
-    if (this == null) return;
-    LocalizationManager.SetLanguage("id");
-}
-```
-
-## Binding a label — `LocalizedText`
-
-Add `LocalizedText` to a GameObject that has a `TextMeshProUGUI` (the `[RequireComponent]` enforces it),
-assign a `LocalizedString` and an optional `LocalizedTextStyleInfo`, and the component handles the rest:
-it registers with the manager, subscribes to the string's `StringChanged`, fetches the translation
-asynchronously, and rebuilds layout when the text changes. You can also drive it from code:
-
-```csharp
-// Point the label at a different table entry.
-label.SetLocalizedString(
-    LocalizationManager.GetLocalizedString("UI", "start-button"));
-
-// Swap its font/size preset.
-label.SetStyle(myStyleInfo);
-```
-
-`LocalizedTextStyleInfo` is a ScriptableObject preset (**Create → Molca → Localization → Text Style**)
-holding font, `FontStyles`, and min/preferred/max size. It implements `IReferenceable`, so it carries a
-stable `RefId` and can be resolved through the reference system. The [UI Tokens](UI_TOKENS.md) layer
-names these presets as its `text/*` tokens.
-
-## Runtime and per-component translations — `DynamicLocalization`
-
-`DynamicLocalization` is a `[Serializable]` field you embed on your own components (not a MonoBehaviour).
-It has two modes, chosen by the `useLocalizedString` flag:
-
-- **Authored translations** (default): a `translations` list of `DynamicLocalizationEntry`
-  (`languageCode` + `text`). On init these are pushed into the manager's **Dynamic** string table under a
-  key you supply, so they participate in Unity's localization pipeline like any other entry.
-- **`LocalizedString` mode** (`useLocalizedString = true`): the field wraps an existing `LocalizedString`
-  and the `translations` list is ignored.
-
-Initialize before you resolve. `InitAsync` registers the field and pre-populates the Dynamic table;
-`Init` is a fire-and-forget `async void` shim for entry points that cannot await:
-
-```csharp
-[SerializeField] private DynamicLocalization _greeting;
 
 private async void Start()
 {
     try
     {
-        // Await when you resolve immediately afterwards — this closes the
-        // init/resolve race that the async-void Init overload exposes.
-        await _greeting.InitAsync("scene-intro-greeting");
+        await RuntimeManager.WaitForInitialization();
         if (this == null) return;
-
-        string text = await _greeting.GetLocalizedString();
-        // ... display text ...
+        LocalizationManager.SetLanguage("id");
     }
-    catch (System.Exception e) { Debug.LogError(e); }
+    catch (System.Exception exception)
+    {
+        Debug.LogError(exception);
+    }
 }
 ```
 
-`GetLocalizedString()` resolves through a fallback chain — Unity's localization system, then the local
-`translations` for the current language, then the default language, then the first authored entry. The
-synchronous `String` property returns the last resolved value without triggering a fetch (empty while
-`disabled`). `SetTextForLanguage(text, languageCode)` updates a translation and, in play mode, pushes it
-into the Dynamic table; it refuses a blank language code because such a row is unmatchable at runtime.
+`LocalizationManager.CurrentLanguage` returns Unity's selected locale code.
+`DefaultLanguageCode` returns the first valid module code. `SetLanguage` rejects codes that are absent
+from either Molca policy or Unity Available Locales.
 
-## Diagnostics
+`GetLocalizedStringAsync(key, languageCode)` honors the explicit language argument. An unknown requested
+locale returns the key fallback instead of silently resolving the current locale.
 
-Two [Doctor checks](DOCTOR_CHECKS.md) guard `DynamicLocalization` usage:
+Successful Unity locale changes are persisted and dispatched through `TypedEvents.LanguageChanged`.
+Dynamic registrations use weak references so abandoned serializable values are not retained forever.
 
-| Check id | What it flags |
-|---|---|
-| `dynamic-localization-locale-invalid` | Serialized translation rows (in prefabs, ScriptableObjects, and open scenes) whose language code is **blank** (Warning — unmatchable at runtime) or **not defined in any `LocalizationModule`** (Error — never resolves). |
-| `dynamic-localization-init-contract` | Source that calls the fire-and-forget `Init(...)` and then `await`s `GetLocalizedString()` on the same field (a resolve race), or reads `.String` / `GetLocalizedString()` on a field that is never initialized (Warning — only authored fallback returns). |
+## Bind TextMeshPro
 
-The locale-validity check compares against every `LocalizationModule` in the project (a code is valid if
-any module defines it) and only scans loaded scenes, so run it with the relevant scenes open. Suppress a
-false positive on the init-contract check with a `doctor:ignore` marker on the line.
+Add `LocalizedText` to a GameObject with `TextMeshProUGUI`, then assign a `LocalizedString` and optional
+`LocalizedTextStyleInfo`.
+
+```csharp
+label.SetLocalizedString(
+    LocalizationManager.GetLocalizedString("UI", "start-button"));
+label.SetStyle(myStyleInfo);
+```
+
+Rebinding refreshes immediately. Unity's `StringChanged` callback applies the delivered value directly,
+and generation guards prevent an older asynchronous request from overwriting a newer binding.
+Disable/enable cycles unregister and restore both manager and string subscriptions.
+
+## Inline and catalog values
+
+`LocalizedValue` has three explicit source kinds:
+
+- **Inline mode:** language-code/value rows resolve directly from serialized data. Inline values never
+  mutate a shared Unity StringTable at runtime.
+- **Catalog mode:** a Unity `LocalizedString` resolves through Unity Localization.
+- **None:** intentionally resolves empty until an author selects a source.
+
+Await `InitAsync` before immediately resolving:
+
+```csharp
+await _greeting.InitAsync("scene-intro-greeting");
+string text = await _greeting.GetLocalizedString();
+```
+
+Inline fallback order follows the requested locale's explicit fallback graph and then the module
+default before using the first authored value. Localized audio uses the same graph. Catalog mode
+uses the Unity reference. Retained schema-v1 data resolves through a compatibility adapter until an
+explicit migration copies it to schema v2.
+`SetTextForLanguage` updates inline data directly and raises `ValueChanged` when the resolved value
+changes. Blank language codes are rejected.
+
+`CreateBinding(arguments)` returns a disposable, generation-safe `LocalizedValueBinding`. It refreshes
+on Unity locale changes, retains the last successful result, and prevents an older asynchronous resolve
+from overwriting a newer source or Smart String argument set.
+
+## Safe Inspector authoring
+
+The `LocalizedValue` drawer never resizes, reorders, stamps, or deletes translation rows during
+ordinary drawing. It reports:
+
+- missing configured languages;
+- blank or unknown/orphaned codes;
+- duplicate codes.
+
+Choose **Add Missing Languages** to append only missing rows. Existing and orphaned rows remain in place
+for an explicit author decision. Multi-object editing does not run structural repairs.
+
+## Doctor
+
+Doctor delegates to `LocalizationAuditEngine`; it does not maintain a separate discovery implementation.
+Each run returns a `LocalizationAuditSnapshot` with a stable snapshot id, catalog/source fingerprint,
+deterministically ordered findings, and explicit declared/scanned/ignored/failed coverage.
+
+The compatibility `dynamic-localization-locale-invalid` check surfaces focused finding ids including:
+
+- missing or multiple `LocalizationModule` assets;
+- blank/duplicate module codes and missing Unity Locale assets;
+- blank, unknown, or duplicate inline rows;
+- missing required language rows and empty required values.
+- retained schema-v1 localized values that should be migrated.
+- invalid fallback graphs, missing locale profiles/fonts/glyphs/direction, plural or Smart String
+  mismatches, and horizontal RTL surfaces without an explicit adapter.
+
+It scans prefabs and ScriptableObjects in `Assets`, embedded `Packages/com.molca.*` content, and loaded
+scenes. A serialized-YAML prefilter skips assets that cannot contain `LocalizedValue` or
+`LocalizedText`, keeping full scans responsive without narrowing coverage. The scan is read-only;
+repairs are explicit authoring actions.
+
+`dynamic-localization-init-contract` continues to detect fire-and-forget initialization races and reads
+from never-initialized fields.
+
+## Hub and MCP
+
+Open the first-class **Molca Hub > Localization** workspace to see:
+
+- configured locale policy;
+- audit status and source fingerprint;
+- declared and scanned asset/scene coverage;
+- stable errors and warnings;
+- an explicit production preflight;
+- **Add or Repair Locale** and archive transaction previews;
+- a stable-identity String Catalog browser and previewed cell editor;
+- previewed CSV import and deterministic CSV export.
+- a legacy-value inventory and previewed schema-v2 migration.
+- globalization policy summaries and non-mutating pseudo/overflow previews.
+
+The workspace opens on a lightweight landing card. Choose **Run Audit & Open** to start its explicit
+project-wide scan and load the complete authoring surface; restoring the tab after a script reload does
+not silently rescan and block the Editor. Legacy-value inventory is separately started with
+**Scan & Preview Migration**, because it must inspect every eligible serialized object.
+
+`molca_localization_coverage` returns the same snapshot fields through schema version 2 while retaining
+the older loaded-scene entry list for compatibility.
+
+`molca_localization_status` includes each locale's presentation profile, writing direction, font,
+missing-glyph count, fallback edges, and resolved chain. `molca_localization_pseudo_preview`,
+`molca_localization_pseudo_catalog`, and `molca_localization_pseudo_overflow` provide read-only stress
+workflows for expansion/accenting, visible missing keys, RTL ordering, and loaded UI bounds.
+
+Value migration is also two-step. `molca_localization_migration_inventory` returns stable
+asset/object/property locators and a fingerprint. `molca_localization_plan_migrate_values` creates an
+expiring preview; `molca_localization_migrate_values` refuses stale previews, migrates every writable
+target as one Undo transaction, and returns a fresh Doctor audit. Package-owned targets are reported
+but never rewritten from the consuming project.
+
+Adding a locale is deliberately a two-step operation in both Hub and MCP. Preview first with
+`molca_localization_plan_add_language`; the returned plan lists every Molca module, Locale,
+Addressables, StringTable, and AssetTable mutation and binds them to the current catalog fingerprint.
+Execute its `planId` with `molca_localization_add_language`. Execution refuses expired or stale plans,
+repairs partially configured locales, verifies all postconditions, and rolls back the entire operation
+if any asset fails. A successful transaction is one Unity Undo group.
+
+Locale removal is archive-first. Preview with `molca_localization_plan_archive_language`, then execute
+the returned plan through `molca_localization_archive_language`. Archive removes the Molca policy row,
+Unity registration, table-collection membership, and Addressables entries, but deliberately preserves
+the Locale asset, table assets, and inline rows. Those retained values support Undo, later restore, and
+a separately confirmed destructive cleanup workflow. Archive refuses to remove the final configured
+locale and warns when removing the current default changes fallback behavior.
+
+Catalog values use the same preview/apply rule. The Hub catalog shows collection GUID, entry ID, key,
+locale, current value, missing state, and ownership. A cell edit or new key is checked against the current
+audit fingerprint and placeholder set before it can run, then saved and verified as one Undo group.
+Package-owned tables are reported but cannot be edited.
+
+CSV export uses RFC 4180 quoting and schema `molca.localization.catalog.v1`. Stable collection and entry
+IDs are authoritative; names and keys are also included so a rename or identity mismatch is visible.
+Import is all-or-nothing: unknown/stale identities, locale/key mismatch, placeholder mismatch, smart
+metadata changes, conflicting duplicate rows, and read-only targets block the complete plan. Catalog v1
+changes values and can fill a missing locale cell; it never deletes keys or changes smart metadata.
+Doctor reports placeholder differences against the configured default locale. Missing catalog values
+are warnings during interactive authoring and errors when a production build requires completeness.
+Export prefixes spreadsheet-formula-leading cells with a reversible tab guard, so opening the CSV does
+not execute authored text as a formula. Import removes only that schema-defined guard and enforces a
+10 MB / 250,000-row limit; split larger catalogs by stable collection ID.
+
+## Remote catalog overlays
+
+Optional signed overlays deliver post-ship translation changes without modifying shipped StringTables.
+They are project/channel scoped, identity and placeholder allowlisted, bounded, cached as reverified
+last-known-good snapshots, and activated atomically. Configure, repair, preview, and publish them from
+the Localization Hub. See [Remote localization catalogs](LOCALIZATION_REMOTE_CATALOGS.md) for the trust,
+publication, runtime, offline, and rollback workflow.
+
+## Production build gate
+
+`LocalizationBuildGate` runs for Molca Build Manager, Unity **Build Player**, and CI because it is an
+`IPreprocessBuildWithReport`.
+
+Development builds fail on definite configuration/content errors but allow warning-level missing values
+and incomplete coverage. Production builds additionally:
+
+- require complete inline values for every configured locale;
+- fail when a declared input cannot be scanned;
+- require Addressables **Build Addressables on Player Build** to be
+  **Build Addressables With Player**.
+
+Rebuilding Addressables as part of the player build is the freshness guarantee; the gate does not trust
+file timestamps or an old catalog merely because it exists.
 
 ## See also
 
 - [Audio](AUDIO.md)
+- [Remote localization catalogs](LOCALIZATION_REMOTE_CATALOGS.md)
+- [Doctor checks](DOCTOR_CHECKS.md)
 - [Settings](SETTINGS.md)
-- [UI Tokens](UI_TOKENS.md)
 - [Subsystems](SUBSYSTEMS.md)
+- [UI tokens](UI_TOKENS.md)

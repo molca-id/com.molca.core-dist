@@ -152,18 +152,22 @@ reward.Setup("500 XP");
 to opt out) and activates that panel. Call `CloseAllModals()` to dismiss every tracked modal at once;
 the panel hides automatically once the last one closes.
 
-## Shipped prefabs
+## Supplying prefabs
 
-Core ships two ready-made overlay prefabs that the manager references from its inspector fields:
+Core ships **no** modal prefabs. The manager takes them from its inspector fields, and the project
+authors them — a message toast for `AddMessage`, a loading indicator for `AddLoading`, plus whatever
+confirmation and custom modals the product needs.
 
-- [Modal Message.prefab](molca://asset/Packages/com.molca.core/Runtime/Modals/Modal Message.prefab) —
-  the toast fed by `AddMessage`.
-- [Modal Loading.prefab](molca://asset/Packages/com.molca.core/Runtime/Modals/Modal Loading.prefab) —
-  the inline loading indicator fed by `AddLoading`.
+Core used to ship a `Modal Message` and a `Modal Loading` prefab, which was a mistake in two ways: they
+were the visual identity of someone else's product, and, living inside an immutable package, a project
+could not edit them and an upgrade silently replaced any variant.
 
-Both are pooled (`ObjectPool<T>`) by the manager, so showing many is cheap. An SDK layer or project
-supplies its own confirmation and custom-modal prefabs and wires them into the manager's inspector
-lists.
+Assign them on the `ModalManager` component of your RuntimeManager prefab: `msgPrefab` for `AddMessage`,
+`loadingPrefab` for `AddLoading`, `regularConfirmationPrefab`/`advancedConfirmationPrefab` for the
+confirmation dialogs, and the `modalPrefabs` key/prefab list for `ShowModal(key)`. An unregistered key
+logs an error and returns null rather than throwing.
+
+Whatever you assign is pooled (`ObjectPool<T>`) by the manager, so showing many is cheap.
 
 ## See also
 

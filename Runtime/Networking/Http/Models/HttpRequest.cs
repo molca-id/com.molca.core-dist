@@ -68,7 +68,21 @@ namespace Molca.Networking.Http.Models
             // Add common headers by default
             AddDefaultHeaders();
         }
-        
+
+        /// <summary>
+        /// Constructs a request, optionally without the conventional default headers.
+        /// </summary>
+        /// <param name="seedDefaultHeaders">
+        /// Whether to seed <c>Accept</c> and <c>User-Agent</c>. <see cref="Clone"/> passes <c>false</c>
+        /// because it copies the source's headers verbatim — seeding first would place the defaults
+        /// *ahead* of an authored <c>Accept</c>, and <see cref="GetHeaderValue"/> returns the first match.
+        /// </param>
+        private HttpRequest(bool seedDefaultHeaders)
+        {
+            if (seedDefaultHeaders)
+                AddDefaultHeaders();
+        }
+
         private void AddDefaultHeaders()
         {
             headers.Add(new HttpHeader("Accept", "*/*"));
@@ -145,9 +159,20 @@ namespace Molca.Networking.Http.Models
             binaryFields.Clear();
         }
         
+        /// <summary>
+        /// Creates a deep copy: header, query, form, and binary entries are cloned, never shared.
+        /// </summary>
+        /// <returns>An independent request safe to modify and send.</returns>
+        /// <remarks>
+        /// Reproduces the source's headers exactly. It deliberately does not seed the constructor's
+        /// <c>Accept</c>/<c>User-Agent</c> defaults: those arrive by being copied from the source (which has
+        /// them unless it removed them on purpose). Seeding them as well used to place them ahead of an
+        /// authored <c>Accept</c>, so <see cref="GetHeaderValue"/> returned <c>*/*</c> instead of the
+        /// authored value, and each clone doubled the two entries.
+        /// </remarks>
         public HttpRequest Clone()
         {
-            var clone = new HttpRequest
+            var clone = new HttpRequest(seedDefaultHeaders: false)
             {
                 name = this.name,
                 method = this.method,

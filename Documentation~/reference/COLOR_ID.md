@@ -6,10 +6,99 @@ order: 510
 
 # Color ID Theming
 
-**Color ID** is the framework's semantic-color layer. Instead of hard-coding a `Color` on every
-`Image`, `TMP_Text`, or `Renderer`, you name a color — a **swatch** plus a **color ID** — and the
-value is resolved from a central palette. Swap the palette and every object that references it
-re-themes at once, with no per-object edits.
+Molca's semantic-colour layer. Instead of hard-coding a `Color` on every `Image`, `TMP_Text` or
+`Renderer`, you name a colour and the value is resolved from a central contract. Change the contract and
+every object referencing it re-themes at once.
+
+> **There are two generations, and which one a project runs is pure configuration.** With a
+> `ColorThemeSettings` module installed, `ColorSchemeManager` resolves canonical **colour tokens** from a
+> **Color Theme Set** (V2). Without one, it serves the legacy `ColorModule` palette array (V1). V1 content
+> keeps working under V2 through the theme set's alias map — nothing has to be rewritten to switch.
+>
+> **New authoring uses V2.** This page documents it first; the V1 sections below are the compatibility
+> reference for content that already exists.
+
+## V2 at a glance
+
+| Concept | Type | Notes |
+|---|---|---|
+| The contract | `ColorThemeSet` | One token list, plus variants that supply values for it |
+| A token | `ColorTokenDefinition` | Canonical id (`text/primary`), kind, usage, required |
+| A variant's value | `ColorExpression` | A literal, an alias, or an alias with an alpha multiplier |
+| Runtime service | `IColorThemeService` | `RuntimeManager.GetService<IColorThemeService>()` |
+| Active snapshot | `ResolvedColorTheme` | Immutable, fully flattened, one dictionary hit per lookup |
+| Binding a component | `ColorThemeBinding` | Carries its own target; no hierarchy rescan |
+| Referencing from script | `ColorTokenReference` | Resolves against a service or a snapshot — never a global |
+
+The structural inversion versus V1: token *definitions* live once on the set, and a variant supplies
+values for them. V1 gave every `ColorModule` its own independent list, which is why a key could exist in
+Dark and silently not in Light, and switching theme turned it magenta.
+
+### Installing V2
+
+`Molca ▸ ColorID ▸ Install Color Theme Settings (V1 → V2)` generates the vocabulary asset, adds a
+`ColorThemeSettings` module to `GlobalSettings`, and points it at that asset.
+`Molca ▸ ColorID ▸ Report Colour Theme Installation` says which path a project is on.
+
+The `ColorModule` palettes stay in the module list and are inert under V2, so the switch reverts in one
+line.
+
+### Reading a token at runtime
+
+```csharp
+await RuntimeManager.WaitForInitialization();
+var theme = RuntimeManager.GetService<IColorThemeService>();
+
+if (theme.TryResolve("text/primary", out Color color)) _label.color = color;
+
+theme.ThemeChanged += change => Repaint(change.Theme);   // unsubscribe on destroy
+theme.SetVariant("light");
+```
+
+`TryResolve` is allocation-free and silent — absence is a `false` return, not a log line and not magenta.
+Capture `ActiveTheme` once when applying many tokens together; re-reading the property mid-loop can pick
+up a newer activation and leave you half-themed.
+
+### The UI Token Catalog
+
+A `Color` catalog entry names a canonical token through a `ColorTokenReference`. Applying it writes a
+`ColorThemeBinding`. An entry still carrying only a V1 `(swatch, colourId)` pair writes a `ColorID`
+instead, so a half-migrated catalog works per entry.
+
+`Molca ▸ ColorID ▸ Preview UI Token Catalog Colour Migration` reports what migrating a catalog would do;
+`Migrate UI Token Catalog Colours` applies it, adding the canonical token and **keeping** the legacy pair
+so the batch stays revertible. Clearing the pair is a separate second pass.
+
+See [UI Tokens](UI_TOKENS.md).
+
+### Interchange
+
+`Molca ▸ ColorID ▸ Export Colour Theme (JSON)…` writes a design-token document: DTCG-shaped `$type`,
+`$value` and `$description`, with everything DTCG has no field for — per-variant values, usage, the legacy
+alias map, accessibility requirements — under `$extensions.molca`. `$value` carries the default variant's
+resolved colour so a plain DTCG reader sees a usable palette; `$extensions.molca.modes` is the lossless
+representation.
+
+Export is deterministic, so the file can be committed and diffed. Import is always previewed
+(`Preview Colour Theme Import (JSON)…`) and reports added/updated/removed tokens, alias changes, variant
+coverage, **contrast regressions**, serialized sites naming a token the import removes, and any field the
+reader did not understand. No access tokens or private remote configuration are ever written.
+
+### Accessibility
+
+A token declares what it *colours* (`ColorTokenUsage`), which is what makes contrast checkable at all — a
+raw ratio against the background cannot be judged without knowing whether a colour is a surface or a
+foreground. `ColorContrastRequirement` entries on the set are measured per variant by
+`ColorThemeResolver.EvaluateContrast`, surfaced by the `color-theme-audit` Doctor check, and enforced at
+build time by `ColorThemeBuildValidator`.
+
+---
+
+# V1 compatibility reference
+
+Everything below describes the legacy path. It remains supported for the compatibility window: under V2
+these APIs resolve against theme-set data through `LegacyColorProviderAdapter`, so existing content needs
+no changes.
 
 ## The palette — `ColorModule`
 
@@ -176,6 +265,8 @@ See [Doctor Checks](DOCTOR_CHECKS.md).
 
 ## See also
 
+- [Color ID Migration Guide (V1 → V2)](COLOR_ID_MIGRATION.md) — the upgrade path, what is deprecated and
+  what replaces it, and the evidence the alias-map removal gate requires.
 - [Molca UI Tokens](UI_TOKENS.md)
 - [Modals](MODALS.md)
 - [UI Intent Spec → uGUI](UI_INTENT_SPEC.md)

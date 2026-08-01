@@ -12,6 +12,10 @@ and classifies every failure with a structured `HttpError` so retry and recovery
 request failed — never a scraped error string. Live streaming feeds (SSE / WebSocket / Socket.IO) are a
 separate concern; see [Data Providers](DATA_PROVIDERS.md).
 
+Configuring *where* requests go is moving from a single `HttpModule.BaseUrl` to a route-based catalog of
+environments and services — see [Routes & Catalog](NETWORKING_CATALOG.md). Everything on this page keeps
+working unchanged.
+
 ## Sending a request
 
 `HttpClient` is a `RuntimeSubsystem` that implements `IHttpClient`. Resolve the instance API — never the

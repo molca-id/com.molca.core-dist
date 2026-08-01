@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.Serialization;
 using UnityEngine.UI;
@@ -26,7 +27,13 @@ namespace Molca.ColorID
                 RawImage,
                 LineRenderer,
                 TrailRenderer,
-                ParticleSystem
+                ParticleSystem,
+
+                // Appended, never reordered: this enum is serialized by ordinal, so inserting
+                // above any existing entry would silently re-target 194 shipped components.
+                // Before this existed, sprites were collected as generic renderers and coloured
+                // through renderer.material — which is not where a SpriteRenderer's tint lives.
+                SpriteRenderer
             }
 
             [SerializeField, FormerlySerializedAs("targetType")] private TargetType _targetType = TargetType.Auto;
@@ -63,39 +70,78 @@ namespace Molca.ColorID
 
         [SerializeField, FormerlySerializedAs("colorTargets")] private List<ColorTarget> _colorTargets = new List<ColorTarget>();
 
-        private List<Component> _cachedTargets = new List<Component>();
-
         // Cached so OnDestroy can unsubscribe from the same service instance even
         // if the service registry is already unavailable during teardown.
         private IColorSchemeService _schemeService;
 
+        // Present only in a V2 project; supplies the legacy-to-canonical translation for this
+        // component's serialized (swatch, colorId) pair.
+        private IColorThemeService _themeService;
+
         public string SwatchName => _swatchName;
         public string ColorId => _colorId;
 
+        /// <summary>
+        /// The authored target list, read-only.
+        /// </summary>
+        /// <remarks>
+        /// Exposed for migration tooling, which needs each target's own <see cref="ColorTarget.UseAlpha"/>
+        /// and <see cref="ColorTarget.CustomAlpha"/> to produce an equivalent
+        /// <see cref="ColorThemeBinding"/> — that alpha is per target, and collapsing it to one value per
+        /// component would change what renders. Read-only because the list is rebuilt by
+        /// <see cref="Refresh"/>; mutating it from outside would be overwritten without warning.
+        /// </remarks>
+        public IReadOnlyList<ColorTarget> ColorTargets => _colorTargets;
+
+        /// <summary>
+        /// Whether target detection covers the complete descendant hierarchy as well as this
+        /// GameObject. Changing it takes effect on the next <see cref="Refresh"/>.
+        /// </summary>
+        public bool ApplyToChildren
+        {
+            get => _applyToChildren;
+            set => _applyToChildren = value;
+        }
+
+        // async void is permitted only as a Unity entry point, and only as a thin shim that
+        // cannot let an exception escape into Unity's synchronization context unobserved.
         private async void Start()
         {
-            await RuntimeManager.WaitForInitialization();
-
-            // If destroyed during the await, OnDestroy has already run — subscribing
-            // now would leak a handler on a dead object into the static event.
-            if (this == null) return;
-
-            // Subscribe to color scheme changes
-            _schemeService = RuntimeManager.GetService<IColorSchemeService>();
-            if (_schemeService != null)
-                _schemeService.SchemeChanged += OnSchemeChanged;
-            
-            // Rebuild cached targets from serialized colorTargets
-            RebuildCachedTargets();
-            
-            // Only rebuild targets if none are configured yet
-            // This preserves any manually configured targets
-            if (_colorTargets.Count == 0)
+            try
             {
-                RefreshTargets();
+                await RuntimeManager.WaitForInitialization();
+
+                // If destroyed during the await, OnDestroy has already run — subscribing
+                // now would leak a handler on a dead object into the static event.
+                if (this == null) return;
+
+                // Subscribe to color scheme changes. One subscription covers both generations:
+                // in V2 the manager also raises SchemeChanged, so this component reapplies on a
+                // variant switch without knowing V2 exists.
+                _schemeService = RuntimeManager.GetService<IColorSchemeService>();
+                if (_schemeService != null)
+                    _schemeService.SchemeChanged += OnSchemeChanged;
+
+                _themeService = RuntimeManager.GetService<IColorThemeService>();
+
+                // Only detect targets if none are configured yet.
+                // This preserves any manually configured targets.
+                if (_colorTargets.Count == 0)
+                {
+                    RefreshTargets();
+                }
+
+                ApplyColors();
             }
-            
-            ApplyColors();
+            catch (OperationCanceledException)
+            {
+                // Bootstrap was torn down (application quit during initialization).
+                // Cancellation is not an error — exit quietly.
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception, this);
+            }
         }
 
         private void OnDestroy()
@@ -106,17 +152,36 @@ namespace Molca.ColorID
         }
 
         /// <summary>
-        /// Resolves the color provider through <see cref="IColorSchemeService.ActiveScheme"/>
-        /// when the service is available (the scheme the user actually switched to),
-        /// falling back to the legacy static resolution for objects that run before
-        /// bootstrap or in edit mode.
+        /// Resolves the provider this component's <c>(swatch, colorId)</c> pair looks up against.
         /// </summary>
+        /// <remarks>
+        /// Ordered most-specific first:
+        /// <list type="number">
+        /// <item><description>
+        /// the V2 theme service's legacy adapter, which translates this component's pair to a canonical
+        /// token through the theme set's alias map — the path a migrated project takes;
+        /// </description></item>
+        /// <item><description>
+        /// the active <see cref="ColorModule"/> from <see cref="IColorSchemeService"/> — a legacy
+        /// project after bootstrap;
+        /// </description></item>
+        /// <item><description>
+        /// static resolution, for objects running before bootstrap or in edit mode. This also picks up
+        /// the V2 override, so an edit-mode preview matches the running application.
+        /// </description></item>
+        /// </list>
+        /// </remarks>
         private IColorProvider ResolveColorProvider()
         {
+            var legacyProvider = _themeService?.LegacyProvider;
+            if (legacyProvider != null)
+                return legacyProvider;
+
             var scheme = _schemeService?.ActiveScheme;
             if (scheme != null)
                 return scheme;
-            return ColorModule.ResolveActive();
+
+            return ColorModule.ResolveActiveProvider();
         }
 
         /// <summary>
@@ -129,21 +194,6 @@ namespace Molca.ColorID
         }
         
         /// <summary>
-        /// Rebuilds the cached targets list from the serialized colorTargets
-        /// </summary>
-        private void RebuildCachedTargets()
-        {
-            _cachedTargets.Clear();
-            foreach (var target in _colorTargets)
-            {
-                if (target.Component != null)
-                {
-                    _cachedTargets.Add(target.Component);
-                }
-            }
-        }
-
-        /// <summary>
         /// Refreshes the color targets and reapplies colors while preserving existing configurations
         /// </summary>
         public void Refresh()
@@ -155,6 +205,10 @@ namespace Molca.ColorID
         /// <summary>
         /// Refreshes targets while preserving existing configurations
         /// </summary>
+        /// <remarks>
+        /// When <c>_applyToChildren</c> is set this walks the <b>complete descendant hierarchy</b>,
+        /// matching the authoring label and documentation. V1 processed only immediate children.
+        /// </remarks>
         private void RefreshTargets()
         {
             // Store existing target configurations
@@ -167,186 +221,102 @@ namespace Molca.ColorID
                 }
             }
 
-            // Clear current lists
             _colorTargets.Clear();
-            _cachedTargets.Clear();
 
             // Get components from this GameObject
             AddTargetsFromGameObjectPreservingConfig(gameObject, existingTargets);
 
-            // Get components from children if enabled
+            // Get components from the full descendant hierarchy if enabled
             if (_applyToChildren)
             {
-                foreach (Transform child in transform)
-                {
-                    AddTargetsFromGameObjectPreservingConfig(child.gameObject, existingTargets);
-                }
+                AddTargetsFromDescendants(transform, existingTargets);
             }
         }
 
         /// <summary>
-        /// Applies colors to all detected targets
+        /// Recursively collects targets from every descendant of <paramref name="parent"/>.
         /// </summary>
+        /// <param name="parent">The transform whose descendants are scanned (exclusive).</param>
+        /// <param name="existingTargets">Previously configured targets, preserved by component.</param>
+        private void AddTargetsFromDescendants(Transform parent,
+            Dictionary<Component, ColorTarget> existingTargets)
+        {
+            foreach (Transform child in parent)
+            {
+                AddTargetsFromGameObjectPreservingConfig(child.gameObject, existingTargets);
+                AddTargetsFromDescendants(child, existingTargets);
+            }
+        }
+
+        /// <summary>
+        /// Applies colors to all configured targets
+        /// </summary>
+        /// <remarks>
+        /// Each target carries its own component reference, so a target whose component has been
+        /// removed is skipped in place and cannot shift another target's configuration onto the
+        /// wrong component. V1 walked a parallel cache list that omitted null entries while
+        /// indexing both lists together, which is exactly how that skew happened.
+        /// </remarks>
         public void ApplyColors()
         {
-            for (int i = 0; i < _colorTargets.Count && i < _cachedTargets.Count; i++)
+            // Resolve once: the colour is the same for every target on this component, and
+            // resolving per target multiplied the missing-key warning for unresolved pairs.
+            Color resolved = ResolveColorProvider().GetColor(_swatchName, _colorId);
+
+            for (int i = 0; i < _colorTargets.Count; i++)
             {
-                ApplyColorToTarget(_colorTargets[i], _cachedTargets[i]);
+                ApplyColorToTarget(_colorTargets[i], resolved);
             }
         }
 
         /// <summary>
         /// Applies a specific color to a target
         /// </summary>
-        /// <param name="target">The color target configuration</param>
-        /// <param name="component">The component to apply color to</param>
-        private void ApplyColorToTarget(ColorTarget target, Component component)
+        /// <param name="target">The color target configuration, carrying its own component.</param>
+        /// <param name="resolved">The colour resolved for this component's swatch/ID pair.</param>
+        private void ApplyColorToTarget(ColorTarget target, Color resolved)
         {
+            var component = target?.Component;
             if (component == null) return;
 
-            Color color = ResolveColorProvider().GetColor(_swatchName, _colorId);
-            
+            Color color = resolved;
             if (!target.UseAlpha)
             {
-                color.a = target.CustomAlpha;
+                color.a = Mathf.Clamp01(target.CustomAlpha);
             }
 
-            switch (target.Type)
+            // The configured target type narrows *which* component we expected, but the channel
+            // is always chosen from the component's real most-derived type. That keeps a
+            // mis-typed target (e.g. Renderer configured on a SpriteRenderer) correct instead of
+            // routing it through the wrong channel.
+            ColorApplyOutcome outcome = target.Type == ColorTarget.TargetType.Renderer
+                ? ColorTargetApplier.ApplyToRenderer(component as Renderer, color)
+                : ColorTargetApplier.Apply(component, color);
+
+            switch (outcome)
             {
-                case ColorTarget.TargetType.Renderer:
-                    ApplyColorToRenderer(component as Renderer, color);
+                case ColorApplyOutcome.UnsupportedTarget:
+                    Debug.LogWarning($"[ColorID] '{name}': no colour channel is supported for " +
+                                     $"target component of type '{component.GetType().Name}'. " +
+                                     "Remove the target or use a supported component type.", this);
                     break;
-                case ColorTarget.TargetType.Image:
-                    ApplyColorToImage(component as Image, color);
-                    break;
-                case ColorTarget.TargetType.RawImage:
-                    ApplyColorToRawImage(component as RawImage, color);
-                    break;
-                case ColorTarget.TargetType.Text:
-                    ApplyColorToText(component as Text, color);
-                    break;
-                case ColorTarget.TargetType.TextMeshPro:
-                    ApplyColorToTMPText(component as TMP_Text, color);
-                    break;
-                case ColorTarget.TargetType.LineRenderer:
-                    ApplyColorToLineRenderer(component as LineRenderer, color);
-                    break;
-                case ColorTarget.TargetType.TrailRenderer:
-                    ApplyColorToTrailRenderer(component as TrailRenderer, color);
-                    break;
-                case ColorTarget.TargetType.ParticleSystem:
-                    ApplyColorToParticleSystem(component as ParticleSystem, color);
-                    break;
-                case ColorTarget.TargetType.Auto:
-                    ApplyColorAuto(component, color);
+                case ColorApplyOutcome.MissingShaderProperty:
+                    Debug.LogWarning($"[ColorID] '{name}': the shared material on " +
+                                     $"'{component.name}' has neither a '_BaseColor' nor a " +
+                                     "'_Color' shader property, so the colour cannot be applied.",
+                                     this);
                     break;
             }
 
             #if UNITY_EDITOR
-            if (!Application.isPlaying)
+            // Only dirty targets whose colour actually lives in serialized data. The generic
+            // renderer path writes a MaterialPropertyBlock, which edit mode does not persist —
+            // dirtying the scene for it would mark files changed with nothing to save.
+            if (!Application.isPlaying && outcome == ColorApplyOutcome.Applied)
             {
                 UnityEditor.EditorUtility.SetDirty(component);
             }
             #endif
-        }
-
-        private void ApplyColorToRenderer(Renderer renderer, Color color)
-        {
-            if (renderer != null)
-            {
-                // Only apply colors in play mode to avoid modifying shared materials or creating instances
-                #if UNITY_EDITOR
-                if (!Application.isPlaying)
-                {
-                    return;
-                }
-                #endif
-                
-                if (renderer.material != null)
-                {
-                    renderer.material.color = color;
-                }
-            }
-        }
-
-        private void ApplyColorToImage(Image image, Color color)
-        {
-            if (image != null)
-            {
-                image.color = color;
-            }
-        }
-
-        private void ApplyColorToRawImage(RawImage rawImage, Color color)
-        {
-            if (rawImage != null)
-            {
-                rawImage.color = color;
-            }
-        }
-
-        private void ApplyColorToText(Text text, Color color)
-        {
-            if (text != null)
-            {
-                text.color = color;
-            }
-        }
-
-        private void ApplyColorToTMPText(TMP_Text tmpText, Color color)
-        {
-            if (tmpText != null)
-            {
-                tmpText.color = color;
-            }
-        }
-
-        private void ApplyColorToLineRenderer(LineRenderer lineRenderer, Color color)
-        {
-            if (lineRenderer != null)
-            {
-                lineRenderer.startColor = color;
-                lineRenderer.endColor = color;
-            }
-        }
-
-        private void ApplyColorToTrailRenderer(TrailRenderer trailRenderer, Color color)
-        {
-            if (trailRenderer != null)
-            {
-                trailRenderer.startColor = color;
-                trailRenderer.endColor = color;
-            }
-        }
-
-        private void ApplyColorToParticleSystem(ParticleSystem particleSystem, Color color)
-        {
-            if (particleSystem != null)
-            {
-                var main = particleSystem.main;
-                main.startColor = color;
-            }
-        }
-
-        private void ApplyColorAuto(Component component, Color color)
-        {
-            // Try to determine the type and apply color accordingly
-            if (component is Renderer renderer)
-                ApplyColorToRenderer(renderer, color);
-            else if (component is Image image)
-                ApplyColorToImage(image, color);
-            else if (component is RawImage rawImage)
-                ApplyColorToRawImage(rawImage, color);
-            else if (component is Text text)
-                ApplyColorToText(text, color);
-            else if (component is TMP_Text tmpText)
-                ApplyColorToTMPText(tmpText, color);
-            else if (component is LineRenderer lineRenderer)
-                ApplyColorToLineRenderer(lineRenderer, color);
-            else if (component is TrailRenderer trailRenderer)
-                ApplyColorToTrailRenderer(trailRenderer, color);
-            else if (component is ParticleSystem particleSystem)
-                ApplyColorToParticleSystem(particleSystem, color);
         }
 
         /// <summary>
@@ -370,30 +340,59 @@ namespace Molca.ColorID
         /// <param name="colorId">The color ID to apply, or composite format "{swatchName}/{colorId}"</param>
         public void SetColorId(string _colorId)
         {
-            // Check if the colorId contains a "/" indicating composite format
-            if (_colorId.Contains("/"))
+            // One parser for every composite spelling in the codebase. V1 accepted only
+            // "Swatch/Color" here while the provider emitted and accepted "Swatch.Color",
+            // so a dotted value round-tripped from GetAllColorIds() was stored as a bare ID
+            // and then failed lookup.
+            if (TryParseComposite(_colorId, out string parsedSwatch, out string parsedColorId))
             {
-                var parts = _colorId.Split('/');
-                if (parts.Length == 2)
-                {
-                    this._swatchName = parts[0];
-                    this._colorId = parts[1];
-                }
-                else
-                {
-                    // Invalid format, just use as colorId
-                    this._colorId = _colorId;
-                }
+                this._swatchName = parsedSwatch;
+                this._colorId = parsedColorId;
             }
             else
             {
                 // Simple colorId, use current swatch name
                 this._colorId = _colorId;
             }
-            
+
             // Apply colors with the new color ID
             ApplyColors();
         }
+
+        /// <summary>
+        /// Parses a composite colour identifier into its swatch and colour parts.
+        /// </summary>
+        /// <param name="composite">
+        /// A composite identifier in either supported spelling — <c>"Swatch/Color"</c> (used by the
+        /// editor drawers and <see cref="SetColorId"/>) or <c>"Swatch.Color"</c> (used by
+        /// <see cref="ColorModule"/>'s cache keys and <c>GetAllColorIds()</c>).
+        /// </param>
+        /// <param name="swatchName">The parsed swatch name, or <c>null</c> when not composite.</param>
+        /// <param name="colorId">The parsed colour ID, or <c>null</c> when not composite.</param>
+        /// <returns>
+        /// <c>true</c> when <paramref name="composite"/> is a well-formed composite identifier with
+        /// exactly one separator and non-empty parts on both sides; otherwise <c>false</c>, meaning
+        /// the caller should treat the input as a bare colour ID.
+        /// </returns>
+        public static bool TryParseComposite(string composite, out string swatchName, out string colorId)
+        {
+            swatchName = null;
+            colorId = null;
+
+            if (string.IsNullOrEmpty(composite)) return false;
+
+            // Last separator wins so a swatch name is never split by a colour ID that
+            // happens to contain the other delimiter.
+            int separator = composite.LastIndexOfAny(CompositeSeparators);
+            if (separator <= 0 || separator >= composite.Length - 1) return false;
+
+            swatchName = composite.Substring(0, separator);
+            colorId = composite.Substring(separator + 1);
+            return true;
+        }
+
+        /// <summary>Both accepted composite separators, in one place.</summary>
+        private static readonly char[] CompositeSeparators = { '/', '.' };
 
 
         /// <summary>
@@ -405,157 +404,70 @@ namespace Molca.ColorID
             return ResolveColorProvider().GetAllColorIds();
         }
 
+        /// <summary>
+        /// Collects every supported colour target on <paramref name="targetObject"/>, reusing the
+        /// previously authored <see cref="ColorTarget"/> for a component that is still present.
+        /// </summary>
+        /// <remarks>
+        /// Each component is claimed by exactly one target type. Specialised renderer subtypes
+        /// (sprite, line, trail, particle) are skipped by the generic renderer pass so a single
+        /// component can never be collected twice under two different type configurations.
+        /// </remarks>
         private void AddTargetsFromGameObjectPreservingConfig(GameObject targetObject, Dictionary<Component, ColorTarget> existingTargets)
         {
-            // Mesh Renderers
+            // Order matters only for readability now that claims are exclusive.
+            AddTypedTargets<Image>(targetObject, ColorTarget.TargetType.Image, existingTargets);
+            AddTypedTargets<RawImage>(targetObject, ColorTarget.TargetType.RawImage, existingTargets);
+            AddTypedTargets<Text>(targetObject, ColorTarget.TargetType.Text, existingTargets);
+            AddTypedTargets<TMP_Text>(targetObject, ColorTarget.TargetType.TextMeshPro, existingTargets);
+            AddTypedTargets<SpriteRenderer>(targetObject, ColorTarget.TargetType.SpriteRenderer, existingTargets);
+            AddTypedTargets<LineRenderer>(targetObject, ColorTarget.TargetType.LineRenderer, existingTargets);
+            AddTypedTargets<TrailRenderer>(targetObject, ColorTarget.TargetType.TrailRenderer, existingTargets);
+            AddTypedTargets<ParticleSystem>(targetObject, ColorTarget.TargetType.ParticleSystem, existingTargets);
+
+            // Generic renderers last, and only those no specialised type already owns.
             var renderers = targetObject.GetComponents<Renderer>();
             foreach (var renderer in renderers)
             {
-                // Check for material safely - use sharedMaterial to avoid creating instances
-                if (renderer.sharedMaterial != null)
-                {
-                    ColorTarget target;
-                    if (existingTargets.TryGetValue(renderer, out var existingTarget))
-                    {
-                        // Preserve existing configuration
-                        target = existingTarget;
-                    }
-                    else
-                    {
-                        // Create new target with default settings
-                        target = new ColorTarget(ColorTarget.TargetType.Renderer);
-                        target.SetTargetComponent(renderer);
-                    }
-                    _colorTargets.Add(target);
-                    _cachedTargets.Add(renderer);
-                }
+                if (ColorTargetApplier.IsSpecializedRenderer(renderer)) continue;
+
+                // sharedMaterial, never material: reading .material instantiates a copy.
+                if (renderer.sharedMaterial == null) continue;
+
+                AddTarget(renderer, ColorTarget.TargetType.Renderer, existingTargets);
+            }
+        }
+
+        /// <summary>
+        /// Adds a target for every <typeparamref name="T"/> component on <paramref name="targetObject"/>.
+        /// </summary>
+        /// <typeparam name="T">The component type claimed by <paramref name="type"/>.</typeparam>
+        private void AddTypedTargets<T>(GameObject targetObject, ColorTarget.TargetType type,
+            Dictionary<Component, ColorTarget> existingTargets) where T : Component
+        {
+            var components = targetObject.GetComponents<T>();
+            foreach (var component in components)
+            {
+                AddTarget(component, type, existingTargets);
+            }
+        }
+
+        /// <summary>
+        /// Appends a target for <paramref name="component"/>, preserving its previous configuration
+        /// (target type, alpha policy) when one was already authored for that exact component.
+        /// </summary>
+        private void AddTarget(Component component, ColorTarget.TargetType type,
+            Dictionary<Component, ColorTarget> existingTargets)
+        {
+            if (existingTargets.TryGetValue(component, out var existingTarget))
+            {
+                _colorTargets.Add(existingTarget);
+                return;
             }
 
-            // UI Images
-            var images = targetObject.GetComponents<Image>();
-            foreach (var image in images)
-            {
-                ColorTarget target;
-                if (existingTargets.TryGetValue(image, out var existingTarget))
-                {
-                    target = existingTarget;
-                }
-                else
-                {
-                    target = new ColorTarget(ColorTarget.TargetType.Image);
-                    target.SetTargetComponent(image);
-                }
-                _colorTargets.Add(target);
-                _cachedTargets.Add(image);
-            }
-
-            // UI Raw Images
-            var rawImages = targetObject.GetComponents<RawImage>();
-            foreach (var rawImage in rawImages)
-            {
-                ColorTarget target;
-                if (existingTargets.TryGetValue(rawImage, out var existingTarget))
-                {
-                    target = existingTarget;
-                }
-                else
-                {
-                    target = new ColorTarget(ColorTarget.TargetType.RawImage);
-                    target.SetTargetComponent(rawImage);
-                }
-                _colorTargets.Add(target);
-                _cachedTargets.Add(rawImage);
-            }
-
-            // UI Text
-            var texts = targetObject.GetComponents<Text>();
-            foreach (var text in texts)
-            {
-                ColorTarget target;
-                if (existingTargets.TryGetValue(text, out var existingTarget))
-                {
-                    target = existingTarget;
-                }
-                else
-                {
-                    target = new ColorTarget(ColorTarget.TargetType.Text);
-                    target.SetTargetComponent(text);
-                }
-                _colorTargets.Add(target);
-                _cachedTargets.Add(text);
-            }
-
-            // TextMeshPro
-            var tmpTexts = targetObject.GetComponents<TMP_Text>();
-            foreach (var tmpText in tmpTexts)
-            {
-                ColorTarget target;
-                if (existingTargets.TryGetValue(tmpText, out var existingTarget))
-                {
-                    target = existingTarget;
-                }
-                else
-                {
-                    target = new ColorTarget(ColorTarget.TargetType.TextMeshPro);
-                    target.SetTargetComponent(tmpText);
-                }
-                _colorTargets.Add(target);
-                _cachedTargets.Add(tmpText);
-            }
-
-            // Line Renderers
-            var lineRenderers = targetObject.GetComponents<LineRenderer>();
-            foreach (var lineRenderer in lineRenderers)
-            {
-                ColorTarget target;
-                if (existingTargets.TryGetValue(lineRenderer, out var existingTarget))
-                {
-                    target = existingTarget;
-                }
-                else
-                {
-                    target = new ColorTarget(ColorTarget.TargetType.LineRenderer);
-                    target.SetTargetComponent(lineRenderer);
-                }
-                _colorTargets.Add(target);
-                _cachedTargets.Add(lineRenderer);
-            }
-
-            // Trail Renderers
-            var trailRenderers = targetObject.GetComponents<TrailRenderer>();
-            foreach (var trailRenderer in trailRenderers)
-            {
-                ColorTarget target;
-                if (existingTargets.TryGetValue(trailRenderer, out var existingTarget))
-                {
-                    target = existingTarget;
-                }
-                else
-                {
-                    target = new ColorTarget(ColorTarget.TargetType.TrailRenderer);
-                    target.SetTargetComponent(trailRenderer);
-                }
-                _colorTargets.Add(target);
-                _cachedTargets.Add(trailRenderer);
-            }
-
-            // Particle Systems
-            var particleSystems = targetObject.GetComponents<ParticleSystem>();
-            foreach (var particleSystem in particleSystems)
-            {
-                ColorTarget target;
-                if (existingTargets.TryGetValue(particleSystem, out var existingTarget))
-                {
-                    target = existingTarget;
-                }
-                else
-                {
-                    target = new ColorTarget(ColorTarget.TargetType.ParticleSystem);
-                    target.SetTargetComponent(particleSystem);
-                }
-                _colorTargets.Add(target);
-                _cachedTargets.Add(particleSystem);
-            }
+            var target = new ColorTarget(type);
+            target.SetTargetComponent(component);
+            _colorTargets.Add(target);
         }
 
         #if UNITY_EDITOR

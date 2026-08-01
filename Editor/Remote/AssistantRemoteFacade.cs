@@ -10,6 +10,14 @@ namespace Molca.Editor.Remote
         private const int MaxTurns = 30;
         private const int MaxTurnTextChars = 1200;
 
+        /// <summary>Raised when the shared Assistant runtime's state changes.</summary>
+        /// <remarks>
+        /// <b>Main thread only — including <c>+=</c> and <c>-=</c>.</b> This is not a field-like event: both
+        /// accessors touch <see cref="AssistantChatRuntime.Shared"/>, which on first use builds the Assistant
+        /// settings asset through the <c>AssetDatabase</c>. Subscribing from a background thread throws "can
+        /// only be called from the main thread", and because the lazy initialiser never completes it throws
+        /// again on every retry rather than failing once. A background caller must marshal.
+        /// </remarks>
         internal static event Action Changed
         {
             add => AssistantChatRuntime.Shared.Changed += value;

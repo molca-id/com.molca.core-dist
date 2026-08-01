@@ -42,6 +42,14 @@ namespace Molca.Editor.Doctor
         {
             // Pure text scan — run off the main thread so the editor stays responsive.
             await Awaitable.BackgroundThreadAsync();
+            // Hop back before completing: an Awaitable finished on the ThreadPool thread this scan ran
+            // on raises a native "Scripting object is not properly attached" assert (see IDoctorCheck).
+            try { return Scan(context, cancellationToken); }
+            finally { await Awaitable.MainThreadAsync(); }
+        }
+
+        private IReadOnlyList<DoctorIssue> Scan(DoctorContext context, CancellationToken cancellationToken)
+        {
 
             var issues = new List<DoctorIssue>();
             foreach (var source in context.RuntimeSources)

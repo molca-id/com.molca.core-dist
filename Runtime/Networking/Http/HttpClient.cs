@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
+using Molca.Networking.Compatibility;
+using Molca.Networking.Configuration;
 using Molca.Networking.Http.Models;
 using Molca.Settings;
 
@@ -40,7 +42,18 @@ namespace Molca.Networking.Http
         private CancellationTokenSource _cancelAllCts = new CancellationTokenSource();
 
         private HttpModule _httpModule;
-        
+
+        // Catalog-derived compatibility state. Captured once at initialization, like the routed
+        // subsystem's own snapshot: a request already in flight must not have its credential scope
+        // change underneath it.
+        private LegacyRouteMapper _routeMapper;
+        private RoutedLegacyHttpAdapter _routedAdapter;
+        private bool _routeLegacySends;
+
+        // Compatibility reasons already reported. A leak warning is worth saying once per distinct
+        // situation, not once per request — a polling call site would otherwise flood the console.
+        private readonly HashSet<string> _reportedCompatibilityReasons = new HashSet<string>(StringComparer.Ordinal);
+
         // Instance events — the IHttpClient API. Backing fields are shared with
         // the obsolete static events via the Raise* helpers.
         private event Action<HttpRequestContext> _requestStarted;
@@ -143,8 +156,71 @@ namespace Molca.Networking.Http
             {
                 Debug.LogWarning("HttpModule not found in GlobalSettings. Using default values.");
             }
-            
+
+            InitializeCompatibility();
+
             finishCallback?.Invoke(this);
+        }
+
+        /// <summary>
+        /// Captures the network catalog and builds the legacy route mapper.
+        /// </summary>
+        /// <remarks>
+        /// Reads <see cref="GlobalSettings"/> directly rather than depending on
+        /// <c>NetworkRuntimeSubsystem</c>, so this works regardless of bootstrap order — the routed
+        /// <em>client</em> is resolved lazily at send time instead, by which point every subsystem is up.
+        /// A project without a catalog gets a mapper over
+        /// <see cref="NetworkCatalogSnapshot.Empty"/>, which classifies everything as unrouted and
+        /// changes no behaviour.
+        /// </remarks>
+        private void InitializeCompatibility()
+        {
+            NetworkCatalog catalog = null;
+            try
+            {
+                catalog = GlobalSettings.GetModule<NetworkCatalog>();
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[HttpClient] Could not read NetworkCatalog from GlobalSettings: {e.Message}");
+            }
+
+            var snapshot = NetworkCatalogSnapshot.Capture(catalog);
+            _routeMapper = new LegacyRouteMapper(snapshot, _httpModule?.BaseUrl);
+            _routeLegacySends = snapshot.RouteLegacyHttpThroughPipeline;
+
+            if (snapshot.HasCatalog && snapshot.AllowLegacyGlobalAuthOnExternalUrls)
+            {
+                Debug.LogWarning(
+                    "[HttpClient] The network catalog has AllowLegacyGlobalAuthOnExternalUrls enabled, so " +
+                    "process-wide credentials still travel to hosts no service claims. This is a " +
+                    "transition setting — author those hosts as services and turn it off.",
+                    catalog);
+            }
+        }
+
+        /// <summary>
+        /// Overrides the catalog-derived compatibility configuration. Test seam.
+        /// </summary>
+        /// <param name="mapper">The mapper to use; <c>null</c> restores an empty (no-catalog) mapper.</param>
+        /// <param name="routeLegacySends">Whether mapped requests execute on the routed pipeline.</param>
+        /// <param name="adapter">
+        /// The routed adapter to use; <c>null</c> resolves <see cref="IRoutedHttpClient"/> from
+        /// <c>RuntimeManager</c> on first use, which is what production does.
+        /// </param>
+        /// <remarks>
+        /// Internal because it exists so edit-mode tests can exercise catalog-dependent behaviour without
+        /// a project fixture; production configuration always arrives through the catalog asset.
+        /// </remarks>
+        internal void ConfigureCompatibility(
+            LegacyRouteMapper mapper,
+            bool routeLegacySends,
+            RoutedLegacyHttpAdapter adapter = null)
+        {
+            _routeMapper = mapper ?? new LegacyRouteMapper(NetworkCatalogSnapshot.Empty, _httpModule?.BaseUrl);
+            _routeLegacySends = routeLegacySends;
+            _routedAdapter = adapter;
+            _reportedCompatibilityReasons.Clear();
         }
         
         #region Instance API (IHttpClient)
@@ -526,14 +602,26 @@ namespace Molca.Networking.Http
         /// resolved. Cloning keeps the transport from observing later caller mutations
         /// and keeps requests sourced from ScriptableObject assets untouched.
         /// </summary>
-        private HttpRequest PrepareRequest(HttpRequest request, HttpRequestContext context)
+        /// <param name="request">The caller's request. Never mutated.</param>
+        /// <param name="context">The context tracking this request.</param>
+        /// <param name="decision">
+        /// How the network catalog classifies this request's destination. When it withholds credentials,
+        /// process-wide credential contributions are skipped — see <see cref="IHttpCredentialInterceptor"/>.
+        /// </param>
+        private HttpRequest PrepareRequest(
+            HttpRequest request,
+            HttpRequestContext context,
+            LegacyRouteDecision decision)
         {
             var prepared = request.Clone();
+            bool allowCredentials = decision.AllowsGlobalCredentials;
 
             if (_httpModule != null)
             {
                 foreach (var header in _httpModule.GetDefaultHeaders())
                 {
+                    if (!allowCredentials && IsCredentialHeader(header.Key))
+                        continue;
                     if (prepared.GetHeaderValue(header.Key) == null)
                         prepared.AddHeader(header.Key, header.Value);
                 }
@@ -541,6 +629,8 @@ namespace Molca.Networking.Http
 
             foreach (var header in _defaultHeaders)
             {
+                if (!allowCredentials && IsCredentialHeader(header.Key))
+                    continue;
                 if (prepared.GetHeaderValue(header.Key) == null)
                     prepared.AddHeader(header.Key, header.Value);
             }
@@ -553,6 +643,11 @@ namespace Molca.Networking.Http
             // stash per-request state (e.g. which auth token was actually sent).
             foreach (var interceptor in _interceptors)
             {
+                // A credential interceptor is process-wide and cannot tell "our backend" from a
+                // third-party host, so the catalog decides for it. Everything else always runs.
+                if (!allowCredentials && interceptor is IHttpCredentialInterceptor)
+                    continue;
+
                 try
                 {
                     if (interceptor is IHttpContextAwareRequestInterceptor contextAware)
@@ -569,6 +664,54 @@ namespace Molca.Networking.Http
             return prepared;
         }
 
+        /// <summary>Whether a header name carries a credential, per the catalog and the well-known set.</summary>
+        private bool IsCredentialHeader(string headerName) =>
+            _routeMapper != null && _routeMapper.IsCredentialHeader(headerName);
+
+        /// <summary>
+        /// Classifies a request's destination against the network catalog, reporting any compatibility
+        /// concern once.
+        /// </summary>
+        /// <param name="request">The request about to be sent.</param>
+        /// <returns>The decision; unrouted with credentials allowed when no mapper exists yet.</returns>
+        private LegacyRouteDecision ClassifyDestination(HttpRequest request)
+        {
+            if (_routeMapper == null)
+                return LegacyRouteDecision.Unrouted();
+
+            var decision = _routeMapper.Map(request);
+
+            if (!string.IsNullOrEmpty(decision.Reason) &&
+                _reportedCompatibilityReasons.Add(decision.Reason))
+            {
+                Debug.LogWarning($"[HttpClient] {decision.Reason}");
+            }
+
+            return decision;
+        }
+
+        /// <summary>
+        /// The routed adapter, resolved on first use.
+        /// </summary>
+        /// <returns>The adapter, or <c>null</c> when no routed client is registered.</returns>
+        /// <remarks>
+        /// Resolved lazily rather than at initialization so bootstrap order between this subsystem and
+        /// <c>NetworkRuntimeSubsystem</c> does not matter. A missing routed client is not an error: the
+        /// legacy path runs instead, which is what an unconfigured project needs.
+        /// </remarks>
+        private RoutedLegacyHttpAdapter ResolveRoutedAdapter()
+        {
+            if (_routedAdapter != null)
+                return _routedAdapter;
+
+            var routed = RuntimeManager.GetService<IRoutedHttpClient>();
+            if (routed == null)
+                return null;
+
+            _routedAdapter = new RoutedLegacyHttpAdapter(routed);
+            return _routedAdapter;
+        }
+
         private async Awaitable SendRequest(HttpRequestContext context)
         {
             // Linked lifetime: caller token + CancelAllRequests + subsystem shutdown.
@@ -581,8 +724,12 @@ namespace Molca.Networking.Http
             {
                 Debug.Log($"[HttpClient] Sending {context.request.method} request to {Molca.Networking.Utils.LogRedaction.RedactUrl(context.request.FullUrl)}");
 
-                var prepared = PrepareRequest(context.request, context);
-                var response = await SendWithRetry(prepared, context, cts.Token);
+                // Classified once per request, not per attempt: the catalog snapshot is fixed, and a
+                // credential must not become permitted partway through a retry sequence.
+                var decision = ClassifyDestination(context.request);
+
+                var prepared = PrepareRequest(context.request, context, decision);
+                var response = await ExecuteAsync(prepared, context, decision, cts.Token);
 
                 // Response interceptors (e.g. auth 401 recovery) may ask for one
                 // transparent retry. Capped at a single retry to prevent loops; the
@@ -590,8 +737,8 @@ namespace Molca.Networking.Http
                 // refreshed token.
                 if (await ShouldRetryAfterResponseAsync(context, response, cts.Token))
                 {
-                    var retryPrepared = PrepareRequest(context.request, context);
-                    response = await SendWithRetry(retryPrepared, context, cts.Token);
+                    var retryPrepared = PrepareRequest(context.request, context, decision);
+                    response = await ExecuteAsync(retryPrepared, context, decision, cts.Token);
                 }
 
                 // Wall-clock duration of the whole exchange (incl. retries), in seconds.
@@ -642,6 +789,49 @@ namespace Molca.Networking.Http
             }
         }
         
+        /// <summary>
+        /// Executes a prepared request, on the routed pipeline when the catalog opts in and the request
+        /// maps to a route, and on the legacy retry loop otherwise.
+        /// </summary>
+        /// <param name="prepared">The prepared per-send clone.</param>
+        /// <param name="context">The context tracking this request.</param>
+        /// <param name="decision">How the catalog classifies the destination.</param>
+        /// <param name="token">Linked caller/cancel-all/shutdown token.</param>
+        /// <returns>The response.</returns>
+        /// <remarks>
+        /// Only the transport-and-retry middle moves. The caller still owns the context, the events, the
+        /// history entry, and the response interceptors, so turning the routed pipeline on changes nothing
+        /// observable about the <see cref="IHttpClient"/> surface.
+        /// </remarks>
+        private async Awaitable<HttpResponse> ExecuteAsync(
+            HttpRequest prepared,
+            HttpRequestContext context,
+            LegacyRouteDecision decision,
+            CancellationToken token)
+        {
+            if (_routeLegacySends && decision.Kind == LegacyRouteKind.Routed)
+            {
+                var adapter = ResolveRoutedAdapter();
+                if (adapter != null)
+                {
+                    return await adapter.SendAsync(
+                        decision.Route, decision.RelativePath, prepared, token);
+                }
+
+                // Configured to route but the routed subsystem is absent. Fall through rather than
+                // failing the send — but say so, because the configuration is not being honoured.
+                if (_reportedCompatibilityReasons.Add("routed-client-missing"))
+                {
+                    Debug.LogWarning(
+                        "[HttpClient] The catalog sets RouteLegacyHttpThroughPipeline, but no " +
+                        "IRoutedHttpClient is registered. Add NetworkRuntimeSubsystem to the bootstrap; " +
+                        "sends run on the legacy pipeline until then.");
+                }
+            }
+
+            return await SendWithRetry(prepared, context, token);
+        }
+
         /// <summary>
         /// Sends the prepared request, retrying idempotent requests on transient
         /// failures per the configured <see cref="HttpRetryPolicy"/> with exponential
@@ -829,6 +1019,10 @@ namespace Molca.Networking.Http
         {
             // ShutdownToken (linked per request) aborts in-flight work; drain the queue too.
             CancelAllActiveRequests();
+            // Drop the routed client reference: it belongs to NetworkRuntimeSubsystem, which disposes it
+            // on its own teardown, and holding a disposed client across a domain reload would throw.
+            _routedAdapter = null;
+            _reportedCompatibilityReasons.Clear();
             // Drop the legacy-shim singleton so a torn-down subsystem can't be reached.
             if (_instance == this)
                 _instance = null;

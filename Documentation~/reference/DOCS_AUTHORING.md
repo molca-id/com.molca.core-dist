@@ -33,8 +33,8 @@ order: 40
 
 | Field | Meaning |
 |---|---|
-| `title` | Display name in the rail and the doc header. Falls back to the first heading. |
-| `category` | The rail parent this doc nests under. Falls back to `Reference`. |
+| `title` | Display name in the rail and the doc header. Falls back to the file name with underscores as spaces — so a doc without one shows up as `SCREAMING_CASE`, not as its `#` heading. |
+| `category` | The rail parent this doc nests under. Falls back to `Reference`. A category is matched by exact string, so a near-miss spelling silently creates a second rail parent rather than joining the intended one. |
 | `order` | Sort order within the category (ascending). Docs without one sort last. |
 | `id` | Optional stable id for `molca://doc/` links. Defaults to the file name (without `.md`). |
 | `product` | Optional product/documentation-set label (the switcher grouping — see below). Defaults to the owning package's display name. |

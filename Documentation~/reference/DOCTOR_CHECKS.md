@@ -46,6 +46,12 @@ That's it. The check appears automatically in the Doctor window, in `MolcaDoctor
   `Awaitable.BackgroundThreadAsync()` so the editor stays responsive.
 - Checks that touch `AssetDatabase`, `SerializedObject`, or the scene graph **must stay on the main
   thread** and yield periodically with `Awaitable.NextFrameAsync(cancellationToken)`.
+- A check that hops off the main thread **must hop back before it returns** —
+  `try { … } finally { await Awaitable.MainThreadAsync(); }`. A Unity `Awaitable` is a pooled object
+  with a native counterpart, so completing (or faulting) the state machine on the ThreadPool thread the
+  scan ran on raises the native `Scripting object is not properly attached` assert. Nothing throws: the
+  assert is logged asynchronously and the test framework charges it to whichever test happens to be open
+  when it lands.
 
 Report sub-check progress with `context.ReportStatus("Prefabs 3/12")`.
 
@@ -69,6 +75,13 @@ namespace MyProject.Editor.Doctor
             DoctorContext context, CancellationToken cancellationToken)
         {
             await Awaitable.BackgroundThreadAsync(); // pure text scan — off the main thread
+            try { return Scan(context, cancellationToken); }
+            finally { await Awaitable.MainThreadAsync(); } // never complete on the pool thread
+        }
+
+        private IReadOnlyList<DoctorIssue> Scan(
+            DoctorContext context, CancellationToken cancellationToken)
+        {
             var issues = new List<DoctorIssue>();
 
             foreach (var file in context.RuntimeSources)
@@ -120,6 +133,10 @@ Drive it directly — no Unity run required for pure text-scan checks:
 ```csharp
 var issues = await new LegacyFooUsageCheck().RunAsync(new DoctorContext(), CancellationToken.None);
 ```
+
+`await` it from an `async Task` test — never spin on `GetAwaiter().IsCompleted` with `Thread.Sleep`.
+The hop back to the main thread needs the main thread to keep pumping, so a sleep loop there blocks the
+very pump the check is waiting on.
 
 For the discovery/ordering contract itself, see `DoctorCheckRegistry.BuildChecks` (exposed `internal`
 for tests) and `Tests/Editor/DoctorCheckRegistryTests.cs`.

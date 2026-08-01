@@ -26,9 +26,10 @@ namespace Molca.Editor
         // ProjectSettings/ lives outside the AssetDatabase — writable even when the package is immutable.
         private const string SETTINGS_PATH = "ProjectSettings/MolcaEditorSettings.asset";
 
-        // Previous persistence locations, read once for migration. Old assets are intentionally left in
-        // place: deleting an asset inside an immutable package would fail.
-        private const string PACKAGE_ASSET_PATH = "Packages/com.molca.core/Editor/Settings/MolcaEditorSettings.asset";
+        // Previous persistence location, read once for migration. The asset lives in consumer space, so it
+        // is the project's to delete once migrated. (An earlier build also kept a copy inside the package;
+        // that copy is gone — the packages ship no assets, and one inside an immutable package could never
+        // have been written back to anyway.)
         private const string LEGACY_ASSET_PATH = "Assets/_Molca/Resources/MolcaEditorSettings.asset";
 
         /// <summary>Singleton instance, loaded from ProjectSettings (migrating legacy assets if needed).</summary>
@@ -63,10 +64,8 @@ namespace Molca.Editor
                 Debug.LogWarning($"'{SETTINGS_PATH}' exists but contains no {nameof(MolcaEditorSettings)}. Recreating.");
             }
 
-            // One-time migration from the old in-package / legacy Resources asset locations.
-            var oldAsset = AssetDatabase.LoadAssetAtPath<MolcaEditorSettings>(PACKAGE_ASSET_PATH);
-            if (oldAsset == null)
-                oldAsset = AssetDatabase.LoadAssetAtPath<MolcaEditorSettings>(LEGACY_ASSET_PATH);
+            // One-time migration from the legacy Resources asset location.
+            var oldAsset = AssetDatabase.LoadAssetAtPath<MolcaEditorSettings>(LEGACY_ASSET_PATH);
 
             MolcaEditorSettings settings;
             if (oldAsset != null)
@@ -75,7 +74,7 @@ namespace Molca.Editor
                 settings = Instantiate(oldAsset);
                 settings.name = nameof(MolcaEditorSettings);
                 Debug.Log($"Migrated {nameof(MolcaEditorSettings)} to '{SETTINGS_PATH}'. " +
-                          "The old asset was left in place (package assets may be immutable) and can be deleted manually.");
+                          $"'{LEGACY_ASSET_PATH}' is no longer read and can be deleted.");
             }
             else
             {

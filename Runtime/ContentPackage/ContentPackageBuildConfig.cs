@@ -34,10 +34,7 @@ namespace Molca.ContentPackage
 
         /// <summary>
         /// The storage backend used to deploy build artifacts.
-        /// Assign an <see cref="ContentPackageStorageProvider"/> asset (e.g. <c>AWSS3StorageProvider</c>).
         /// </summary>
-        [Tooltip("Storage backend for deployment. Create a provider asset via Molca > Content Package > Storage > …")]
-        public ContentPackageStorageProvider storageProvider;
 
         // ── Helpers ──────────────────────────────────────────────────────────
 

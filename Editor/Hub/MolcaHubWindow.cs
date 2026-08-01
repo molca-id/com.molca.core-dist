@@ -33,6 +33,7 @@ namespace Molca.Editor.Hub
             new SectionInfo(MolcaHubSection.Tasks, "Tasks", "Your ClickUp tasks for this project's folder, with inline status changes."),
             new SectionInfo(MolcaHubSection.Mcp, "MCP", "MCP bridge, auth token, proxy, and tool provider settings."),
             new SectionInfo(MolcaHubSection.Network, "Network", "Live HTTP request counts, redacted request history, cache size, and streaming-provider status."),
+            new SectionInfo(MolcaHubSection.Localization, "Localization", "Locale policy, shared audit coverage, translation findings, and production readiness."),
             new SectionInfo(MolcaHubSection.Assistant, "Assistant", "In-editor chat assistant provider, model, and API key."),
             new SectionInfo(MolcaHubSection.AddOnsBrowse, "Browse", "Discover and install signed add-on packs entitled to this license and compatible with this Core."),
             new SectionInfo(MolcaHubSection.AddOnsInstalled, "Installed", "Manage installed add-ons: updates, removal, integrity status, and signed-bundle import."),
@@ -105,6 +106,32 @@ namespace Molca.Editor.Hub
                 window.SelectWorkspace(workspaceId);
             else
                 MolcaHubState.Load().SetWorkspace(workspaceId); // CreateGUI restores this on first build
+        }
+
+        /// <summary>
+        /// Opens (or focuses) the Hub on a workspace named by its stable id.
+        /// </summary>
+        /// <param name="workspaceId">
+        /// The workspace id to activate (e.g. <c>"references"</c>). An id no provider contributes falls back
+        /// to the anchored Settings tab, which is the same thing a stale persisted selection does.
+        /// </param>
+        /// <remarks>
+        /// The id-based counterpart to <see cref="Open(MolcaHubWorkspace)"/>, for surfaces that navigate to a
+        /// workspace Core does not have an enum member for — including a workspace contributed by another
+        /// package. As with the enum overload, the request is persisted when the UI has not been built yet so
+        /// <see cref="CreateGUI"/> restores it.
+        /// </remarks>
+        public static void OpenWorkspace(string workspaceId)
+        {
+            var window = GetWindow<MolcaHubWindow>();
+            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub", "logo-dark");
+            window.minSize = new Vector2(520, 360);
+            window.Show();
+
+            if (window._state != null && window._tabStrip != null)
+                window.SelectWorkspace(workspaceId);
+            else
+                MolcaHubState.Load().SetWorkspace(workspaceId);
         }
 
         /// <summary>
@@ -213,7 +240,12 @@ namespace Molca.Editor.Hub
             {
                 logoMark.style.display = DisplayStyle.None;
                 logoTile.style.backgroundImage = new StyleBackground(brandIcon);
-                logoTile.style.unityBackgroundScaleMode = ScaleMode.ScaleToFit;
+                // background-* replacement for the deprecated ScaleMode.ScaleToFit: fit inside the tile,
+                // preserve aspect, and centre it (contain alone would anchor to the top-left).
+                logoTile.style.backgroundSize = new BackgroundSize(BackgroundSizeType.Contain);
+                logoTile.style.backgroundPositionX = new BackgroundPosition(BackgroundPositionKeyword.Center);
+                logoTile.style.backgroundPositionY = new BackgroundPosition(BackgroundPositionKeyword.Center);
+                logoTile.style.backgroundRepeat = new BackgroundRepeat(Repeat.NoRepeat, Repeat.NoRepeat);
             }
 
             // Full-bleed host for the non-Settings tool workspaces (Doctor/Assistant/Visualizer). The
@@ -757,6 +789,7 @@ namespace Molca.Editor.Hub
             MolcaHubSection.Tasks => new MolcaHubTasksSection(SelectSection),
             MolcaHubSection.Mcp => new MolcaHubMcpSection(),
             MolcaHubSection.Network => new MolcaHubNetworkSection(),
+            MolcaHubSection.Localization => new MolcaHubLocalizationSection(),
             MolcaHubSection.Assistant => new MolcaHubAssistantSection(),
             MolcaHubSection.AddOnsBrowse => new Addons.AddonBrowseView(),
             MolcaHubSection.AddOnsInstalled => new Addons.AddonInstalledView(),

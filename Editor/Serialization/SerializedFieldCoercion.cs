@@ -26,7 +26,7 @@ namespace Molca.Editor
         /// <summary>
         /// Writes a structured <see cref="FieldNode"/> into <paramref name="property"/>, recursing into
         /// composite objects (named members) and lists-of-elements so nested serializable types (e.g.
-        /// <c>DynamicLocalization</c> and its <c>translations</c> list) can be authored, not just flat
+        /// <c>LocalizedValue</c> and its explicit inline-value list) can be authored, not just flat
         /// scalars. Scalar leaves defer to the string overload, so anything writable as a string before
         /// still writes identically. Does not call <c>ApplyModifiedProperties</c> — the caller batches that.
         /// </summary>

@@ -33,9 +33,10 @@ namespace Molca.Utilities
 
         /// <param name="panelSettings">Required by UIDocument. Null logs a warning and the overlay may not render.</param>
         /// <param name="uiFont">
-        /// Font applied to every label. May be <c>null</c>, in which case the bundled Poppins font (else a
-        /// dynamic OS font) is resolved. The shipped PanelSettings has no text settings, so <b>without a
-        /// resolved font the labels rasterize no glyphs and only the bars render</b>.
+        /// Font applied to every label. May be <c>null</c>, in which case a project <c>Resources</c> font
+        /// (else a dynamic OS font) is resolved. A <see cref="PanelSettings"/> carries no text settings
+        /// unless the project assigns some, so <b>without a resolved font the labels rasterize no glyphs
+        /// and only the bars render</b>.
         /// </param>
         /// <param name="toggleKeyLabel">Display name of the toggle key, shown in the header (Sprint 54: a plain string, so the view needs no input-package dependency).</param>
         internal void Initialize(PanelSettings panelSettings, Font uiFont, BudgetMonitor.UIAnchor anchor, Vector2 position, string toggleKeyLabel)
@@ -81,8 +82,8 @@ namespace Molca.Utilities
         {
             docRoot.pickingMode = PickingMode.Ignore;
 
-            // The shipped PanelSettings has no text settings/font assigned, so at runtime Labels rasterize no
-            // glyphs and only the colored bar VisualElements are visible. -unity-font-definition is inherited,
+            // A PanelSettings with no text settings assigned rasterizes no glyphs at runtime, leaving only
+            // the colored bar VisualElements visible. -unity-font-definition is inherited,
             // so applying a resolved font once on the panel root covers every Label added beneath it.
             var font = ResolveFont(uiFont);
             if (font != null)

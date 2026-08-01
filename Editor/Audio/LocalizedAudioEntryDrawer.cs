@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using UnityEngine;
 using UnityEditor;
 using Molca.Audio;
@@ -61,26 +63,64 @@ namespace Molca.Editor
                 var localizationModule = GlobalSettings.GetModule<LocalizationModule>();
                 if (localizationModule != null && languageClipsProp != null)
                 {
-                    var languageCodes = localizationModule.LanguageCode;
-                    languageClipsProp.arraySize = languageCodes.Length;
+                    var languageCodes = localizationModule.LanguageCode
+                        .Where(code => !string.IsNullOrWhiteSpace(code))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+                    var diagnostics = LocalizationAuthoringUtility.Analyze(
+                        languageClipsProp,
+                        languageCodes);
+                    if (diagnostics.HasFindings)
+                    {
+                        EditorGUI.HelpBox(
+                            new Rect(position.x, y, position.width, 40f),
+                            diagnostics.Message,
+                            diagnostics.HasInvalidOrDuplicateCodes
+                                ? MessageType.Warning
+                                : MessageType.Info);
+                        y += 40f + spacing;
+                    }
+                    if (diagnostics.MissingCodes.Count > 0)
+                    {
+                        using (new EditorGUI.DisabledScope(Application.isPlaying))
+                        {
+                            if (GUI.Button(
+                                    new Rect(position.x, y, position.width, lineHeight),
+                                    $"Add Missing Locales ({diagnostics.MissingCodes.Count})"))
+                            {
+                                foreach (var languageCode in diagnostics.MissingCodes)
+                                {
+                                    var newIndex = languageClipsProp.arraySize;
+                                    languageClipsProp.InsertArrayElementAtIndex(newIndex);
+                                    var newEntry =
+                                        languageClipsProp.GetArrayElementAtIndex(newIndex);
+                                    newEntry.FindPropertyRelative("languageCode").stringValue =
+                                        languageCode;
+                                    newEntry.FindPropertyRelative("clipReference").boxedValue =
+                                        new UnityEngine.AddressableAssets.AssetReferenceT<AudioClip>(
+                                            string.Empty);
+                                }
+                            }
+                        }
+                        y += lineHeight + spacing;
+                    }
                     
-                    float boxHeight = (lineHeight + spacing) * languageCodes.Length + spacing;
+                    float boxHeight = (lineHeight + spacing) *
+                        Math.Max(1, languageClipsProp.arraySize) + spacing;
                     Rect boxRect = new Rect(position.x, y, position.width, boxHeight);
                     GUI.Box(boxRect, GUIContent.none);
                     float innerY = y + spacing;
                 
-                for (int i = 0; i < languageCodes.Length; i++)
+                for (int i = 0; i < languageClipsProp.arraySize; i++)
                 {
                     var entry = languageClipsProp.GetArrayElementAtIndex(i);
                     var langCodeProp = entry.FindPropertyRelative("languageCode");
                     var clipReferenceProp = entry.FindPropertyRelative("clipReference");
                     
-                    langCodeProp.stringValue = languageCodes[i];
-                    
                     var labelLangRect = new Rect(position.x + 5, innerY, 60, lineHeight);
                     var clipRect = new Rect(position.x + 70, innerY, position.width - 75, lineHeight);
                     
-                    EditorGUI.LabelField(labelLangRect, languageCodes[i]);
+                    EditorGUI.PropertyField(labelLangRect, langCodeProp, GUIContent.none);
                     
                     // Make clip reference field read-only in play mode
                     bool wasEnabled = GUI.enabled;
@@ -123,11 +163,21 @@ namespace Molca.Editor
                 var localizationModule = GlobalSettings.GetModule<LocalizationModule>();
                 if (localizationModule != null)
                 {
-                    var languageCodes = localizationModule.LanguageCode;
+                    var languageCodes = localizationModule.LanguageCode
+                        .Where(code => !string.IsNullOrWhiteSpace(code))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
                     var lineHeight = EditorGUIUtility.singleLineHeight;
                     var spacing = EditorGUIUtility.standardVerticalSpacing;
-                    // Each language now has 1 line: audio clip
-                    height += (lineHeight + spacing) * languageCodes.Length + spacing;
+                    var diagnostics = LocalizationAuthoringUtility.Analyze(
+                        languageClipsProp,
+                        languageCodes);
+                    if (diagnostics.HasFindings)
+                        height += 40f + spacing;
+                    if (diagnostics.MissingCodes.Count > 0)
+                        height += lineHeight + spacing;
+                    height += (lineHeight + spacing) *
+                        Mathf.Max(1, languageClipsProp.arraySize) + spacing;
                 }
                 else
                 {
@@ -138,4 +188,4 @@ namespace Molca.Editor
             return height;
         }
     }
-} 
+}

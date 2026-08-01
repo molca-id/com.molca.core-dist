@@ -136,14 +136,18 @@ If the remote manifest has not been fetched (offline or URL not set), `PackageSe
 
 ### URL Configuration
 
-Both remote URLs are **auto-populated** after every successful build — no manual entry is needed:
+These apply to the **legacy schema-v1 path only**. On the release protocol every URL is derived from the signed
+release manifest and none of this is configured by hand.
+
+Set both in **System Settings** on the `ContentPackageSettings` asset:
 
 - **Packages Manifest URL** — `{remoteLoadURL}/{platform}/packages.json`
-- **Catalog URL** — `{remoteLoadURL}/{platform}/catalog_{hash}.json` (exact filename read from disk after build)
+- **Catalog URL** — `{remoteLoadURL}/{platform}/catalog_{hash}.json`
 
-Both fields are shown as read-only in **System Settings** in the Content Package Manager inspector. They update automatically each build because the catalog hash changes.
-
-To use a different URL (e.g. staging vs production), configure a separate Build Config asset per environment and assign the correct one before building.
+These were populated automatically by the build until that write-back was removed. A build wrote into a shared,
+version-controlled asset, so whoever built last silently decided the URLs for everyone, and the change surfaced in
+an unrelated commit. The catalog hash changes on every build, so re-set the Catalog URL when you rebuild — or move
+to the release protocol, where this problem does not exist.
 
 ---
 
@@ -390,153 +394,70 @@ Sections:
 Expand **System Settings** to configure:
 
 - **Check for Updates** — whether to refresh the catalog on startup.
-- **Catalog URL** / **Packages Manifest URL** — read-only; auto-populated after each build.
+- **Catalog URL** / **Packages Manifest URL** — for the legacy delivery path; set these yourself. Builds no longer write them back.
 - **Max Retry Attempts**, **Verbose Logging**.
 - Tools: **Import Manifest JSON**, **Validate Configs**, **Export JSON**, **Reset Settings to Defaults**.
 
 ---
 
-## Build, Verify & Deploy
+## Publishing content
 
-The **Build & Deploy** panel (in the Content Package Manager inspector) provides a one-stop workflow. It requires a **Build Config** asset with a **Storage Provider**.
+Publishing goes through the **Content workspace in the Molca Hub** (Window > Molca Hub > Content). Bundles are
+uploaded straight to Molca-managed storage using short-lived presigned URLs: no storage credential ever enters
+this project, and no Molca credential is ever attached to a storage request.
 
----
+The Hub is where this lives rather than the inspector because the Hub already holds the project binding and the
+developer entitlement that authorize a publish. An inspector that could publish without knowing which project it
+was pointed at was the problem, not the convenience.
 
-### Prerequisites
+### Tabs
 
-| Tool | Required for |
+| Tab | What it is for |
 |---|---|
-| Unity Addressables package | Build step |
-| Storage provider CLI (aws, gcloud, etc.) | Deploy step |
-| Configured provider credentials | Deploy step |
+| **Packages** | Every package definition, its validation findings, and — once a build layout exists — its real bundle ownership and download size. |
+| **Release** | The bound project, target platform, content version, app compatibility range, and changelog for the next release. |
+| **Verify** | Runs the shared validation engine over the configuration, then over a clean build. |
+| **Publish** | Uploads, finalizes, and optionally promotes. Lists every blocker first; nothing uploads until they clear. |
 
----
+### Publishing
 
-### 1. Create a Build Config
+1. **Verify > Build Clean and Verify.** Builds Addressables into a fresh staging directory with the build layout
+   enabled, then resolves each package's bundles from that layout. Sizes and ownership come from the layout, never
+   from filenames — a package's download size includes the dependency bundles a player actually fetches.
+2. **Release.** Set the content version (SemVer), the app compatibility range, and a changelog. Leave the maximum
+   app version empty unless the content is known to break on a newer app.
+3. **Publish > Publish Draft.** Uploads and verifies without changing what players resolve. This is the default.
+4. **Publish and Promote** when you want it live. It asks first, because it changes what every player resolves on
+   their next launch.
 
-**Assets > Create > Molca > Content Package > Build Config**
+The channel is not a field. It is resolved server-side from your build token's policy, so a client cannot widen
+its own access by asking.
 
-| Field | Description |
-|---|---|
-| **Local Output** | Where Addressables writes bundles. Use `[BuildTarget]` token (e.g. `ServerData/[BuildTarget]`). |
-| **Remote Load URL** | Public URL the app uses to load bundles at runtime. Must match the CDN/bucket public URL. Use `[BuildTarget]` token (e.g. `https://cdn.example.com/content/[BuildTarget]`). This is the only URL you configure manually — all other URLs are derived from it automatically. |
-| **Storage Provider** | Assign an `AWSS3StorageProvider`, `GCSStorageProvider`, or `CloudflareR2StorageProvider` asset. |
-
-Open the `ContentPackageSettings` asset, expand **Build & Deploy**, and assign the Build Config asset.
-
----
-
-### 2. Create a Storage Provider
-
-**Assets > Create > Molca > Content Package > Storage > [provider]**
-
-Each provider type has its own fields. See the provider-specific docs:
-
-- [AWS S3](Storage/AWSS3StorageProvider.md)
-- [Google Cloud Storage](Storage/GCSStorageProvider.md)
-- [Cloudflare R2](Storage/CloudflareR2StorageProvider.md)
-
-Assign the created asset to the **Storage Provider** field on the Build Config.
-
----
-
-### 3. Configure Addressables Profile Variables
-
-The Build panel writes **Local Output** and **Remote Load URL** into the active Addressables profile. Ensure the profile has these two variables:
-
-| Variable | Purpose |
-|---|---|
-| `RemoteBuildPath` | Local folder where bundles are written |
-| `RemoteLoadPath` | URL baked into the catalog for runtime loading |
-
-Create them in **Window > Asset Management > Addressables > Profiles** if they do not exist.
-
-For each package group set **Build Path → RemoteBuildPath**, **Load Path → RemoteLoadPath**, and enable **Can Change Post Release**.
-
----
-
-### 4. Build
-
-#### Build Player Content
-Full rebuild. Use this:
-- The first time you publish content.
-- After adding or removing Addressables groups.
-- After renaming labels or moving entries between groups.
-
-#### Build Content Update
-Incremental rebuild — only groups changed since the last full build. Requires `addressables_content_state.bin` from a prior full build.
-
-> **Rule of thumb:** full build when structure changes, content update when only asset data changes.
-
-After a successful build the pipeline automatically:
-1. Writes `packages.json` to the build output folder with per-package `bundleSizeBytes` measured from actual `.bundle` files.
-2. Scans the output folder for `catalog_*.json` and updates `_remoteCatalogUrl` in `ContentPackageSettings`.
-3. Derives `packages.json` URL from `remoteLoadURL` and updates `_remotePackagesManifestUrl` in `ContentPackageSettings`.
-
----
-
-### 5. Verify
-
-Click **Run Verification** to check the output:
-
-- Each enabled package is listed with a **green ●** (bundles found) or **red ●** (no bundles).
-- Shows bundle count and total size per package.
-- Flags packages with no labels or labels missing from the catalog.
-
-| Problem | Fix |
-|---|---|
-| `no labels configured` | Add Addressables labels in the package detail panel. |
-| `no bundles found` | The label has no entries in any group, or the group's build path is wrong. |
-| Bundle count too low | Check all expected assets are labeled correctly in the Addressables Groups window. |
-
----
-
-### 6. Deploy
-
-The Deploy section shows the fully resolved CLI command before running it.
-
-**Recommended workflow:**
-
-1. Enable **Dry Run** on the storage provider, click **Deploy** — review the log.
-2. Disable **Dry Run**, click **Deploy** — live upload.
-3. Watch the streaming log. Click **Abort** to cancel mid-transfer.
-
-The entire build output folder is uploaded, including:
-- All `.bundle` files
-- `catalog_*.json` and `catalog_*.hash`
-- `packages.json`
-
-#### Typical bucket structure after deploy
+### Release checklist
 
 ```
-cdn-bucket/
-  content/
-    StandaloneWindows64/
-      catalog_2026-05-09-10-00-00.json
-      catalog_2026-05-09-10-00-00.hash
-      packages.json
-      fire_training_env_assets_all_<hash>.bundle
-      core_assets_all_<hash>.bundle
-    Android/
-      ...
+[ ] Bump package version(s) for changed content
+[ ] Verify > Build Clean and Verify — no blocking errors
+[ ] Release > set content version, compatibility range, changelog
+[ ] Publish Draft, and confirm the release verifies server-side
+[ ] Promote when you are ready for players to receive it
 ```
 
----
+### Legacy delivery (schema v1)
 
-### Release Checklist
+The **Build & Deploy** panel in the `ContentPackageSettings` inspector remains for projects still on the flat
+`packages.json` path, and is retired at the end of the compatibility window. Two things it no longer does:
 
-```
-[ ] Bump package version(s) in ContentPackageSettings for changed content
-[ ] Run Build Player Content (or Build Content Update for patches)
-[ ] Run Verification — all packages green
-[ ] Deploy with Dry Run — review log
-[ ] Deploy live
-[ ] Smoke test: run the app, confirm PackageService fetches new catalog and manifest
-```
+- It does **not** write the resolved catalog and manifest URLs back into `ContentPackageSettings`. A build used to
+  mutate that shared, version-controlled asset to whichever machine built last. Set **Catalog URL** and
+  **Packages Manifest URL** yourself for that path.
+- It does **not** rewrite the Addressables profile. If the profile disagrees with the build config, the build says
+  so and lets you fix it in the Addressables Profiles window.
 
-The Catalog URL and Packages Manifest URL are auto-populated — no manual step needed.
+The storage-provider assets and the CLI deploy step are gone. They shelled out to an external `aws`/`gcloud`
+binary configured by an asset in the project, which is exactly the credential handling the release protocol
+exists to remove.
 
----
 
 ### Troubleshooting
 

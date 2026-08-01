@@ -302,8 +302,21 @@ namespace Molca.ContentPackage.Services
             RaiseProgress();
         }
 
-        private void RaiseChanged() => _events?.DispatchEvent(ContentPackageEvents.QueueChanged, GetSnapshot());
-        private void RaiseProgress() => _events?.DispatchEvent(ContentPackageEvents.QueueProgress, ComputeAggregateProgress());
+        // In-flight installs outlive Dispose -- the token is cancelled but the awaited operation
+        // still runs its continuation, which raises these. Dispatching queue events after the
+        // queue has been torn down reaches subscribers that already unsubscribed from everything
+        // else, so the guard belongs here rather than at each call site.
+        private void RaiseChanged()
+        {
+            if (_disposed) return;
+            _events?.DispatchEvent(ContentPackageEvents.QueueChanged, GetSnapshot());
+        }
+
+        private void RaiseProgress()
+        {
+            if (_disposed) return;
+            _events?.DispatchEvent(ContentPackageEvents.QueueProgress, ComputeAggregateProgress());
+        }
 
         /// <inheritdoc/>
         public void Dispose()

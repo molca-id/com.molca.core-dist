@@ -129,10 +129,18 @@ namespace Molca.Editor.Automation.BuiltIn
         }
 
         /// <summary>
-        /// Checks that authored, deliverable packages have somewhere to be fetched from: a package that is
-        /// visible to users but whose settings asset declares no remote manifest URL can never install at
-        /// runtime. Warnings only — a project may intentionally ship all content locally.
+        /// Checks that authored packages have somewhere to be fetched from.
         /// </summary>
+        /// <remarks>
+        /// Counts <em>every</em> package, not only the visible ones. This used to gate on visibility,
+        /// so a project whose packages were all hidden got no warning at all — and a hidden
+        /// <em>required</em> package that cannot be discovered is precisely the one that breaks the
+        /// app on launch. Visibility affects presentation, not deliverability.
+        ///
+        /// The check does not apply under the release protocol, where a manifest URL is not used:
+        /// every URL is derived from the signed release. Warning about an unset legacy field would be
+        /// a false finding, and a report full of those is one nobody reads.
+        /// </remarks>
         private static Awaitable<MolcaStepResult> DeliveryStep(MolcaCommandContext context)
         {
             var assets = LoadAllSettings();
@@ -141,21 +149,30 @@ namespace Molca.Editor.Automation.BuiltIn
 
             foreach (var (path, settings) in assets)
             {
-                int visible = settings.packageConfigs?.Count(c => c != null && c.isVisible) ?? 0;
+                var configs = settings.packageConfigs ?? new List<ContentPackageSettings.PackageConfig>();
+                int total = configs.Count(c => c != null && !string.IsNullOrEmpty(c.packageId));
+                int required = configs.Count(c => c != null && c.isRequired);
                 bool hasManifestUrl = !string.IsNullOrEmpty(settings.RemotePackagesManifestUrl);
+                bool releaseProtocol = settings.EnableReleaseProtocol;
 
-                if (visible > 0 && !hasManifestUrl)
+                if (!releaseProtocol && total > 0 && !hasManifestUrl)
                 {
-                    diagnostics.Add(new MolcaDiagnostic("content.no_manifest_url",
-                        $"{visible} visible package(s) but no RemotePackagesManifestUrl — remote content cannot be discovered at runtime.",
-                        MolcaDiagnosticSeverity.Warning, path));
+                    string detail = required > 0
+                        ? $"{total} package(s), {required} of them required, but no RemotePackagesManifestUrl — " +
+                          "required content cannot be discovered at runtime."
+                        : $"{total} package(s) but no RemotePackagesManifestUrl — remote content cannot be " +
+                          "discovered at runtime.";
+                    diagnostics.Add(new MolcaDiagnostic("content.no_manifest_url", detail,
+                        required > 0 ? MolcaDiagnosticSeverity.Error : MolcaDiagnosticSeverity.Warning, path));
                 }
 
                 perAsset.Add(new JObject
                 {
                     ["path"] = path,
-                    ["visiblePackages"] = visible,
+                    ["packages"] = total,
+                    ["requiredPackages"] = required,
                     ["hasManifestUrl"] = hasManifestUrl,
+                    ["releaseProtocol"] = releaseProtocol,
                     ["contentVersioning"] = settings.EnableContentVersioning
                 });
             }

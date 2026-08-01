@@ -6,6 +6,9 @@ using Molca.ContentPackage.Core;
 using Molca.ContentPackage.Services;
 using Molca.Editor.UI;
 using Molca.Settings;
+// Aliased: this file's namespace is Molca.Editor.ContentPackage, so the unqualified name would not
+// resolve against Molca.ContentPackage.Editor.
+using ContentPackageEditingService = Molca.ContentPackage.Editor.ContentPackageEditingService;
 
 namespace Molca.Editor.ContentPackage
 {
@@ -51,6 +54,21 @@ namespace Molca.Editor.ContentPackage
         // passes of any single frame use an identical value (a mid-frame change throws GUILayout errors).
         private float      _rightPanelWidth        = 360f;
         private float      _pendingRightPanelWidth = 360f;
+
+        private ContentPackageEditingService _editing;
+
+        /// <summary>
+        /// The one write path for this asset, shared with automation, MCP, and remediation fixes.
+        /// </summary>
+        /// <remarks>
+        /// Structural changes — add, remove, retarget a dependency — go through here rather than
+        /// through this inspector's own <see cref="SerializedObject"/>. Per-field editing below still
+        /// binds <c>PropertyField</c> directly, which is ordinary inspector binding and not a second
+        /// write path: it edits the field the user is looking at, and cannot invent a package or
+        /// silently orphan a dependent.
+        /// </remarks>
+        private ContentPackageEditingService Editing =>
+            _editing ??= new ContentPackageEditingService((ContentPackageSettings)target);
 
         private void OnEnable()
         {

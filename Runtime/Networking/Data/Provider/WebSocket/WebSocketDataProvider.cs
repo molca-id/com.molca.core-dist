@@ -1,9 +1,8 @@
 #if MOLCA_WEBSOCKET
 using System;
-using System.Collections.Generic;
-using System.Text;
 using Molca.Attributes;
-using Molca.Networking.Auth;
+using Molca.Networking.Configuration;
+using Molca.Networking.Streaming;
 using NativeWebSocket;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -18,29 +17,55 @@ namespace Molca.Networking.Data
 
     /// <summary>
     /// Standard WebSocket Data Provider for JSON or raw string payloads.
-    /// 
+    ///
     /// JSON MODE:
     /// 1. Set Message Format to "JSON"
     /// 2. Optionally enable filtering and set the field name that contains the type identifier
     /// 3. Provide a DataMapping to parse the JSON payload
-    /// 
+    ///
     /// RAW MODE:
     /// 1. Set Message Format to "Raw"
     /// 2. Incoming payloads are forwarded directly to the DataMapping/JsonPreProcessor
     /// </summary>
+    /// <remarks>
+    /// The asset is <b>configuration</b>: where to connect, how to authenticate, how to shape a
+    /// reconnect, and how to interpret a frame. It holds no connection. The socket, the connecting flag,
+    /// the handshake deadline, the keep-alive timer, the reconnect budget, and the last error live on a
+    /// <see cref="WebSocketStreamSession"/> the network subsystem owns.
+    /// <para>
+    /// That split is not tidiness. A <see cref="ScriptableObject"/> is project data, so a provider
+    /// recording its own connection status was mutating an asset at runtime — and two scenes referencing
+    /// one provider were overwriting each other's state. The serialized <c>_connectionStatus</c> and
+    /// <c>_reconnectAttemptCount</c> fields survive for serialization compatibility and are no longer
+    /// written while the game runs; read <see cref="ConnectionStatus"/>, which reads through to the
+    /// session.
+    /// </para>
+    /// <para>
+    /// Set a catalog service on <b>Route</b> and the connection inherits the catalog's allowed hosts,
+    /// production scheme rule, and credential scope. Leave it empty and the authored URL is used as
+    /// before, outside all of those.
+    /// </para>
+    /// </remarks>
     [UnityEngine.Icon("Packages/com.molca.core/Editor/Icons/molca-networking.png")]
     [CreateAssetMenu(fileName = "WebSocketDataProvider", menuName = "Molca/Networking/WebSocketDataProvider", order = 20)]
-    public class WebSocketDataProvider : DataProvider
+    public class WebSocketDataProvider : DataProvider, Diagnostics.INetworkStreamStatus
     {
+        [Header("Route (preferred)")]
+        [Tooltip("Connect through the network catalog: a service, an environment strategy, and a relative path. " +
+                 "When a service is set it replaces the URL below and the connection gains the catalog's " +
+                 "allowed-host, production-scheme, and credential-scope rules.")]
+        [SerializeField] private NetworkStreamRoute _route;
+
         [Header("WebSocket Settings")]
+        [Tooltip("Direct URL. Used only when no catalog service is set above.")]
         [SerializeField, FormerlySerializedAs("url")] private string _url;
         [SerializeField, FormerlySerializedAs("useSecureConnection")] private bool _useSecureConnection = true;
-        
+
         [Header("Authentication")]
         [SerializeField, FormerlySerializedAs("requireAuthentication")] private bool _requireAuthentication = false;
         [SerializeField, FormerlySerializedAs("tokenType")] private AuthTokenType _tokenType = AuthTokenType.Bearer;
         [SerializeField, FormerlySerializedAs("customTokenHeaderName")] private string _customTokenHeaderName = "Authorization";
-        
+
         [Header("Connection Settings")]
         [SerializeField, FormerlySerializedAs("autoReconnect")] private bool _autoReconnect = true;
         [Tooltip("First reconnect delay in seconds; grows exponentially with jitter up to the max.")]
@@ -52,54 +77,79 @@ namespace Molca.Networking.Data
         [Tooltip("A connection must live this long before a drop resets the backoff budget; guards against accept-then-drop servers causing a fast retry loop. 0 = any established connection resets.")]
         [SerializeField] private float _stableConnectionSeconds = 10f;
         [SerializeField, FormerlySerializedAs("connectionTimeoutSeconds")] private float _connectionTimeoutSeconds = 30f;
-        
+
         [Header("Ping/Pong Settings")]
         [SerializeField, FormerlySerializedAs("enablePingPong")] private bool _enablePingPong = true;
         [SerializeField, FormerlySerializedAs("pingIntervalSeconds")] private float _pingIntervalSeconds = 30f;
         [SerializeField, FormerlySerializedAs("pingMessage")] private string _pingMessage = "{\"type\":\"ping\"}";
-        
+
         [Header("Message Format")]
         [SerializeField, FormerlySerializedAs("messageFormat")] private MessageFormat _messageFormat = MessageFormat.JSON;
         [SerializeField, FormerlySerializedAs("filterMessages")] private bool _filterMessages = false;
-        
+
         [Header("JSON Format Settings")]
         [Tooltip("For JSON format: field name that contains the message type (e.g., 'type')")]
         [SerializeField, FormerlySerializedAs("messageTypeFieldName")] private string _messageTypeFieldName = "type";
-        
+
         [Header("Debug")]
         [SerializeField, FormerlySerializedAs("logMessages")] private bool _logMessages = false;
         [SerializeField, FormerlySerializedAs("logRawData")] private bool _logRawData = false;
+
+        [Tooltip("Kept for serialization compatibility. Live state lives on the session — read ConnectionStatus.")]
         [SerializeField, FormerlySerializedAs("connectionStatus"), ReadOnly] private string _connectionStatus = "Disconnected";
+
+        [Tooltip("Kept for serialization compatibility. Live state lives on the session — read ReconnectAttemptCount.")]
         [SerializeField, FormerlySerializedAs("reconnectAttemptCount"), ReadOnly] private int _reconnectAttemptCount = 0;
-        
-        private WebSocket _webSocket;
-        private bool _isAuthenticated;
-        private bool _isConnecting;
-        private bool _isManualDisconnect;
-        private float _lastPingTime;
-        private float _connectionStartTime;
-        private Dictionary<string, string> _headers = new Dictionary<string, string>();
-        // Shared backoff schedule; built on Activate, reset when a connection
-        // outlives the stable window (see OnWebSocketClose).
-        private StreamReconnectPolicy _reconnectPolicy;
 
-        // True while the per-frame pump loop is alive (one per activation).
-        private bool _pumpRunning;
+        private WebSocketStreamSession _session;
 
-        // When the current connection opened (realtime); <0 while not open.
-        private float _connectedAtRealtime = -1f;
-        // The most recent error/close looked like an auth rejection (401/unauthorized/1008).
-        private bool _authShapedFailure;
-        // One RefreshAsync per expiry episode; cleared when a connection opens.
-        private bool _authRefreshAttempted;
-
+        /// <summary>How a token is carried to the server.</summary>
         public enum AuthTokenType
         {
+            /// <summary>An <c>Authorization: Bearer &lt;token&gt;</c> header.</summary>
             Bearer,
+
+            /// <summary>A custom header named by <c>customTokenHeaderName</c>.</summary>
             Custom,
+
+            /// <summary>A <c>token</c> query parameter.</summary>
             QueryParameter
         }
 
+        /// <summary>Whether this provider connects through a catalog route rather than a direct URL.</summary>
+        public bool UsesRoutedStream => _route.IsConfigured;
+
+        /// <summary>The subsystem-owned session, or <c>null</c> while inactive.</summary>
+        public NetworkStreamSession Session => _session;
+
+        /// <summary>The binding the current attempt resolved to, or <c>null</c>.</summary>
+        public NetworkStreamBinding Binding => _session?.Binding;
+
+        /// <summary>
+        /// Check if connected
+        /// </summary>
+        public bool IsConnected => _session != null && _session.IsOpen;
+
+        /// <summary>
+        /// Get current connection state
+        /// </summary>
+        public WebSocketState ConnectionState => _session?.SocketState ?? WebSocketState.Closed;
+
+        /// <summary>
+        /// Get connection status string
+        /// </summary>
+        public string ConnectionStatus => _session != null ? _session.Describe() : _connectionStatus;
+
+        /// <summary>Connection attempts made since the session started.</summary>
+        public int ReconnectAttemptCount => _session?.AttemptCount ?? _reconnectAttemptCount;
+
+        /// <inheritdoc />
+        public bool IsStreamConnected => IsConnected;
+
+        /// <inheritdoc />
+        public string StreamStatus => ConnectionStatus ?? string.Empty;
+
+        /// <inheritdoc />
         public override void Activate()
         {
             if (!ValidateConfiguration())
@@ -110,245 +160,216 @@ namespace Molca.Networking.Data
 
             base.Activate();
 
-            _connectionStatus = "Initializing";
-            _isManualDisconnect = false;
-            _reconnectAttemptCount = 0;
-            _reconnectPolicy = new StreamReconnectPolicy(
-                _reconnectDelaySeconds, _reconnectMaxDelaySeconds, _maxReconnectAttempts,
-                stableResetSeconds: _stableConnectionSeconds);
-            _connectedAtRealtime = -1f;
-            _authShapedFailure = false;
-            _authRefreshAttempted = false;
-
-            // Explicit fire-and-forget: the pump owns its exceptions and unwinds
-            // on LifetimeToken. Without it no message dispatch, ping, or timeout
-            // handling ever runs (ScriptableObjects get no Update()).
-            _ = PumpLoopAsync();
-
-            if (_requireAuthentication)
+            var network = RuntimeManager.GetSubsystem<NetworkRuntimeSubsystem>();
+            if (network == null)
             {
-                AuthEvents.StateChanged.Register(OnAuthStateChanged);
-                
-                if (AuthManager.Instance != null && AuthManager.Instance.IsAuthenticated)
-                {
-                    _isAuthenticated = true;
-                    ConnectWebSocket();
-                }
-                else
-                {
-                    _connectionStatus = "Waiting for Authentication";
-                    Debug.Log($"[WebSocketDataProvider] {name}: Waiting for authentication...");
-                }
-            }
-            else
-            {
-                ConnectWebSocket();
-            }
-        }
-
-        public override void Deactivate()
-        {
-            _isManualDisconnect = true;
-            _connectionStatus = "Disconnecting";
-            
-            if (_requireAuthentication)
-            {
-                AuthEvents.StateChanged.Unregister(OnAuthStateChanged);
-            }
-            
-            DisconnectWebSocket();
-            base.Deactivate();
-            
-            _connectionStatus = "Disconnected";
-        }
-
-        public override void FetchData()
-        {
-            // WebSocket receives data through events, not by polling
-            // This method is not used but required by the base class
-        }
-
-        private void OnAuthStateChanged(AuthChangedEventData data)
-        {
-            _isAuthenticated = data.IsAuthenticated;
-            
-            if (_isAuthenticated)
-            {
-                if (_tokenType != AuthTokenType.QueryParameter)
-                {
-                    ApplyAuthToken();
-                }
-                
-                if (_webSocket == null || _webSocket.State == WebSocketState.Closed)
-                {
-                    ConnectWebSocket();
-                }
-            }
-            else
-            {
-                Debug.LogWarning($"[WebSocketDataProvider] {name}: Authentication lost, disconnecting...");
-                DisconnectWebSocket();
-            }
-        }
-
-        private void ApplyAuthToken()
-        {
-            if (AuthManager.Instance == null) return;
-            
-            string token = AuthManager.Instance.AuthToken;
-            if (string.IsNullOrEmpty(token)) return;
-            
-            switch (_tokenType)
-            {
-                case AuthTokenType.Bearer:
-                    _headers["Authorization"] = $"Bearer {token}";
-                    break;
-                case AuthTokenType.Custom:
-                    _headers[_customTokenHeaderName] = token;
-                    break;
-            }
-            
-            if (_logMessages)
-            {
-                Debug.Log($"[WebSocketDataProvider] {name}: Auth token applied");
-            }
-        }
-
-        private void ConnectWebSocket()
-        {
-            // Explicit fire-and-forget: the async method owns its exceptions.
-            _ = ConnectWebSocketAsync();
-        }
-
-        private async Awaitable ConnectWebSocketAsync()
-        {
-            if (_isConnecting || (_webSocket != null && _webSocket.State == WebSocketState.Open))
-            {
-                Debug.LogWarning($"[WebSocketDataProvider] {name}: Already connected or connecting");
+                Debug.LogError(
+                    $"[WebSocketDataProvider] {name}: no NetworkRuntimeSubsystem is active, so no session " +
+                    "can be opened. Add one to the bootstrap, or declare " +
+                    "[DependsOn(typeof(NetworkRuntimeSubsystem))] on whatever activates this provider.");
                 return;
             }
 
-            // Full cleanup of any previous (closed/failed) socket before creating a new
-            // one — otherwise the old socket keeps its handlers attached and its zombie
-            // OnClose/OnError events schedule reconnects alongside the live socket.
-            DisconnectWebSocket();
+            _session = new WebSocketStreamSession(
+                ProviderId,
+                _route,
+                network.Resolver,
+                network.Credentials,
+                BuildOptions(),
+                StreamReconnectSettings.Create(
+                    _autoReconnect, _reconnectDelaySeconds, _reconnectMaxDelaySeconds,
+                    _maxReconnectAttempts, _stableConnectionSeconds),
+                directUri: BuildDirectUrl());
 
-            try
-            {
-                _isConnecting = true;
-                _connectionStartTime = Time.time;
-                _connectionStatus = $"Connecting (Attempt {_reconnectAttemptCount + 1})";
+            _session.MessageReceived += OnFrameReceived;
+            network.AdoptSession(_session);
 
-                string finalUrl = BuildConnectionUrl();
-                
-                if (_logMessages)
-                {
-                    Debug.Log($"[WebSocketDataProvider] {name}: Connecting to {Molca.Networking.Utils.LogRedaction.RedactUrl(finalUrl)}");
-                }
-
-                _webSocket = _headers.Count > 0 
-                    ? new WebSocket(finalUrl, _headers) 
-                    : new WebSocket(finalUrl);
-                
-                // Register event handlers
-                _webSocket.OnOpen += OnWebSocketOpen;
-                _webSocket.OnMessage += OnWebSocketMessage;
-                _webSocket.OnError += OnWebSocketError;
-                _webSocket.OnClose += OnWebSocketClose;
-                
-                await _webSocket.Connect();
-            }
-            catch (Exception ex)
-            {
-                _isConnecting = false;
-                _connectionStatus = "Connection Failed";
-                Debug.LogError($"[WebSocketDataProvider] {name}: Connection error: {ex.Message}");
-                HandleReconnect();
-            }
+            // Fire-and-forget keyed on this provider's activation token, the same lifetime contract the
+            // provider has always used. Deactivate closes the session, which unwinds the loop.
+            _ = _session.RunAsync(LifetimeToken);
         }
 
-        private string BuildConnectionUrl()
+        /// <inheritdoc />
+        public override void Deactivate()
         {
-            string finalUrl = _url;
-            
-            // Ensure proper protocol
-            if (!finalUrl.StartsWith("ws://") && !finalUrl.StartsWith("wss://"))
+            if (_session != null)
             {
-                finalUrl = (_useSecureConnection ? "wss://" : "ws://") + finalUrl;
+                _session.MessageReceived -= OnFrameReceived;
+                _session = null;
+
+                // The registry owns disposal: closing by id stops the session and forgets it, so a
+                // re-activated provider never ends up with two live connections.
+                RuntimeManager.GetSubsystem<NetworkRuntimeSubsystem>()?.Streams?.Close(ProviderId);
             }
-            
-            // Apply token as query parameter if needed
-            if (_requireAuthentication && _tokenType == AuthTokenType.QueryParameter && AuthManager.Instance != null)
-            {
-                string token = AuthManager.Instance.AuthToken;
-                if (!string.IsNullOrEmpty(token))
-                {
-                    char separator = finalUrl.Contains("?") ? '&' : '?';
-                    finalUrl = $"{finalUrl}{separator}token={token}";
-                }
-            }
-            
-            return finalUrl;
+
+            base.Deactivate();
         }
 
-        private void DisconnectWebSocket()
-        {
-            if (_webSocket == null) return;
+        /// <inheritdoc />
+        /// <remarks>A WebSocket is pushed to, not polled, so there is nothing to fetch on demand.</remarks>
+        public override void FetchData() { }
 
-            try
-            {
-                if (_webSocket.State == WebSocketState.Open)
-                {
-                    _webSocket.Close();
-                }
-                
-                // Unregister event handlers
-                _webSocket.OnOpen -= OnWebSocketOpen;
-                _webSocket.OnMessage -= OnWebSocketMessage;
-                _webSocket.OnError -= OnWebSocketError;
-                _webSocket.OnClose -= OnWebSocketClose;
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"[WebSocketDataProvider] {name}: Error during disconnect: {ex.Message}");
-            }
-            finally
-            {
-                _webSocket = null;
-            }
-        }
-
-        private void OnWebSocketOpen()
+        /// <summary>
+        /// Send a custom message through the WebSocket connection
+        /// </summary>
+        /// <returns>Completes once the message is sent. Awaiting is optional.</returns>
+        public async Awaitable SendMessage(string message)
         {
-            _isConnecting = false;
-            _connectionStatus = "Connected";
-            _lastPingTime = Time.time;
-            // The backoff budget is NOT reset here — only a connection that outlives
-            // the stable window resets it (see OnWebSocketClose), so an
-            // accept-then-drop server can't retry at full speed forever.
-            _connectedAtRealtime = Time.realtimeSinceStartup;
-            // The handshake was accepted, so the current token works again.
-            _authShapedFailure = false;
-            _authRefreshAttempted = false;
+            if (_session == null)
+            {
+                Debug.LogWarning($"[WebSocketDataProvider] {name}: Cannot send message - not active");
+                return;
+            }
+
+            await _session.SendTextAsync(message);
 
             if (_logMessages)
             {
-                Debug.Log($"[WebSocketDataProvider] {name}: Connection established");
+                Debug.Log($"[WebSocketDataProvider] {name}: Message sent: {message}");
             }
         }
 
-        private void OnWebSocketMessage(byte[] data)
+        /// <summary>
+        /// Send binary data through the WebSocket connection
+        /// </summary>
+        /// <returns>Completes once the data is sent. Awaiting is optional.</returns>
+        public async Awaitable SendBinary(byte[] data)
+        {
+            if (_session == null)
+            {
+                Debug.LogWarning($"[WebSocketDataProvider] {name}: Cannot send binary data - not active");
+                return;
+            }
+
+            await _session.SendBinaryAsync(data);
+
+            if (_logMessages)
+            {
+                Debug.Log($"[WebSocketDataProvider] {name}: Binary data sent ({data?.Length ?? 0} bytes)");
+            }
+        }
+
+        /// <summary>
+        /// Manually trigger a reconnection.
+        /// </summary>
+        /// <remarks>
+        /// It drops the connection rather than restarting the session, so the reconnect still runs through
+        /// the backoff and the attempt budget. A manual retry that bypassed those would let a user hammer
+        /// a failing server by holding a button.
+        /// </remarks>
+        public void Reconnect()
+        {
+            if (_session == null)
+            {
+                Debug.LogWarning($"[WebSocketDataProvider] {name}: Cannot reconnect - not active");
+                return;
+            }
+
+            if (_logMessages)
+            {
+                Debug.Log($"[WebSocketDataProvider] {name}: Manual reconnect triggered");
+            }
+
+            _session.DropConnection();
+        }
+
+        /// <inheritdoc />
+        public override bool ValidateConfiguration()
+        {
+            if (!base.ValidateConfiguration())
+            {
+                return false;
+            }
+
+            // A routed provider has no URL to validate: its destination comes from the catalog binding
+            // and is checked when the route resolves.
+            if (!UsesRoutedStream && string.IsNullOrEmpty(_url))
+            {
+                Debug.LogError(
+                    $"[WebSocketDataProvider] {name}: set a catalog service on Route, or a direct URL.");
+                return false;
+            }
+
+            if (_reconnectDelaySeconds < 0)
+            {
+                Debug.LogError($"[WebSocketDataProvider] {name}: Reconnect delay cannot be negative!");
+                return false;
+            }
+
+            if (_maxReconnectAttempts < 0)
+            {
+                Debug.LogError($"[WebSocketDataProvider] {name}: Max reconnect attempts cannot be negative!");
+                return false;
+            }
+
+            if (_enablePingPong && _pingIntervalSeconds <= 0)
+            {
+                Debug.LogError($"[WebSocketDataProvider] {name}: Ping interval must be greater than 0!");
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>Snapshots the connection settings for the session's lifetime.</summary>
+        internal WebSocketSessionOptions BuildOptions()
+        {
+            return new WebSocketSessionOptions
+            {
+                EnablePingPong = _enablePingPong,
+                PingIntervalSeconds = _pingIntervalSeconds,
+                PingMessage = _pingMessage,
+                ConnectionTimeoutSeconds = _connectionTimeoutSeconds,
+                RequireAuthentication = _requireAuthentication,
+                AuthHeaderName = _tokenType == AuthTokenType.Custom
+                    ? _customTokenHeaderName
+                    : "Authorization",
+                AuthScheme = _tokenType == AuthTokenType.Bearer ? "Bearer " : string.Empty,
+                AuthQueryParameter = _tokenType == AuthTokenType.QueryParameter ? "token" : string.Empty,
+                LogEvents = _logMessages,
+            };
+        }
+
+        /// <summary>
+        /// The authored URL with its scheme applied, or empty when this provider is routed.
+        /// </summary>
+        /// <remarks>
+        /// Empty in routed mode on purpose: the session must have no URL to fall back to. A provider whose
+        /// catalog binding was deleted would otherwise quietly resume connecting to whatever is still
+        /// typed in the asset.
+        /// </remarks>
+        internal string BuildDirectUrl()
+        {
+            if (UsesRoutedStream || string.IsNullOrEmpty(_url))
+                return string.Empty;
+
+            string url = _url;
+            if (!url.StartsWith("ws://", StringComparison.Ordinal) &&
+                !url.StartsWith("wss://", StringComparison.Ordinal))
+            {
+                url = (_useSecureConnection ? "wss://" : "ws://") + url;
+            }
+
+            return url;
+        }
+
+        /// <summary>
+        /// Interprets one raw frame: drop keep-alive replies, apply the configured format, then dispatch.
+        /// </summary>
+        /// <remarks>
+        /// Interpretation stays on the provider because it is asset configuration — the message format,
+        /// the type field, the filter switch. The session owns the connection; this owns what a frame
+        /// means.
+        /// </remarks>
+        private void OnFrameReceived(string message)
         {
             try
             {
-                string message = Encoding.UTF8.GetString(data);
-                
                 if (_logRawData)
                 {
                     Debug.Log($"[WebSocketDataProvider] {name}: Raw message: {message}");
                 }
-                
-                // Check if this is a pong response
+
                 if (IsPongMessage(message))
                 {
                     if (_logMessages)
@@ -357,10 +378,9 @@ namespace Molca.Networking.Data
                     }
                     return;
                 }
-                
-                // Parse message based on format
+
                 string processedMessage = ParseMessageByFormat(message);
-                
+
                 if (string.IsNullOrEmpty(processedMessage))
                 {
                     if (_logMessages)
@@ -369,148 +389,12 @@ namespace Molca.Networking.Data
                     }
                     return;
                 }
-                
-                if (_logMessages)
-                {
-                    Debug.Log($"[WebSocketDataProvider] {name}: Processing message");
-                }
-                
+
                 OnDataFetched(processedMessage);
             }
             catch (Exception ex)
             {
                 Debug.LogError($"[WebSocketDataProvider] {name}: Error processing message: {ex.Message}");
-            }
-        }
-
-        private void OnWebSocketError(string errorMessage)
-        {
-            _connectionStatus = $"Error: {errorMessage}";
-            if (IsAuthShapedError(errorMessage))
-                _authShapedFailure = true;
-            Debug.LogError($"[WebSocketDataProvider] {name}: WebSocket error: {errorMessage}");
-        }
-
-        // A WS handshake rejected for auth surfaces as an HTTP 401 in the error text
-        // or as a 1008 (policy violation) close code — there is no typed status.
-        private static bool IsAuthShapedError(string errorMessage)
-        {
-            if (string.IsNullOrEmpty(errorMessage))
-                return false;
-            return errorMessage.Contains("401")
-                || errorMessage.IndexOf("unauthorized", StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
-        private void OnWebSocketClose(WebSocketCloseCode closeCode)
-        {
-            _isConnecting = false;
-            _connectionStatus = $"Closed ({closeCode})";
-
-            if (closeCode == WebSocketCloseCode.PolicyViolation)
-                _authShapedFailure = true;
-
-            // Only a connection that outlived the stable window clears the backoff
-            // budget; instant drops keep consuming it.
-            if (_connectedAtRealtime >= 0f && _reconnectPolicy != null)
-            {
-                if (_reconnectPolicy.OnConnectionEnded(Time.realtimeSinceStartup - _connectedAtRealtime))
-                    _reconnectAttemptCount = 0;
-            }
-            _connectedAtRealtime = -1f;
-
-            if (_logMessages)
-            {
-                Debug.Log($"[WebSocketDataProvider] {name}: Connection closed with code: {closeCode}");
-            }
-
-            if (!_isManualDisconnect && IsActive)
-            {
-                HandleReconnect();
-            }
-        }
-
-        private void HandleReconnect()
-        {
-            // Explicit fire-and-forget: the async method owns its exceptions.
-            _ = HandleReconnectAsync();
-        }
-
-        private async Awaitable HandleReconnectAsync()
-        {
-            if (!_autoReconnect || _isManualDisconnect || !IsActive)
-            {
-                return;
-            }
-
-            // An auth-shaped failure (401/unauthorized/1008): reconnecting with the same
-            // dead token cannot succeed. Refresh once per expiry episode; if refresh is
-            // unavailable or fails (or the refreshed token was also rejected), raise
-            // AuthEvents.Expired and stop instead of burning the reconnect budget.
-            if (_requireAuthentication && _authShapedFailure)
-            {
-                _authShapedFailure = false;
-                bool refreshed = false;
-                if (!_authRefreshAttempted && AuthManager.Instance != null)
-                {
-                    _authRefreshAttempted = true;
-                    _connectionStatus = "Refreshing Authentication";
-                    try
-                    {
-                        refreshed = await AuthManager.Instance.RefreshAsync(LifetimeToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        return; // provider deactivated mid-refresh
-                    }
-                }
-
-                if (!refreshed)
-                {
-                    _connectionStatus = "Authentication Expired";
-                    Debug.LogError($"[WebSocketDataProvider] {name}: auth-rejected and token refresh did not recover; stopping reconnects.");
-                    AuthEvents.Expired.Dispatch(new AuthExpiredEventData(AuthManager.Instance?.User?.GetUserId()));
-                    return;
-                }
-            }
-
-            // Re-read the current auth token before reconnecting so a refresh (Sprint 39)
-            // is applied to the header path (query-parameter mode re-reads it in
-            // BuildConnectionUrl). A reconnect that then fails auth surfaces; it won't spin.
-            if (_requireAuthentication && _tokenType != AuthTokenType.QueryParameter)
-            {
-                ApplyAuthToken();
-            }
-
-            bool canRetry;
-            try
-            {
-                // Exponential backoff + jitter, capped, bounded by _maxReconnectAttempts.
-                canRetry = await _reconnectPolicy.WaitForNextAttemptAsync(LifetimeToken);
-            }
-            catch (OperationCanceledException)
-            {
-                // Provider deactivated while waiting — abandon the reconnect.
-                return;
-            }
-
-            if (!canRetry)
-            {
-                _connectionStatus = "Max Reconnect Attempts Reached";
-                Debug.LogError($"[WebSocketDataProvider] {name}: Max reconnect attempts ({_maxReconnectAttempts}) reached");
-                return;
-            }
-
-            _reconnectAttemptCount = _reconnectPolicy.AttemptCount;
-            _connectionStatus = $"Reconnecting (attempt {_reconnectAttemptCount})";
-
-            if (_logMessages)
-            {
-                Debug.Log($"[WebSocketDataProvider] {name}: Reconnecting... (attempt {_reconnectAttemptCount})");
-            }
-
-            if (!_isManualDisconnect && IsActive)
-            {
-                ConnectWebSocket();
             }
         }
 
@@ -531,7 +415,7 @@ namespace Molca.Networking.Data
             {
                 case MessageFormat.JSON:
                     return ParseJSONMessage(message);
-                    
+
                 case MessageFormat.Raw:
                 default:
                     return message;
@@ -550,7 +434,7 @@ namespace Molca.Networking.Data
                 {
                     return null;
                 }
-                
+
                 return message;
             }
             catch (Exception ex)
@@ -566,7 +450,7 @@ namespace Molca.Networking.Data
         private bool ShouldProcessJSONMessage(string message, out string messageType)
         {
             messageType = null;
-            
+
             try
             {
                 // Simple JSON parsing to check message type
@@ -579,223 +463,12 @@ namespace Molca.Networking.Data
                         messageType = message.Substring(startIndex, endIndex - startIndex);
                     }
                 }
-                
+
                 return true;
             }
             catch
             {
                 return true; // If parsing fails, process the message anyway
-            }
-        }
-
-        private void SendPing()
-        {
-            // Explicit fire-and-forget: the async method owns its exceptions.
-            _ = SendPingAsync();
-        }
-
-        private async Awaitable SendPingAsync()
-        {
-            if (_webSocket == null || _webSocket.State != WebSocketState.Open)
-            {
-                return;
-            }
-            
-            try
-            {
-                await _webSocket.SendText(_pingMessage);
-                
-                if (_logMessages)
-                {
-                    Debug.Log($"[WebSocketDataProvider] {name}: Ping sent");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"[WebSocketDataProvider] {name}: Error sending ping: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Send a custom message through the WebSocket connection
-        /// </summary>
-        /// <returns>Completes once the message is sent. Awaiting is optional.</returns>
-        public async Awaitable SendMessage(string message)
-        {
-            if (_webSocket == null || _webSocket.State != WebSocketState.Open)
-            {
-                Debug.LogWarning($"[WebSocketDataProvider] {name}: Cannot send message - not connected");
-                return;
-            }
-            
-            try
-            {
-                await _webSocket.SendText(message);
-                
-                if (_logMessages)
-                {
-                    Debug.Log($"[WebSocketDataProvider] {name}: Message sent: {message}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"[WebSocketDataProvider] {name}: Error sending message: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Send binary data through the WebSocket connection
-        /// </summary>
-        /// <returns>Completes once the data is sent. Awaiting is optional.</returns>
-        public async Awaitable SendBinary(byte[] data)
-        {
-            if (_webSocket == null || _webSocket.State != WebSocketState.Open)
-            {
-                Debug.LogWarning($"[WebSocketDataProvider] {name}: Cannot send binary data - not connected");
-                return;
-            }
-            
-            try
-            {
-                await _webSocket.Send(data);
-                
-                if (_logMessages)
-                {
-                    Debug.Log($"[WebSocketDataProvider] {name}: Binary data sent ({data.Length} bytes)");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"[WebSocketDataProvider] {name}: Error sending binary data: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Manually trigger a reconnection
-        /// </summary>
-        public void Reconnect()
-        {
-            if (_logMessages)
-            {
-                Debug.Log($"[WebSocketDataProvider] {name}: Manual reconnect triggered");
-            }
-            
-            DisconnectWebSocket();
-            _reconnectAttemptCount = 0;
-            // A manual reconnect is a fresh start: restore the full backoff budget.
-            _reconnectPolicy?.Reset();
-            _authShapedFailure = false;
-            _authRefreshAttempted = false;
-            ConnectWebSocket();
-        }
-
-        /// <summary>
-        /// Check if connected
-        /// </summary>
-        public bool IsConnected => _webSocket != null && _webSocket.State == WebSocketState.Open;
-
-        /// <summary>
-        /// Get current connection state
-        /// </summary>
-        public WebSocketState ConnectionState => _webSocket?.State ?? WebSocketState.Closed;
-
-        /// <summary>
-        /// Get connection status string
-        /// </summary>
-        public string ConnectionStatus => _connectionStatus;
-
-        public override bool ValidateConfiguration()
-        {
-            if (!base.ValidateConfiguration())
-            {
-                return false;
-            }
-            
-            if (string.IsNullOrEmpty(_url))
-            {
-                Debug.LogError($"[WebSocketDataProvider] {name}: URL is not set!");
-                return false;
-            }
-            
-            if (_reconnectDelaySeconds < 0)
-            {
-                Debug.LogError($"[WebSocketDataProvider] {name}: Reconnect delay cannot be negative!");
-                return false;
-            }
-            
-            if (_maxReconnectAttempts < 0)
-            {
-                Debug.LogError($"[WebSocketDataProvider] {name}: Max reconnect attempts cannot be negative!");
-                return false;
-            }
-            
-            if (_enablePingPong && _pingIntervalSeconds <= 0)
-            {
-                Debug.LogError($"[WebSocketDataProvider] {name}: Ping interval must be greater than 0!");
-                return false;
-            }
-            
-            return true;
-        }
-
-        /// <summary>
-        /// Per-frame pump driving message dispatch, keepalive pings, and the
-        /// connection-timeout watchdog for the lifetime of an activation.
-        /// </summary>
-        /// <remarks>
-        /// This provider is a ScriptableObject, so Unity never calls a magic
-        /// <c>Update()</c> method on it — the pump must be an explicit loop keyed
-        /// on <see cref="DataProvider.LifetimeToken"/> (started in <see cref="Activate"/>,
-        /// unwound by <see cref="Deactivate"/>).
-        /// </remarks>
-        private async Awaitable PumpLoopAsync()
-        {
-            if (_pumpRunning) return;
-            _pumpRunning = true;
-            var token = LifetimeToken;
-            try
-            {
-                while (!token.IsCancellationRequested)
-                {
-                    PumpOnce();
-                    await Awaitable.NextFrameAsync(token);
-                }
-            }
-            catch (System.OperationCanceledException)
-            {
-                // Provider deactivated — pump unwinds quietly.
-            }
-            finally
-            {
-                _pumpRunning = false;
-            }
-        }
-
-        private void PumpOnce()
-        {
-            // Dispatch queued messages on the main thread
-            if (_webSocket != null && _webSocket.State == WebSocketState.Open)
-            {
-#if !UNITY_WEBGL || UNITY_EDITOR
-                _webSocket.DispatchMessageQueue();
-#endif
-
-                // Handle ping/pong
-                if (_enablePingPong && Time.time - _lastPingTime >= _pingIntervalSeconds)
-                {
-                    _lastPingTime = Time.time;
-                    SendPing();
-                }
-            }
-
-            // Check for connection timeout. Deliberately outside the Open block:
-            // while connecting the state is not Open yet, so gating this on Open
-            // means the watchdog could never fire.
-            if (_isConnecting && Time.time - _connectionStartTime >= _connectionTimeoutSeconds)
-            {
-                Debug.LogError($"[WebSocketDataProvider] {name}: Connection timeout");
-                DisconnectWebSocket();
-                HandleReconnect();
             }
         }
 
@@ -805,7 +478,7 @@ namespace Molca.Networking.Data
             if (!string.IsNullOrEmpty(_url))
             {
                 _url = _url.Trim();
-                
+
                 // Remove protocol if user added it incorrectly based on useSecureConnection setting
                 if (_useSecureConnection && _url.StartsWith("ws://"))
                 {

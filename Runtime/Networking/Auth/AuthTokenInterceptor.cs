@@ -23,7 +23,8 @@ namespace Molca.Networking.Auth
     /// <c>AuthExpired</c> event is raised and the 401 surfaces. Auth-retry is capped at
     /// once per request. Registered by <see cref="AuthManager"/> during initialization.
     /// </remarks>
-    public class AuthTokenInterceptor : IHttpContextAwareRequestInterceptor, IHttpResponseInterceptor
+    public class AuthTokenInterceptor : IHttpContextAwareRequestInterceptor, IHttpResponseInterceptor,
+        IHttpCredentialInterceptor
     {
         private readonly string _headerKey;
         private readonly Func<string> _tokenProvider;
@@ -48,6 +49,12 @@ namespace Molca.Networking.Auth
             _refreshAsync = refreshAsync;
             _onAuthExpired = onAuthExpired;
         }
+
+        /// <summary>
+        /// The header this interceptor injects the session token into, so <see cref="HttpClient"/> can
+        /// withhold it from a host the network catalog does not claim.
+        /// </summary>
+        public string CredentialHeaderName => _headerKey;
 
         public void OnRequestPrepared(HttpRequest request) => InjectToken(request);
 

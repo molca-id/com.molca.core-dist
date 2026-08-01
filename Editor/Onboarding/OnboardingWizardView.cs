@@ -1,11 +1,15 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using Molca.Editor.Doctor;
+using Molca.Editor.Hub;
 using Molca.Editor.KnowledgeGraph;
 using Molca.Editor.Mcp;
+using Molca.Editor.Remediation;
+using Molca.Editor.Remediation.Hub;
+using Molca.Editor.Remediation.Provisioning;
+using Molca.Editor.Starter;
 using Molca.Editor.UI;
 using Molca.Editor.UI.Components;
 using UnityEditor;
@@ -30,8 +34,6 @@ namespace Molca.Editor.Onboarding
     /// </remarks>
     public sealed class OnboardingWizardView : VisualElement
     {
-        private const string SdkQuickSetupTypeName = "MolcaSDK.Editor.Setup.QuickSetupInstaller";
-        private const string SdkSettingsSeedDir = "Assets/_MolcaSDK/Settings";
         private const string ClaudeMdPath = "CLAUDE.md";
 
         private CancellationTokenSource _doctorCts;
@@ -56,7 +58,8 @@ namespace Molca.Editor.Onboarding
             scroll.Add(intro);
 
             scroll.Add(BuildProjectSettingsCard());
-            BuildSdkQuickSetupCardIfPresent(scroll);
+            scroll.Add(BuildStarterCard());
+            scroll.Add(BuildBootstrapCard());
             scroll.Add(BuildAgentInstructionsCard());
             scroll.Add(BuildMcpProxyCard());
             scroll.Add(BuildToolingChecksCard());
@@ -107,61 +110,151 @@ namespace Molca.Editor.Onboarding
         }
 
         // -------------------------------------------------------------------
-        // SDK Quick Setup (reflection-only — Core must not reference the SDK assembly)
+        // Starter — the opinionated "set me up with everything" step
         // -------------------------------------------------------------------
 
-        private static void BuildSdkQuickSetupCardIfPresent(VisualElement parent)
+        /// <summary>
+        /// Installs the recommended, fully-featured configuration.
+        /// </summary>
+        /// <remarks>
+        /// Distinct from the Bootstrap card below, which repairs what is broken. This one has an opinion:
+        /// it creates one of every setting module the framework offers so all features are present. Every
+        /// asset is generated from code, so the packages ship nothing editable for it to copy.
+        /// </remarks>
+        private static VisualElement BuildStarterCard()
         {
-            var sdkType = FindSdkQuickSetupType();
-            if (sdkType == null)
-                return;
-
-            var card = new MolcaSectionCard("SDK Quick Setup");
+            var card = new MolcaSectionCard("Project Starter");
 
             var body = new Label(
-                "Copies com.molca.sdk's starter settings (GlobalSettings, input actions, lighting) into " +
-                $"{SdkSettingsSeedDir}/ so the SDK layer has a working default config. Existing files are " +
-                "kept unless you choose Repair.");
+                "Sets up a fully-featured project: a GlobalSettings asset, one of every setting module " +
+                "with its own defaults, and the RuntimeManager reference. Everything is generated into " +
+                "Assets/_Molca/Settings/ — no configuration is copied out of a package. Safe to re-run; " +
+                "anything already set up is left alone.");
             body.style.whiteSpace = WhiteSpace.Normal;
             card.Body.Add(body);
 
             var statusLabel = new Label();
             statusLabel.AddToClassList("molca-onboarding__status");
+            statusLabel.style.whiteSpace = WhiteSpace.Normal;
             card.Body.Add(statusLabel);
+
+            var detail = new Label { style = { whiteSpace = WhiteSpace.Normal, opacity = 0.85f } };
+            card.Body.Add(detail);
+
+            void Refresh(MolcaStarterReport report = null)
+            {
+                statusLabel.text = MolcaStarter.IsFullyConfigured()
+                    ? "Everything is set up."
+                    : "Some features are not set up yet.";
+
+                detail.text = report == null
+                    ? string.Join("\n", MolcaStarter.Steps.Select(
+                        s => (s.IsSatisfied() ? "• [done] " : "• [todo] ") + s.Title + " — " + s.Description))
+                    : string.Join("\n", report.Steps.Select(
+                        s => $"• {s.Title}: {s.Outcome.Message}"));
+            }
 
             var row = new VisualElement { style = { flexDirection = FlexDirection.Row } };
             card.Body.Add(row);
 
-            void Refresh() =>
-                statusLabel.text = Directory.Exists(SdkSettingsSeedDir)
-                    ? $"{SdkSettingsSeedDir}/ exists."
-                    : "Not seeded yet.";
-
-            var install = MolcaButtons.Primary("Install Starter Settings", () =>
+            row.Add(MolcaButtons.Primary("Set Up Everything", () =>
             {
-                InvokeStatic(sdkType, "InstallKeepingExisting");
-                Refresh();
-            });
-            row.Add(install);
+                var report = MolcaStarter.Install();
+                Debug.Log($"[Onboarding] Project starter: {report.Summarize()}");
+                Refresh(report);
+            }));
 
-            var repair = MolcaButtons.Mini("Repair (Overwrite)", () =>
-            {
-                InvokeStatic(sdkType, "InstallOverwriting");
-                Refresh();
-            });
-            row.Add(repair);
+            row.Add(MolcaButtons.Mini("Preview", () => Refresh(MolcaStarter.Preview())));
+            row.Add(MolcaButtons.Mini("Re-check", () => Refresh()));
 
             Refresh();
-            parent.Add(card);
+            return card;
         }
 
-        private static Type FindSdkQuickSetupType() =>
-            AppDomain.CurrentDomain.GetAssemblies()
-                .Select(a => a.GetType(SdkQuickSetupTypeName, throwOnError: false))
-                .FirstOrDefault(t => t != null);
+        // -------------------------------------------------------------------
+        // Bootstrap configuration
+        // -------------------------------------------------------------------
 
-        private static void InvokeStatic(Type type, string methodName) =>
-            type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static)?.Invoke(null, null);
+        /// <summary>
+        /// Surfaces the bootstrap configuration check and offers its safe repairs — the day-one
+        /// "nothing is wired up yet" step.
+        /// </summary>
+        /// <remarks>
+        /// Delegates to the same <see cref="Molca.Editor.Settings.BootstrapCheck"/> the console validator
+        /// logs and the same remediation pass the Hub button runs, so the wizard cannot develop its own
+        /// opinion about what "configured" means. It offers only the safe pass; the fixes that create assets
+        /// live behind the Remediation workspace's review step, which is the right place for a decision the
+        /// user should see previewed.
+        /// </remarks>
+        private static VisualElement BuildBootstrapCard()
+        {
+            var card = new MolcaSectionCard("Bootstrap Configuration");
+
+            var body = new Label(
+                "Checks the pieces the application needs in order to start: a RuntimeManager prefab, a " +
+                "GlobalSettings asset, and the setting modules your subsystems declare. Repairs the ones " +
+                "with a single correct answer and lists the rest.");
+            body.style.whiteSpace = WhiteSpace.Normal;
+            card.Body.Add(body);
+
+            var statusLabel = new Label();
+            statusLabel.AddToClassList("molca-onboarding__status");
+            statusLabel.style.whiteSpace = WhiteSpace.Normal;
+            card.Body.Add(statusLabel);
+
+            var findingsLabel = new Label { style = { whiteSpace = WhiteSpace.Normal, opacity = 0.85f } };
+            card.Body.Add(findingsLabel);
+
+            void Refresh()
+            {
+                var findings = Molca.Editor.Settings.BootstrapCheck.Run();
+                statusLabel.text = findings.Count == 0
+                    ? "Bootstrap is correctly configured."
+                    : $"{findings.Count} issue(s) found.";
+                findingsLabel.text = findings.Count == 0
+                    ? string.Empty
+                    : string.Join("\n", findings.Select(f => $"• [{f.Code}] {f.Message}"));
+            }
+
+            var row = new VisualElement { style = { flexDirection = FlexDirection.Row } };
+            card.Body.Add(row);
+
+            row.Add(MolcaButtons.Primary("Fix Safe Issues", () =>
+            {
+                var report = MolcaRemediationPass.Apply(
+                    BootstrapRemediationBridge.Request(RemediationPolicy.SafeOnly));
+                Debug.Log($"[Onboarding] Bootstrap remediation: {report.Summarize()}");
+                Refresh();
+            }));
+
+            row.Add(MolcaButtons.Mini("Re-check", Refresh));
+
+            row.Add(MolcaButtons.Mini("Open Remediation", () =>
+                MolcaHubWindow.OpenWorkspace(RemediationWorkspaceProvider.WorkspaceId)));
+
+            Refresh();
+            return card;
+        }
+
+        // -------------------------------------------------------------------
+        // (Removed) SDK Quick Setup
+        // -------------------------------------------------------------------
+        //
+        // This wizard used to look up "MolcaSDK.Editor.Setup.QuickSetupInstaller" by name across the
+        // loaded assemblies and invoke it, so that Core could offer the SDK's setup without referencing
+        // the SDK assembly. Avoiding the assembly reference was the wrong goal: the dependency was real
+        // either way, and expressing it reflectively only hid it from the compiler. The effect was that
+        // com.molca.sdk could not be deleted without silently breaking a button in Core.
+        //
+        // Nothing replaces it here, because the replacement already exists. A layer that wants to
+        // contribute setup implements IMolcaStarterStep, which MolcaStarter discovers via TypeCache and
+        // the Project Starter card renders. Contribution flows upward through an interface Core owns,
+        // instead of Core reaching down for a type name it had to spell correctly.
+        //
+        // The generated half of what QuickSetupInstaller copied — the GlobalSettings graph and its
+        // setting modules — is what the starter already produces, from code, into project space. The
+        // remainder (input actions, lighting settings) is content, and content arrives by importing a
+        // sample, not by a bespoke copier.
 
         // -------------------------------------------------------------------
         // Coding-agent instructions
@@ -207,22 +300,17 @@ namespace Molca.Editor.Onboarding
             if (File.Exists(path))
                 return;
 
-            bool sdkInstalled = FindSdkQuickSetupType() != null;
             var lines = new System.Text.StringBuilder();
             lines.AppendLine("# Molca Framework Project");
             lines.AppendLine();
-            lines.AppendLine("This project uses the Molca Unity framework, installed as read-only UPM package(s):");
+            lines.AppendLine("This project uses the Molca Unity framework, installed as a read-only UPM package:");
             lines.AppendLine();
             lines.AppendLine("- `Packages/com.molca.core` — never modify; subclass or extend from `Assets/`.");
-            if (sdkInstalled)
-                lines.AppendLine("- `Packages/com.molca.sdk` — never modify; subclass or extend from `Assets/`.");
             lines.AppendLine();
             lines.AppendLine("Reference docs (read these before assuming an API's shape):");
             lines.AppendLine();
             lines.AppendLine("- `Packages/com.molca.core/Documentation~/reference/` — Core conventions, subsystem " +
                               "lifecycle, DI, events, settings.");
-            if (sdkInstalled)
-                lines.AppendLine("- `Packages/com.molca.sdk/Documentation~/` — SDK-layer conventions, if present.");
             lines.AppendLine();
             lines.AppendLine("All project-specific code belongs under `Assets/` (e.g. `Assets/YourProject/Scripts/`).");
 

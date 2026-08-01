@@ -214,6 +214,7 @@ namespace Molca.Editor.Hub
         Tasks,
         Mcp,
         Network,
+        Localization,
         Assistant,
         AddOnsBrowse,
         AddOnsInstalled,

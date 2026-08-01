@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Molca.Editor.ReferenceSystem;
 using Molca.ReferenceSystem;
 using UnityEditor;
 using UnityEngine;
@@ -198,118 +199,146 @@ namespace Molca.Editor.FrameworkGraph
 
         // --- reference layer (Edit + Play) -----------------------------------------------------------
 
+        /// <summary>
+        /// Projects the shared reference audit into graph nodes and edges.
+        /// </summary>
+        /// <remarks>
+        /// Reads <see cref="ReferenceAuditService"/> rather than scanning, which fixes three gaps at once.
+        /// Every provider kind now appears — <c>Step</c>, <c>SequenceController</c> and custom
+        /// <see cref="IReferenceable"/> implementers used to be invisible because the layer looked only for
+        /// <see cref="ReferenceableComponent"/>. Every reference site now appears, including ones nested in
+        /// serializable structs and <c>[SerializeReference]</c> graphs that reflection over top-level fields
+        /// missed, and ones owned by objects that are not themselves providers, whose edges were dropped
+        /// entirely. And duplicates are keyed on the exact <c>(RefType, RefId)</c> pair, so two legal
+        /// same-id/different-type providers are no longer flagged as an error.
+        /// </remarks>
         private static void BuildReferenceLayer(FrameworkGraphSnapshot snapshot)
         {
-            var referenceables = UnityEngine.Object.FindObjectsByType<ReferenceableComponent>(
-                FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var audit = ReferenceAuditService.GetOrRun(ReferenceAuditScope.OpenScenes());
 
-            var known = new HashSet<string>();
-            foreach (var rc in referenceables)
+            // Duplicates are keyed on the exact pair the runtime registry uses.
+            var duplicatedKeys = new HashSet<string>(
+                audit.Providers
+                    .Where(p => p.IsRuntimeResolvable && !string.IsNullOrEmpty(p.RefId))
+                    .GroupBy(p => p.RefType + "|" + p.RefId, StringComparer.Ordinal)
+                    .Where(g => g.Count() > 1)
+                    .Select(g => g.Key),
+                StringComparer.Ordinal);
+
+            foreach (var provider in audit.Providers)
             {
-                if (rc == null) continue;
-                try
+                if (string.IsNullOrEmpty(provider.RefId))
                 {
-                    var id = rc.RefId;
-                    if (string.IsNullOrEmpty(id))
+                    snapshot.AddNode(new FrameworkGraphNode(
+                        "ref:empty:" + provider.Locator.Key, provider.DisplayName, FrameworkNodeCategory.Reference)
                     {
-                        // Empty Ref Id: surface as a problem node keyed on the GameObject.
-                        snapshot.AddNode(new FrameworkGraphNode(
-                            "ref:empty:" + rc.GetInstanceID(), rc.name, FrameworkNodeCategory.Reference)
-                        {
-                            Subtitle = rc.name,
-                            Severity = FrameworkGraphSeverity.Error,
-                        }.With("issue", "empty Ref Id"));
-                        continue;
-                    }
-
-                    bool duplicate = !known.Add(id);
-                    var node = snapshot.AddNode(new FrameworkGraphNode(
-                        ReferenceId(id), id, FrameworkNodeCategory.Reference)
-                    {
-                        Subtitle = rc.name,
-                    }.With("refType", rc.RefType).With("gameObject", rc.name));
-
-                    if (duplicate)
-                    {
-                        node.Severity = FrameworkGraphSeverity.Error;
-                        node.With("issue", "duplicate Ref Id");
-                    }
+                        Subtitle = provider.Locator.ObjectPath,
+                        Severity = FrameworkGraphSeverity.Error,
+                    }.With("issue", "empty Ref Id").With("runtimeType", provider.RuntimeTypeName));
+                    continue;
                 }
-                catch
+
+                var node = snapshot.AddNode(new FrameworkGraphNode(
+                    ReferenceId(provider.RefId), provider.RefId, FrameworkNodeCategory.Reference)
                 {
-                    // A faulting ReferenceableComponent must not abort the whole layer.
+                    Subtitle = provider.DisplayName,
+                }
+                .With("refType", provider.RefType)
+                .With("gameObject", provider.DisplayName)
+                .With("runtimeType", provider.RuntimeTypeName)
+                .With("providerKind", provider.Kind.ToString()));
+
+                if (!provider.IsRuntimeResolvable)
+                {
+                    // Present as authored data, but not resolvable at runtime — worth showing, not an error.
+                    node.With("issue", "not runtime-resolvable (" + provider.Kind + ")");
+                }
+                else if (duplicatedKeys.Contains(provider.RefType + "|" + provider.RefId))
+                {
+                    node.Severity = FrameworkGraphSeverity.Error;
+                    node.With("issue", "duplicate Ref Id");
                 }
             }
 
-            // SceneObjectReference edges (and unresolved-target nodes). Edges are emitted only where the
-            // owner is itself a ReferenceableComponent, so both endpoints are reference nodes.
-            int scanErrors = 0;
-            foreach (var rc in referenceables)
+            // Locator -> owning provider, so a site declared by a provider attaches its edge to that
+            // provider's node rather than to a second node for the same object.
+            var providerByLocator = new Dictionary<string, ReferenceProviderRecord>(StringComparer.Ordinal);
+            foreach (var provider in audit.Providers.Where(p => !string.IsNullOrEmpty(p.RefId)))
+                providerByLocator[provider.Locator.Key] = provider;
+
+            foreach (var resolution in audit.Resolutions)
             {
-                if (rc == null) continue;
-                string ownerId;
-                try { ownerId = string.IsNullOrEmpty(rc.RefId) ? null : ReferenceId(rc.RefId); }
-                catch { continue; }
-                if (ownerId == null || !snapshot.HasNode(ownerId)) continue;
+                var site = resolution.Site;
+                if (!site.IsAssigned)
+                    continue;
 
-                List<SceneObjectReference> refs;
-                try { refs = EnumerateSceneRefs(rc); }
-                catch { scanErrors++; continue; }
-
-                foreach (var sor in refs)
+                var targetId = ReferenceId(site.StoredRefId);
+                if (!snapshot.HasNode(targetId))
                 {
-                    if (!sor.IsValid) continue;
-                    var targetId = ReferenceId(sor.RefId);
-                    if (!snapshot.HasNode(targetId))
+                    snapshot.AddNode(new FrameworkGraphNode(
+                        targetId, site.StoredRefId, FrameworkNodeCategory.Reference)
                     {
-                        // Unresolved: the referenced Ref Id is backed by no ReferenceableComponent.
-                        snapshot.AddNode(new FrameworkGraphNode(targetId, sor.RefId, FrameworkNodeCategory.Reference)
-                        {
-                            Subtitle = "unresolved",
-                            Severity = FrameworkGraphSeverity.Error,
-                        }.With("refType", sor.RefType).With("issue", "unresolved reference"));
-                    }
-                    snapshot.AddEdge(new FrameworkGraphEdge(ownerId, targetId, FrameworkEdgeKind.SceneReference));
+                        Subtitle = "unresolved",
+                        Severity = FrameworkGraphSeverity.Error,
+                    }.With("refType", site.StoredRefType).With("issue", resolution.Outcome.ToString()));
                 }
+
+                snapshot.AddEdge(new FrameworkGraphEdge(
+                    OwnerNodeId(snapshot, site, providerByLocator), targetId, FrameworkEdgeKind.SceneReference));
             }
 
-            if (scanErrors > 0)
-                snapshot.AddUnavailable($"References: {scanErrors} component(s) could not be fully scanned (partial coverage).");
+            if (!audit.Coverage.IsComplete)
+            {
+                snapshot.AddUnavailable(
+                    $"References: partial coverage ({audit.Coverage.DescribeGaps()}). "
+                    + "Some references may be missing from this graph.");
+            }
+
+            // The graph reuses the cached snapshot rather than paying for a project-wide audit on every
+            // rebuild. Saying when that snapshot is behind the project beats presenting it as current.
+            if (ReferenceAuditService.IsStale)
+            {
+                snapshot.AddUnavailable(
+                    $"References: the audit snapshot is stale ({ReferenceAuditService.StaleReason}). "
+                    + "Re-run the reference audit for an up-to-date graph.");
+            }
         }
 
         /// <summary>
-        /// Collects every <see cref="SceneObjectReference"/> held by a component (including inside arrays
-        /// and lists) via reflection, guarding each field read so one faulting getter skips only that
-        /// field. Mirrors the resilient scan in <c>molca_refids</c>.
+        /// Node id for the object declaring <paramref name="site"/>: its own reference node when it is a
+        /// provider, otherwise a source node created for it.
         /// </summary>
-        private static List<SceneObjectReference> EnumerateSceneRefs(MonoBehaviour mb)
+        /// <remarks>
+        /// A non-provider owner — a plain MonoBehaviour, or a ScriptableObject holding an outbound
+        /// reference — used to have its edges silently dropped, which made the graph look like nothing
+        /// referenced the target.
+        /// </remarks>
+        private static string OwnerNodeId(
+            FrameworkGraphSnapshot snapshot,
+            ReferenceSiteRecord site,
+            Dictionary<string, ReferenceProviderRecord> providerByLocator)
         {
-            var result = new List<SceneObjectReference>();
-            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            foreach (var field in mb.GetType().GetFields(flags))
+            if (providerByLocator.TryGetValue(site.OwnerLocator.Key, out var owner)
+                && snapshot.HasNode(ReferenceId(owner.RefId)))
             {
-                try
-                {
-                    if (field.FieldType == typeof(SceneObjectReference))
-                    {
-                        result.Add((SceneObjectReference)field.GetValue(mb));
-                    }
-                    else if (typeof(IEnumerable).IsAssignableFrom(field.FieldType)
-                             && field.FieldType != typeof(string))
-                    {
-                        if (field.GetValue(mb) is IEnumerable seq)
-                            foreach (var item in seq)
-                                if (item is SceneObjectReference sor)
-                                    result.Add(sor);
-                    }
-                }
-                catch
-                {
-                    // Field unreadable (unassigned reference, faulting getter); skip it.
-                }
+                return ReferenceId(owner.RefId);
             }
-            return result;
+
+            var sourceId = SourceNodeId(site);
+            if (!snapshot.HasNode(sourceId))
+            {
+                snapshot.AddNode(new FrameworkGraphNode(
+                    sourceId, site.OwnerLocator.ObjectPath, FrameworkNodeCategory.Reference)
+                {
+                    Subtitle = site.OwnerLocator.TypeName,
+                }
+                .With("sourceKind", site.SourceKind.ToString())
+                .With("asset", site.OwnerLocator.AssetPath));
+            }
+
+            return sourceId;
         }
 
+        private static string SourceNodeId(ReferenceSiteRecord site) => "ref:source:" + site.OwnerLocator.Key;
     }
 }

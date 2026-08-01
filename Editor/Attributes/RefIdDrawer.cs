@@ -52,6 +52,15 @@ namespace Molca.Editor
             current.Use();
         }
 
+        /// <summary>
+        /// Assigns a fresh Ref Id to the host provider, after showing what it will break.
+        /// </summary>
+        /// <remarks>
+        /// Regenerating an id that has inbound references is a destructive change, so it is confirmed
+        /// first and the affected sites are recorded afterwards. It used to offer to rewrite every
+        /// matching <c>refId</c> string in the loaded scenes instead, which pointed references at the
+        /// wrong object whenever the id was shared — the exact situation that motivates regenerating one.
+        /// </remarks>
         private void TryRegenerateId(SerializedProperty property)
         {
             var refType = GetRefType(property);
@@ -62,17 +71,20 @@ namespace Molca.Editor
             }
 
             var oldId = property.stringValue;
-            var newId = ReferenceGenerator.GenerateUniqueId(refType);
+            var displayName = (property.serializedObject.targetObject as IReferenceable)?.DisplayName
+                ?? property.serializedObject.targetObject.name;
 
+            // Resolve the inbound sites before the change, while the old id is still the stored value.
+            var inbound = RefIdEditorUtility.FindInboundSites(oldId);
+
+            if (!RefIdEditorUtility.ConfirmIdChange(inbound, oldId, displayName))
+                return;
+
+            var newId = ReferenceGenerator.GenerateUniqueId(refType);
             property.stringValue = newId;
             property.serializedObject.ApplyModifiedProperties();
 
-            if (!string.IsNullOrEmpty(oldId))
-            {
-                var displayName = (property.serializedObject.targetObject as IReferenceable)?.DisplayName
-                    ?? property.serializedObject.targetObject.name;
-                RefIdEditorUtility.OfferAndApplyRedirectInLoadedScenes(oldId, newId, displayName);
-            }
+            RefIdEditorUtility.ReportBrokenInboundReferences(inbound, oldId, newId, displayName);
         }
 
         private static string GetRefType(SerializedProperty property)

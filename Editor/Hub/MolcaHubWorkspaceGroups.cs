@@ -24,6 +24,16 @@ namespace Molca.Editor.Hub
         /// <summary>Content-authoring surfaces (Core: Sequence).</summary>
         public const string Authoring = "authoring";
 
+        /// <summary>
+        /// Project infrastructure a team configures once and then relies on (Core: Network).
+        /// </summary>
+        /// <remarks>
+        /// Distinct from <see cref="Integrations"/>, which is about connecting to a specific external
+        /// product. Infrastructure surfaces describe how the project itself is wired, so they sit next to
+        /// Quality rather than among consumer integrations.
+        /// </remarks>
+        public const string Infrastructure = "infrastructure";
+
         /// <summary>Assistive/agentic surfaces (Core: Assistant).</summary>
         public const string Assistance = "assistance";
 
@@ -34,13 +44,15 @@ namespace Molca.Editor.Hub
         public const string Reference = "reference";
 
         // Ordering rationale: Quality/Assistance/Authoring first, in that sequence, so Core's own
-        // Doctor → Assistant → Sequence strip renders exactly as it did before groups existed. `General`
-        // sits late on purpose — an ungrouped third-party tab used to land after Core's tabs (Core uses low
-        // Order values), and it still should. `Reference` is last: it is auxiliary by definition and its
-        // members are usually right-anchored anyway.
+        // Doctor → Assistant → Sequence strip renders exactly as it did before groups existed.
+        // `Infrastructure` sits between Quality and Assistance: you check project health, then configure how
+        // the project talks to the world, then reach for assistive tools. `General` sits late on purpose —
+        // an ungrouped third-party tab used to land after Core's tabs (Core uses low Order values), and it
+        // still should. `Reference` is last: it is auxiliary by definition and its members are usually
+        // right-anchored anyway.
         private static readonly string[] Declared =
         {
-            Quality, Assistance, Authoring, Integrations, General, Reference
+            Quality, Infrastructure, Assistance, Authoring, Integrations, General, Reference
         };
 
         /// <summary>Declared render order; unknown groups sort after these, ordinally by id.</summary>
@@ -87,6 +99,7 @@ namespace Molca.Editor.Hub
                 case Quality: return "Quality";
                 case Authoring: return "Authoring";
                 case Assistance: return "Assistance";
+                case Infrastructure: return "Infrastructure";
                 case Integrations: return "Integrations";
                 case Reference: return "Reference";
                 default:

@@ -278,8 +278,13 @@ namespace Molca.Editor
             // aborted build needs no restore — no scripting backend, signing secrets, app-id, or
             // Android format changes have been applied yet.
 
-            // Scene reference gate (R3.5): missing/duplicate/unresolvable scene-MonoBehaviour Ref Ids,
-            // validated against a fresh scan of the build scenes (not the cached snapshot).
+            // Scene reference gate: missing, duplicated, ambiguous or wrongly-typed reference targets, plus
+            // incomplete scan coverage, from the shared read-only audit of the build scenes.
+            //
+            // Runs here as well as in ReferenceBuildGate (the global IPreprocessBuildWithReport) so a
+            // reference problem aborts before any player setting is mutated and the message names the
+            // finding codes. The gate skips its own audit when this one passed, so the work is not
+            // duplicated.
             var referenceErrors = SceneReferenceBuildValidator.Validate();
             if (referenceErrors.Count > 0)
             {
@@ -291,6 +296,7 @@ namespace Molca.Editor
 
             // Addressables content gate (11.4): build the content bundles the player ships before the
             // player itself, so the two never go out of sync. Opt-in per profile.
+            var addressablesContentBuilt = false;
             if (profile.buildAddressablesFirst)
             {
                 Debug.Log("[BuildManager] Building Addressables content before the player...");
@@ -303,6 +309,7 @@ namespace Molca.Editor
                     return null;
                 }
                 Debug.Log($"[BuildManager] Addressables content build succeeded ({contentResult.BuiltGroups.Count} group(s)).");
+                addressablesContentBuilt = true;
             }
 
             // Handle IL2CPP setting (requires changing PlayerSettings)
@@ -395,6 +402,11 @@ namespace Molca.Editor
                 EditorUtility.SetDirty(projectSettings);
                 AssetDatabase.SaveAssets();
             }
+
+            // Told to the localization gate here rather than at the content build above, so the latch
+            // cannot outlive an attempt that aborted somewhere in between.
+            if (addressablesContentBuilt)
+                LocalizationBuildGate.MarkAddressablesContentBuilt();
 
             BuildReport report = null;
             try

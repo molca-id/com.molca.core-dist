@@ -1,8 +1,7 @@
+using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text;
 using UnityEditor;
 using UnityEditor.AddressableAssets;
 using UnityEditor.AddressableAssets.Settings;
@@ -10,13 +9,24 @@ using UnityEngine;
 using Molca.ContentPackage;
 using Molca.ContentPackage.Utilities;
 using Molca.Editor.UI;
-using Debug = UnityEngine.Debug;
 
 namespace Molca.Editor.ContentPackage
 {
     /// <summary>
-    /// Build, verify, and deploy panel for the Content Package Manager inspector.
+    /// Legacy build and verify panel for the Content Package Manager inspector.
     /// </summary>
+    /// <remarks>
+    /// The deploy half is gone. It shelled out to an external AWS/GCloud CLI through a storage
+    /// provider asset holding bucket configuration, which the release protocol replaced: publishing
+    /// now goes through the Hub's Content workspace, which uploads to short-lived presigned URLs and
+    /// never puts a storage credential in the project.
+    ///
+    /// Leaving it as a second path was the defect, not the fix -- both existed, and the one with a
+    /// button was the superseded one.
+    ///
+    /// Build and verify remain for the legacy schema-v1 delivery path, which is retained through the
+    /// compatibility window named in the implementation plan (Phase 10 retires it).
+    /// </remarks>
     public partial class ContentPackageSettingsEditor
     {
         // ── State ────────────────────────────────────────────────────────────
@@ -31,19 +41,6 @@ namespace Molca.Editor.ContentPackage
         private readonly Dictionary<string, (int bundles, long bytes, string error)> _verifyResults
             = new Dictionary<string, (int, long, string)>();
 
-        // Running deploy process
-        private Process        _deployProcess;
-        private StringBuilder  _deployLog    = new StringBuilder();
-        private bool           _deploying;
-        private string         _deployStatus = "";
-        private bool           _deployOk;
-
-        // Process stdout/stderr callbacks fire on a thread-pool thread. They must not touch
-        // EditorGUI state or call Repaint() directly, so they append to this buffer under a
-        // lock and PollDeployProcess (running on the main thread via EditorApplication.update)
-        // drains it into _deployLog and repaints.
-        private readonly object        _deployLock    = new object();
-        private readonly StringBuilder _deployPending = new StringBuilder();
 
         // ── Entry point (called from OnInspectorGUI) ──────────────────────────
 
@@ -61,8 +58,6 @@ namespace Molca.Editor.ContentPackage
                     DrawBuildSection();
                     EditorGUILayout.Space(6);
                     DrawVerifySection();
-                    EditorGUILayout.Space(6);
-                    DrawDeploySection();
                 }
             }
             EditorGUILayout.EndFoldoutHeaderGroup();
@@ -163,8 +158,13 @@ namespace Molca.Editor.ContentPackage
                 return;
             }
 
-            // Sync Addressables profile paths from build config before delegating to utility
-            SyncAddressablesPaths(addrSettings);
+            // Report a profile mismatch; never rewrite the shared profile asset on someone's behalf.
+            string mismatch = DescribeProfileMismatch(addrSettings, _buildConfig);
+            if (mismatch != null &&
+                !EditorUtility.DisplayDialog("Addressables profile does not match the build config",
+                    mismatch + "\n\nFix these in the Addressables Profiles window. Build anyway?",
+                    "Build anyway", "Cancel"))
+                return;
 
             _verifyResults.Clear();
 
@@ -209,29 +209,44 @@ namespace Molca.Editor.ContentPackage
             Repaint();
         }
 
-        private void SyncAddressablesPaths(AddressableAssetSettings addrSettings)
+        /// <summary>
+        /// Reports where the Addressables profile disagrees with the build config, without changing it.
+        /// </summary>
+        /// <remarks>
+        /// This used to write <c>RemoteBuildPath</c>, <c>RemoteLoadPath</c>, <c>BuildRemoteCatalog</c>,
+        /// and both catalog path variables into the shared <see cref="AddressableAssetSettings"/>
+        /// asset on every build, then mark it dirty. That is version-controlled configuration shared
+        /// by the whole team: a local build silently rewrote it to whoever built last, and the diff
+        /// showed up in someone else's commit. Phase 4 removed the same class of write-back from
+        /// <c>AddressablesBuildUtility</c>; this instance was missed.
+        ///
+        /// Reporting instead of writing means a mismatch is visible and the author decides. The
+        /// Addressables Profiles window is where profile values belong.
+        /// </remarks>
+        private static string DescribeProfileMismatch(
+            AddressableAssetSettings addrSettings, ContentPackageBuildConfig buildConfig)
         {
-            var profileId = addrSettings.activeProfileId;
-            var target    = EditorUserBuildSettings.activeBuildTarget.ToString();
+            if (addrSettings == null || buildConfig == null) return null;
 
-            void SetVar(string key, string value)
+            var profileId = addrSettings.activeProfileId;
+            var problems = new List<string>();
+
+            void Compare(string key, string expected)
             {
-                if (addrSettings.profileSettings.GetValueByName(profileId, key) != null)
-                    addrSettings.profileSettings.SetValue(profileId, key, value);
-                else
-                    Debug.LogWarning($"[ContentPackage] Addressables profile variable '{key}' not found. Create it in the Addressables Profiles window.");
+                string actual = addrSettings.profileSettings.GetValueByName(profileId, key);
+                if (actual == null)
+                    problems.Add($"Profile variable '{key}' does not exist.");
+                else if (!string.Equals(actual, expected, StringComparison.Ordinal))
+                    problems.Add($"'{key}' is '{actual}', build config expects '{expected}'.");
             }
 
-            SetVar("RemoteBuildPath", _buildConfig.localBuildPath);
-            SetVar("RemoteLoadPath",  _buildConfig.remoteLoadURL);
+            Compare("RemoteBuildPath", buildConfig.localBuildPath);
+            Compare("RemoteLoadPath", buildConfig.remoteLoadURL);
 
-            // Ensure the remote catalog is written to the bundle output folder so it lands
-            // alongside the bundles on CDN and can be discovered by WritePackageManifest.
-            addrSettings.BuildRemoteCatalog = true;
-            addrSettings.RemoteCatalogBuildPath.SetVariableByName(addrSettings, "RemoteBuildPath");
-            addrSettings.RemoteCatalogLoadPath.SetVariableByName(addrSettings, "RemoteLoadPath");
+            if (!addrSettings.BuildRemoteCatalog)
+                problems.Add("Build Remote Catalog is off, so no catalog will be produced to publish.");
 
-            EditorUtility.SetDirty(addrSettings);
+            return problems.Count == 0 ? null : string.Join("\n", problems);
         }
 
         private static string ContentUpdatePath()
@@ -306,7 +321,11 @@ namespace Molca.Editor.ContentPackage
 
             foreach (var cfg in settings.packageConfigs)
             {
-                if (!cfg.isVisible || string.IsNullOrEmpty(cfg.packageId))
+                // Hidden packages are verified too. Visibility affects presentation, not
+                // correctness — a hidden *required* package is still built, uploaded, and installed,
+                // and skipping it here meant the one package a player cannot run without was the one
+                // package verification never looked at.
+                if (string.IsNullOrEmpty(cfg.packageId))
                     continue;
 
                 if (cfg.addressableLabels == null || cfg.addressableLabels.Length == 0)
@@ -331,202 +350,5 @@ namespace Molca.Editor.ContentPackage
             Repaint();
         }
 
-        // ── Deploy section ────────────────────────────────────────────────────
-
-        private void DrawDeploySection()
-        {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-            var provider = _buildConfig.storageProvider;
-
-            EditorGUILayout.LabelField(
-                provider != null ? $"Deploy ({provider.DisplayName})" : "Deploy",
-                EditorStyles.boldLabel);
-
-            // Provider picker
-            var cfgSo = new SerializedObject(_buildConfig);
-            cfgSo.Update();
-            EditorGUILayout.PropertyField(cfgSo.FindProperty("storageProvider"), new GUIContent("Storage Provider"));
-            cfgSo.ApplyModifiedProperties();
-
-            if (provider == null)
-            {
-                EditorGUILayout.HelpBox(
-                    "Assign a Storage Provider asset (e.g. AWSS3StorageProvider) to enable deployment.\n" +
-                    "Create one via Assets > Create > Molca > Content Package > Storage > …",
-                    MessageType.Info);
-                EditorGUILayout.EndVertical();
-                return;
-            }
-
-            // Draw provider-specific fields via its serialized object
-            EditorGUILayout.Space(2);
-            var providerSo = new SerializedObject(provider);
-            providerSo.Update();
-            var prop = providerSo.GetIterator();
-            prop.NextVisible(true); // skip m_Script
-            while (prop.NextVisible(false))
-                EditorGUILayout.PropertyField(prop, true);
-            providerSo.ApplyModifiedProperties();
-
-            EditorGUILayout.Space(4);
-
-            // Show resolved command
-            var target    = EditorUserBuildSettings.activeBuildTarget.ToString();
-            var localPath = _buildConfig.ResolvedLocalBuildPath(target);
-            var cmd       = provider.BuildDeployCommand(localPath, target);
-            EditorGUILayout.LabelField("Destination:", EditorStyles.miniLabel);
-            EditorGUILayout.LabelField(provider.GetDestinationDescription(target), _mutedStyle);
-            EditorGUILayout.LabelField("Command:", EditorStyles.miniLabel);
-            EditorGUILayout.SelectableLabel(cmd, EditorStyles.helpBox, GUILayout.Height(32));
-
-            EditorGUILayout.Space(4);
-
-            bool available = provider.CheckAvailability(out var availError);
-            if (!available)
-                EditorGUILayout.HelpBox(availError, MessageType.Warning);
-
-            GUI.enabled = available && !_deploying;
-            EditorGUILayout.BeginHorizontal();
-
-            if (GUILayout.Button(_deploying ? "Deploying…" : $"Deploy ({provider.DisplayName})"))
-                StartDeploy(provider, localPath, target);
-
-            if (_deploying && GUILayout.Button("Abort", GUILayout.Width(54)))
-                AbortDeploy();
-
-            EditorGUILayout.EndHorizontal();
-            GUI.enabled = true;
-
-            // Status line
-            if (!string.IsNullOrEmpty(_deployStatus))
-            {
-                var prevColor = GUI.color;
-                GUI.color = _deploying ? MolcaEditorColors.StatusWarn
-                          : _deployOk  ? MolcaEditorColors.StatusOk
-                          :              MolcaEditorColors.StatusError;
-                EditorGUILayout.LabelField(_deployStatus, EditorStyles.boldLabel);
-                GUI.color = prevColor;
-            }
-
-            // Scrollable log
-            if (_deployLog.Length > 0)
-            {
-                EditorGUILayout.LabelField("Log:", EditorStyles.miniLabel);
-                EditorGUILayout.SelectableLabel(
-                    _deployLog.ToString(),
-                    EditorStyles.helpBox,
-                    GUILayout.Height(120),
-                    GUILayout.ExpandWidth(true));
-            }
-
-            EditorGUILayout.EndVertical();
-        }
-
-        // ── Deploy process management ─────────────────────────────────────────
-
-        private void StartDeploy(ContentPackageStorageProvider provider, string localPath, string buildTarget)
-        {
-            if (!Directory.Exists(localPath))
-            {
-                EditorUtility.DisplayDialog("Deploy",
-                    $"Build output folder not found:\n{localPath}\n\nRun a build first.", "OK");
-                return;
-            }
-
-            _deployLog.Clear();
-            _deployStatus = "Starting…";
-            _deployOk     = false;
-            _deploying    = true;
-
-            var cmd = provider.BuildDeployCommand(localPath, buildTarget);
-            _deployLog.AppendLine($"$ {cmd}");
-            _deployLog.AppendLine();
-
-            Debug.Log($"[ContentPackage] Deploy: {cmd}");
-
-            _deployProcess = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName               = provider.ExecutableName,
-                    Arguments              = provider.BuildDeployArguments(localPath, buildTarget),
-                    RedirectStandardOutput = true,
-                    RedirectStandardError  = true,
-                    UseShellExecute        = false,
-                    CreateNoWindow         = true
-                },
-                EnableRaisingEvents = true
-            };
-
-            // These run off the main thread — buffer only; the poll loop drains and repaints.
-            _deployProcess.OutputDataReceived += (_, e) =>
-            {
-                if (e.Data == null) return;
-                lock (_deployLock) _deployPending.AppendLine(e.Data);
-            };
-            _deployProcess.ErrorDataReceived += (_, e) =>
-            {
-                if (e.Data == null) return;
-                lock (_deployLock) _deployPending.AppendLine("[err] " + e.Data);
-            };
-
-            _deployProcess.Start();
-            _deployProcess.BeginOutputReadLine();
-            _deployProcess.BeginErrorReadLine();
-
-            _deployStatus = "Deploying…";
-            EditorApplication.update += PollDeployProcess;
-        }
-
-        /// <summary>
-        /// Runs on the main thread (EditorApplication.update). Drains any buffered process
-        /// output into the visible log and, once the process exits, finalizes the deploy
-        /// status. All EditorGUI/Repaint interaction happens here, never on the process
-        /// callback thread.
-        /// </summary>
-        private void PollDeployProcess()
-        {
-            bool dirty = false;
-
-            lock (_deployLock)
-            {
-                if (_deployPending.Length > 0)
-                {
-                    _deployLog.Append(_deployPending);
-                    _deployPending.Clear();
-                    dirty = true;
-                }
-            }
-
-            if (_deployProcess == null || _deployProcess.HasExited)
-            {
-                EditorApplication.update -= PollDeployProcess;
-
-                if (_deployProcess != null && _deploying)
-                {
-                    _deployOk     = _deployProcess.ExitCode == 0;
-                    _deployStatus = _deployOk
-                        ? "Deploy complete."
-                        : $"Deploy failed (exit {_deployProcess.ExitCode}).";
-                    Debug.Log($"[ContentPackage] {_deployStatus}");
-                }
-
-                _deploying = false;
-                dirty = true;
-            }
-
-            if (dirty) Repaint();
-        }
-
-        private void AbortDeploy()
-        {
-            try { _deployProcess?.Kill(); }
-            catch (System.Exception ex) { Debug.LogWarning($"[ContentPackage] Abort deploy failed: {ex.Message}"); }
-            _deploying    = false;
-            _deployStatus = "Aborted.";
-            EditorApplication.update -= PollDeployProcess;
-            Repaint();
-        }
     }
 }

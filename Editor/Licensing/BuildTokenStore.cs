@@ -35,6 +35,18 @@ namespace Molca.Editor.Licensing
             public string coreVersion;
             public string appVersion;
             public string projectBinding;
+
+            /// <summary>
+            /// The content channel this build requests.
+            /// </summary>
+            /// <remarks>
+            /// Sent, not asserted. The control plane records it on the build-token row only when the
+            /// requesting developer holds <c>project.build.channel.select</c>; every role can mint a
+            /// token, so without that separate capability a contributor could otherwise point a player
+            /// at unreleased content simply by asking. Runtime resolution then reads the stored row and
+            /// ignores anything the player sends.
+            /// </remarks>
+            public string contentChannel;
         }
 
         [Serializable]
@@ -104,6 +116,7 @@ namespace Molca.Editor.Licensing
                 coreVersion = coreVersion,
                 appVersion = appVersion,
                 projectBinding = projectBinding,
+                contentChannel = MolcaProjectSettings.Instance?.ContentChannel ?? "stable",
             });
             string machineId = SystemInfo.deviceUniqueIdentifier; // Unity API: read before leaving the main thread.
             // Task.Run keeps the blocking wait off the editor's synchronization context.

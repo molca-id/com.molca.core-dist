@@ -30,6 +30,7 @@ namespace Molca.Editor.Doctor
         {
             ("scene-", "Scene"),
             ("http-", "Networking"),
+            ("network-", "Networking"),
             ("dataprovider-", "Networking"),
             ("color-id-", "Theming"),
             ("design-language", "Theming"),

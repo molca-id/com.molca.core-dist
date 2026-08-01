@@ -50,10 +50,9 @@ namespace Molca.Editor.Mcp.Providers
 
         private static McpToolDefinition CreateLocalizationCoverageTool() => new McpToolDefinition(
             name: "molca_localization_coverage",
-            description: "Translation-gap report over every DynamicLocalization in the loaded scene(s): for "
-                       + "each, which LocalizationModule-defined languages have no (or blank) text, plus a "
-                       + "count of rows with blank/unknown language codes. Scans loaded scenes only; use the "
-                       + "Doctor for full prefab/ScriptableObject auditing.",
+            description: "Returns the shared project/package/loaded-scene localization audit snapshot "
+                       + "(status, fingerprint, coverage, and stable findings) plus the legacy loaded-scene "
+                       + "DynamicLocalization entry view for compatibility.",
             inputSchemaJson: "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}",
             execute: ExecuteLocalizationCoverage,
             mode: McpToolMode.Any,
@@ -85,7 +84,18 @@ namespace Molca.Editor.Mcp.Providers
                         {
                             ["code"] = lang.Code,
                             ["name"] = lang.Name,
-                            ["flagAssigned"] = lang.Flag != null
+                            ["flagAssigned"] = lang.Flag != null,
+                            ["presentationProfile"] = lang.PresentationProfile == null
+                                ? null
+                                : AssetDatabase.GetAssetPath(lang.PresentationProfile),
+                            ["writingDirection"] = lang.PresentationProfile?.WritingDirection.ToString(),
+                            ["primaryFont"] = lang.PresentationProfile?.PrimaryFont?.name,
+                            ["missingGlyphCount"] =
+                                lang.PresentationProfile?.GetMissingRequiredCharacters().Count,
+                            ["fallbackCodes"] = new JArray(
+                                (lang.FallbackCodes ?? System.Array.Empty<string>()).Cast<object>().ToArray()),
+                            ["fallbackChain"] = new JArray(
+                                module.GetFallbackChain(lang.Code).Cast<object>().ToArray())
                         });
                     }
                 }
@@ -174,6 +184,9 @@ namespace Molca.Editor.Mcp.Providers
 
         private static string ExecuteLocalizationCoverage(string argumentsJson)
         {
+            var auditSnapshot = LocalizationAuditEngine.Audit(
+                LocalizationAuditRequest.CreateDoctorRequest());
+
             // Union of every module's defined codes: a project may ship more than one module, so a code
             // counts as defined when any module declares it (mirrors the Doctor's validity check).
             var definedCodes = new HashSet<string>();
@@ -201,23 +214,22 @@ namespace Molca.Editor.Mcp.Providers
                         if (property.propertyType != SerializedPropertyType.Generic)
                             continue;
 
-                        // DynamicLocalization serializes as a generic struct with a `translations`
-                        // array plus the `useLocalizedString` flag (same shape the Doctor keys on).
-                        var translations = property.FindPropertyRelative("translations");
-                        var useLocalized = property.FindPropertyRelative("useLocalizedString");
-                        if (translations == null || !translations.isArray || useLocalized == null)
+                        if (!LocalizedValueSerializedUtility.TryDescribe(
+                                property,
+                                out var descriptor))
                             continue;
 
-                        enterChildren = false; // it's a DynamicLocalization; don't descend into it
-                        if (useLocalized.boolValue)
-                            continue; // LocalizedString mode does not use the translations list
+                        enterChildren = false;
+                        if (descriptor.SourceKind != LocalizedValueSourceKind.Inline ||
+                            descriptor.Rows == null)
+                            continue;
 
                         var present = new HashSet<string>();
-                        for (int i = 0; i < translations.arraySize; i++)
+                        for (int i = 0; i < descriptor.Rows.arraySize; i++)
                         {
-                            var row = translations.GetArrayElementAtIndex(i);
-                            var code = row.FindPropertyRelative("languageCode")?.stringValue;
-                            var text = row.FindPropertyRelative("text")?.stringValue;
+                            var row = descriptor.Rows.GetArrayElementAtIndex(i);
+                            var code = row.FindPropertyRelative(descriptor.CodeField)?.stringValue;
+                            var text = row.FindPropertyRelative(descriptor.ValueField)?.stringValue;
                             if (string.IsNullOrEmpty(code))
                             {
                                 blankCodeRows++;
@@ -239,14 +251,42 @@ namespace Molca.Editor.Mcp.Providers
                             ["path"] = GameObjectEditingService.GetHierarchyPath(mb.gameObject),
                             ["component"] = mb.GetType().Name,
                             ["field"] = property.propertyPath,
+                            ["schemaVersion"] = descriptor.SchemaVersion.intValue,
+                            ["legacy"] = descriptor.IsLegacy,
                             ["missingLanguages"] = new JArray(missing)
                         });
                     }
                 }
             }
 
+            var findings = new JArray(auditSnapshot.Findings.Select(finding => new JObject
+            {
+                ["id"] = finding.Id,
+                ["severity"] = finding.Severity.ToString(),
+                ["message"] = finding.Message,
+                ["path"] = finding.Path,
+                ["propertyPath"] = finding.PropertyPath
+            }));
+
             return new JObject
             {
+                ["schemaVersion"] = 2,
+                ["snapshotId"] = auditSnapshot.SnapshotId,
+                ["status"] = auditSnapshot.Status.ToString(),
+                ["catalogFingerprint"] = auditSnapshot.CatalogFingerprint,
+                ["coverage"] = new JObject
+                {
+                    ["complete"] = auditSnapshot.Coverage.IsComplete,
+                    ["declaredAssets"] = auditSnapshot.Coverage.DeclaredAssets,
+                    ["scannedAssets"] = auditSnapshot.Coverage.ScannedAssets,
+                    ["ignoredAssets"] = auditSnapshot.Coverage.IgnoredAssets,
+                    ["failedAssets"] = auditSnapshot.Coverage.FailedAssets,
+                    ["declaredScenes"] = auditSnapshot.Coverage.DeclaredScenes,
+                    ["scannedScenes"] = auditSnapshot.Coverage.ScannedScenes,
+                    ["packageAssets"] = auditSnapshot.Coverage.PackageAssets
+                },
+                ["findingCount"] = findings.Count,
+                ["findings"] = findings,
                 ["definedLanguageCodes"] = new JArray(definedCodes.OrderBy(c => c).Cast<object>().ToArray()),
                 ["dynamicLocalizationCount"] = entries.Count,
                 ["fullyCovered"] = fullyCovered,

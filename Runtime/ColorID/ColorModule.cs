@@ -93,7 +93,35 @@ namespace Molca.ColorID
         {
             _instance = null;
             _isInitialized = false;
+            RuntimeProviderOverride = null;
         }
+
+        /// <summary>
+        /// When set, every legacy static and instance-free lookup resolves through this provider
+        /// instead of through a <see cref="ColorModule"/> asset.
+        /// </summary>
+        /// <remarks>
+        /// Installed by <see cref="ColorSchemeManager"/> when a project runs the V2 theme model, and
+        /// cleared on its shutdown. This is the seam that lets call sites with no way to reach a
+        /// service — <see cref="ColorIDReference.Color"/>, the <see cref="ColorUtility"/> statics,
+        /// edit-mode drawers — resolve against V2 data.
+        /// <para/>
+        /// Without it those call sites would fall into <see cref="ResolveActive"/>, find no
+        /// <see cref="ColorModule"/> in a V2 project's settings, and fabricate an untracked fallback
+        /// asset with ten hardcoded colours — silently rendering a completely different palette from
+        /// the rest of the application.
+        /// </remarks>
+        internal static IColorProvider RuntimeProviderOverride { get; set; }
+
+        /// <summary>
+        /// The provider legacy lookups should use: the V2 override when one is installed, otherwise
+        /// the active <see cref="ColorModule"/>.
+        /// </summary>
+        /// <remarks>
+        /// Single decision point, so no legacy call site has to know whether the project is V1 or V2.
+        /// </remarks>
+        internal static IColorProvider ResolveActiveProvider() =>
+            RuntimeProviderOverride ?? ResolveActive();
 
         /// <summary>
         /// Test seam for the read-only-at-runtime gates: EditMode tests run with
@@ -229,9 +257,9 @@ namespace Molca.ColorID
                 }
             }
 
-            // Try default swatch first (backward compatibility)
-            string defaultKey = $"Default.{colorId}";
-            if (_colorCache.TryGetValue(defaultKey, out Color color))
+            // Try the default swatch first (backward compatibility)
+            string defaultSwatchName = DefaultSwatchName;
+            if (_colorCache.TryGetValue($"{defaultSwatchName}.{colorId}", out Color color))
             {
                 return color;
             }
@@ -240,7 +268,7 @@ namespace Molca.ColorID
             // This ensures lower-indexed swatches are checked first
             foreach (var swatch in _colorSwatches)
             {
-                if (swatch.SwatchName == "Default") continue; // Skip default, already checked
+                if (swatch.SwatchName == defaultSwatchName) continue; // Skip default, already checked
 
                 string compositeKey = $"{swatch.SwatchName}.{colorId}";
                 if (_colorCache.TryGetValue(compositeKey, out Color swatchColor))
@@ -251,6 +279,33 @@ namespace Molca.ColorID
 
             Debug.LogWarning($"Color with ID '{colorId}' not found in ColorModule.");
             return Color.magenta;
+        }
+
+        /// <summary>
+        /// The name of the swatch that bare (non-composite) colour IDs resolve against first.
+        /// </summary>
+        /// <remarks>
+        /// Honours the authored <see cref="ColorSwatch.IsDefault"/> flag, falling back to the
+        /// conventional name <c>"Default"</c> when no swatch is flagged. V1 hardcoded
+        /// <c>"Default"</c> here while the inspector let authors flag any swatch as the default,
+        /// so a palette whose default swatch had another name had a flag that lookup ignored.
+        /// The first flagged swatch wins; a palette with more than one flagged default is invalid
+        /// data and is reported by the ColorID Doctor checks.
+        /// </remarks>
+        private string DefaultSwatchName
+        {
+            get
+            {
+                if (_colorSwatches != null)
+                {
+                    foreach (var swatch in _colorSwatches)
+                    {
+                        if (swatch != null && swatch.IsDefault && !string.IsNullOrEmpty(swatch.SwatchName))
+                            return swatch.SwatchName;
+                    }
+                }
+                return "Default";
+            }
         }
 
         private bool HasColorCore(string swatchName, string colorId)
@@ -268,8 +323,8 @@ namespace Molca.ColorID
             }
 
             // Check default swatch first
-            string defaultKey = $"Default.{colorId}";
-            if (_colorCache.ContainsKey(defaultKey))
+            string defaultSwatchName = DefaultSwatchName;
+            if (_colorCache.ContainsKey($"{defaultSwatchName}.{colorId}"))
             {
                 return true;
             }
@@ -277,7 +332,7 @@ namespace Molca.ColorID
             // Search non-default swatches in list order for deterministic behavior
             foreach (var swatch in _colorSwatches)
             {
-                if (swatch.SwatchName == "Default") continue; // Skip default, already checked
+                if (swatch.SwatchName == defaultSwatchName) continue; // Skip default, already checked
 
                 string compositeKey = $"{swatch.SwatchName}.{colorId}";
                 if (_colorCache.ContainsKey(compositeKey))
@@ -415,12 +470,32 @@ namespace Molca.ColorID
         #endregion
 
         /// <summary>
+        /// Why every palette-mutation API on this type is deprecated.
+        /// </summary>
+        /// <remarks>
+        /// A <see cref="ColorModule"/> is a settings ScriptableObject — read-only config. These methods
+        /// predate that rule and reach it by halves: in play mode they write only the in-memory cache and
+        /// leave the serialized swatch alone, so the call appears to succeed and its effect vanishes at the
+        /// next domain reload. In the editor they do write the asset, which makes the same call site mean
+        /// two different things depending on where it runs.
+        /// <para/>
+        /// V2 has no equivalent because it does not need one: a <c>ColorThemeSet</c> is authored through
+        /// previewed transactions (<c>ColorThemeSetEditing</c>) and read at runtime through an immutable
+        /// <c>ResolvedColorTheme</c>. Changing what the user sees is a variant switch, not a palette edit.
+        /// </remarks>
+        private const string MutationObsoleteMessage =
+            "ColorModule is read-only config; this mutates a ScriptableObject and behaves differently in "
+            + "the editor than in a player. Author a ColorThemeSet through ColorThemeSetEditing and switch "
+            + "variants via IColorThemeService.TrySetVariant. Scheduled for removal in Core 2.0.0.";
+
+        /// <summary>
         /// Adds a new color definition to a specific swatch
         /// </summary>
         /// <param name="swatchName">The name of the swatch</param>
         /// <param name="colorId">The ID for the color</param>
         /// <param name="color">The color value</param>
         /// <param name="description">Optional description</param>
+        [Obsolete(MutationObsoleteMessage)]
         public void AddColor(string swatchName, string colorId, Color color, string description = "")
         {
             if (string.IsNullOrEmpty(swatchName))
@@ -467,9 +542,12 @@ namespace Molca.ColorID
         /// <param name="colorId">The ID for the color</param>
         /// <param name="color">The color value</param>
         /// <param name="description">Optional description</param>
+        [Obsolete(MutationObsoleteMessage)]
         public void AddColor(string colorId, Color color, string description = "")
         {
+#pragma warning disable 618 // Deliberate: a deprecated overload forwarding to its deprecated primary.
             AddColor("Default", colorId, color, description);
+#pragma warning restore 618
         }
 
         /// <summary>
@@ -477,6 +555,7 @@ namespace Molca.ColorID
         /// </summary>
         /// <param name="swatchName">The name of the swatch</param>
         /// <param name="colorId">The ID of the color to remove</param>
+        [Obsolete(MutationObsoleteMessage)]
         public void RemoveColor(string swatchName, string colorId)
         {
             var swatch = _colorSwatches.Find(s => s.SwatchName == swatchName);
@@ -495,9 +574,12 @@ namespace Molca.ColorID
         /// Removes a color definition (legacy support - removes from default swatch)
         /// </summary>
         /// <param name="colorId">The ID of the color to remove</param>
+        [Obsolete(MutationObsoleteMessage)]
         public void RemoveColor(string colorId)
         {
+#pragma warning disable 618 // Deliberate: a deprecated overload forwarding to its deprecated primary.
             RemoveColor("Default", colorId);
+#pragma warning restore 618
         }
 
         /// <summary>
@@ -506,6 +588,7 @@ namespace Molca.ColorID
         /// <param name="swatchName">The name of the swatch</param>
         /// <param name="colorId">The ID of the color to update</param>
         /// <param name="color">The new color value</param>
+        [Obsolete(MutationObsoleteMessage)]
         public void UpdateColor(string swatchName, string colorId, Color color)
         {
             if (string.IsNullOrEmpty(swatchName))
@@ -537,9 +620,12 @@ namespace Molca.ColorID
         /// </summary>
         /// <param name="colorId">The ID of the color to update</param>
         /// <param name="color">The new color value</param>
+        [Obsolete(MutationObsoleteMessage)]
         public void UpdateColor(string colorId, Color color)
         {
+#pragma warning disable 618 // Deliberate: a deprecated overload forwarding to its deprecated primary.
             UpdateColor("Default", colorId, color);
+#pragma warning restore 618
         }
 
         /// <summary>
@@ -564,6 +650,7 @@ namespace Molca.ColorID
         /// </summary>
         /// <param name="swatchName">The name of the swatch to add</param>
         /// <returns>True if the swatch was added successfully</returns>
+        [Obsolete(MutationObsoleteMessage)]
         public bool AddSwatch(string swatchName)
         {
             if (string.IsNullOrEmpty(swatchName))
@@ -594,6 +681,7 @@ namespace Molca.ColorID
         /// </summary>
         /// <param name="swatchName">The name of the swatch to remove</param>
         /// <returns>True if the swatch was removed successfully</returns>
+        [Obsolete(MutationObsoleteMessage)]
         public bool RemoveSwatch(string swatchName)
         {
             var swatch = _colorSwatches.Find(s => s.SwatchName == swatchName);
@@ -977,37 +1065,27 @@ namespace Molca.ColorID
             return settings;
         }
 
+        /// <remarks>
+        /// Deliberately narrow. Validation rebuilds this asset's own lookup cache so the
+        /// inspector preview matches the edited values, and nothing else.
+        /// <para/>
+        /// V1 also cleared every persisted colour override, ran the destructive legacy-swatch
+        /// migration, scanned every <see cref="ColorID"/> in all open scenes, recoloured them and
+        /// dirtied their GameObjects — all as a side effect of touching one field on one palette.
+        /// That conflated validation with a project-wide apply: it discarded user overrides
+        /// without being asked, marked unrelated scenes dirty, and fired during scene load and
+        /// asset import. Those are now explicit operations:
+        /// <list type="bullet">
+        /// <item><description>persisted overrides — <see cref="ResetToDefaults"/>;</description></item>
+        /// <item><description>legacy swatch migration — runs from <see cref="LoadSettings"/> in
+        /// edit mode, where it is an authoring step rather than a keystroke response;</description></item>
+        /// <item><description>recolouring scene objects — <c>Molca/ColorID/Apply Colors to all IDs</c>.</description></item>
+        /// </list>
+        /// </remarks>
         private void OnValidate()
         {
-            // Migrate legacy colors if needed
-            MigrateLegacyColors();
-            
-            // Refresh cache when color definitions are modified in editor
-            if (Application.isPlaying)
-            {
-                // In play mode, refresh the cache immediately
-                RefreshCache();
-            }
-            else
-            {
-                // In edit mode, clear any saved PlayerPrefs for modified colors
-                // This ensures that the current definition values take precedence
-                foreach (var swatch in _colorSwatches)
-                {
-                    foreach (var definition in swatch.ColorDefinitions)
-                    {
-                        if (!string.IsNullOrEmpty(definition.ColorId))
-                        {
-                            ClearColorFromPlayerPrefs(swatch.SwatchName, definition.ColorId);
-                        }
-                    }
-                }
-                
-                // Refresh the cache and mark as dirty
-                RefreshCache();
-                ApplyColorsToColorID();
-                UnityEditor.EditorUtility.SetDirty(this);
-            }
+            // Cache-only: reflects the edited definitions in this asset's own lookups.
+            RefreshCache();
         }
         #endif
     }

@@ -7,7 +7,7 @@ namespace Molca.Editor
     /// write can address nested composite objects and lists-of-objects — not just flat scalars. A node is
     /// exactly one of: a <see cref="Scalar"/> leaf, an ordered <see cref="Elements"/> list (array/list
     /// fields), or a named <see cref="Members"/> map (composite serializable types such as
-    /// <c>DynamicLocalization</c>). Keeping this independent of Newtonsoft preserves the editor services'
+    /// <c>LocalizedValue</c>). Keeping this independent of Newtonsoft preserves the editor services'
     /// deliberate freedom from any JSON dependency — the MCP layer builds the tree from its own JSON.
     /// </summary>
     /// <remarks>

@@ -363,9 +363,14 @@ namespace Molca.ColorID.Editor
 
             if (GUILayout.Button("Reset to Defaults"))
             {
-                if (EditorUtility.DisplayDialog("Reset to Defaults", 
-                    "This will clear all saved color settings, remove custom swatches, and restore default colors. Continue?", 
-                    "Yes", "No"))
+                // Wording must match ColorModule.ResetToDefaults, which clears persisted
+                // PlayerPrefs overrides and rebuilds the cache. It does NOT remove swatches or
+                // overwrite authored colours — those are asset data. The old copy promised a
+                // destructive reset that never happened.
+                if (EditorUtility.DisplayDialog("Reset to Defaults",
+                    "This clears saved colour overrides for this palette and restores the values " +
+                    "authored in the asset.\n\nYour swatches and authored colours are not changed.",
+                    "Reset Overrides", "Cancel"))
                 {
                     colorModule.ResetToDefaults();
                     EditorUtility.SetDirty(target);

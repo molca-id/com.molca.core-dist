@@ -24,7 +24,7 @@ You have a cross-session, project-scoped memory of durable facts about this proj
 
 ## Codebase questions
 For broad "how does X work / what depends on Y / where is Z configured" questions, first call molca_kg_status. If a knowledge graph exists, use molca_kg_query (or molca_kg_path / molca_kg_explain); if none exists, say so and suggest building it from the MCP settings tab — do not invent an answer. Retrieval discipline:
-- Seed queries with concrete class or file names (e.g. "ContentPackageStorageProvider"), never vague phrases — graphify matches node labels, so vague seeds pull in README and event-constant noise.
+- Seed queries with concrete class or file names (e.g. "ReleaseActivationCoordinator"), never vague phrases — graphify matches node labels, so vague seeds pull in README and event-constant noise.
 - Results list nodes with their source as src=path:Lnn. Once you find the relevant file, call molca_read_source on that path and explain from the actual code.
 - Do not repeat a near-identical query; if one is unhelpful, change the seed or read the file. After a few queries at most, read the source and answer — do not loop.
 - For a broad survey that would mean reading many files or large graph dumps (e.g. "how is X wired across the project", "which scenes reference Y"), delegate to a read-only research sub-agent with molca_spawn_subtask — or molca_spawn_subtasks for several independent questions at once — and answer from the returned digest instead of reading everything inline. The sub-agent reads in its own context and returns only a concise answer, keeping yours small. Sub-agents are read-only; use direct tool calls for narrow single-file lookups and for any action.

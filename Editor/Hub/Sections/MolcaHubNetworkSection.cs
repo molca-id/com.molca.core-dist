@@ -1,7 +1,11 @@
 using System.Collections.Generic;
 using Molca;
+using Molca.Editor.Networking.Authoring;
+using Molca.Editor.Networking.Hub;
+using Molca.Editor.Networking.Validation;
 using Molca.Editor.UI.Components;
 using Molca.Networking.Data;
+using Molca.Networking.Diagnostics;
 using Molca.Networking.Http;
 using Molca.Networking.Utils;
 using UnityEngine;
@@ -50,6 +54,8 @@ namespace Molca.Editor.Hub.Sections
         {
             _content.Clear();
 
+            BuildCatalogSummary();
+
             if (!Application.isPlaying || !RuntimeManager.IsReady)
             {
                 var card = new MolcaSectionCard(
@@ -69,6 +75,64 @@ namespace Molca.Editor.Hub.Sections
             BuildHistoryCard();
             BuildCacheCard();
             BuildProvidersCard();
+        }
+
+        /// <summary>
+        /// A compact catalog health line and a link into the Network workspace.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately a summary plus a deep link rather than an authoring surface (plan §7.1). Keeping a
+        /// lesser copy of the catalog editor in a settings leaf would guarantee the two eventually
+        /// disagreed about what a route resolves to, and the leaf is the one a user is more likely to
+        /// trust because it sits next to the setting.
+        /// </remarks>
+        private void BuildCatalogSummary()
+        {
+            var catalog = NetworkCatalogLocator.FindCatalog();
+            var report = NetworkCatalogValidator.Validate(catalog);
+
+            var status = catalog == null ? MolcaStatusKind.Idle
+                : report.ErrorCount > 0 ? MolcaStatusKind.Error
+                : report.WarningCount > 0 ? MolcaStatusKind.Warning
+                : MolcaStatusKind.Ok;
+
+            var card = new MolcaSectionCard(
+                "Network Catalog",
+                catalog != null
+                    ? $"{catalog.Environments.Count} environment(s) · {catalog.Services.Count} service(s)"
+                    : "Requests use the global base URL",
+                status,
+                catalog == null ? "Not configured" : report.IsValid ? "Valid" : report.Summarize());
+
+            var summary = new Label(catalog == null
+                ? "No catalog is configured, so every request resolves against HttpModule.BaseUrl and " +
+                  "process-wide credentials travel with all of them."
+                : NetworkCatalogLocator.IsRegistered(catalog)
+                    ? "Routes resolve through this catalog at runtime."
+                    : "This catalog is not registered on GlobalSettings, so the runtime does not load it.");
+            summary.AddToClassList("molca-hub-muted");
+            summary.style.whiteSpace = WhiteSpace.Normal;
+            card.Body.Add(summary);
+
+            var actions = new VisualElement();
+            actions.style.flexDirection = FlexDirection.Row;
+            actions.style.marginTop = 6;
+            actions.Add(MolcaButtons.Primary("Open Network workspace", () => NetworkHubWorkspace.Open()));
+
+            if (catalog != null && !report.IsValid)
+            {
+                actions.Add(MolcaButtons.Mini("Diagnostics", () => NetworkHubWorkspace.Open(
+                    new NetworkHubNavigationTarget(NetworkHubViews.Diagnostics))));
+            }
+
+            if (catalog != null)
+            {
+                actions.Add(MolcaButtons.Mini("Live", () => NetworkHubWorkspace.Open(
+                    NetworkHubNavigationTarget.Live())));
+            }
+
+            card.Body.Add(actions);
+            _content.Add(card);
         }
 
         private void BuildHttpCard()
@@ -210,7 +274,10 @@ namespace Molca.Editor.Hub.Sections
                 name.AddToClassList("molca-hub-network-row__url");
                 row.Add(name);
 
-                var status = new Label(ReadConnectionStatus(provider) ?? (active ? "active" : "inactive"));
+                var status = new Label(
+                    provider is INetworkStreamStatus stream && !string.IsNullOrEmpty(stream.StreamStatus)
+                        ? stream.StreamStatus
+                        : active ? "active" : "inactive");
                 status.AddToClassList("molca-hub-network-row__status");
                 row.Add(status);
 
@@ -218,18 +285,6 @@ namespace Molca.Editor.Hub.Sections
             }
 
             _content.Add(card);
-        }
-
-        // Streaming providers (WebSocket/SocketIO) expose a string ConnectionStatus, but the
-        // base DataProvider does not — read it reflectively so the section stays decoupled
-        // from the optional MOLCA_WEBSOCKET/MOLCA_SOCKETIO provider types.
-        private static string ReadConnectionStatus(object provider)
-        {
-            if (provider == null) return null;
-            var prop = provider.GetType().GetProperty("ConnectionStatus");
-            return prop != null && prop.PropertyType == typeof(string)
-                ? prop.GetValue(provider) as string
-                : null;
         }
 
         private static VisualElement MetricRow(string label, string value)

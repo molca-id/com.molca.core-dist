@@ -1,0 +1,430 @@
+/*
+ * References workspace styles.
+ *
+ * Colors come exclusively from the shared tokens in MolcaEditorTokens.uss (loaded by
+ * MolcaEditorUi.Apply); no copied hex. Layout follows EDITOR_DESIGN_LANGUAGE.md so the workspace
+ * renders uniformly with the rest of the Hub.
+ */
+
+.molca-references {
+    flex-grow: 1;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+/* ---- Health header ---- */
+
+.molca-references__header {
+    flex-direction: row;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.molca-references__state {
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
+.molca-references__state-line {
+    flex-direction: row;
+    align-items: center;
+}
+
+.molca-references__state-label {
+    -unity-font-style: bold;
+    font-size: 13px;
+    color: var(--molca-heading);
+    margin-right: 8px;
+}
+
+.molca-references__state-counts {
+    font-size: 11px;
+    color: var(--molca-text);
+    flex-shrink: 1;
+}
+
+.molca-references__state-detail {
+    font-size: 11px;
+    color: var(--molca-muted);
+    white-space: normal;
+}
+
+.molca-references__stale {
+    font-size: 11px;
+    color: var(--molca-status-warn);
+    white-space: normal;
+    margin-top: 2px;
+}
+
+.molca-references__header-actions {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.molca-references__progress {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.molca-references__progress-bar {
+    flex-grow: 1;
+}
+
+/* ---- Primary view tabs ---- */
+
+.molca-references__views {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--molca-border-soft);
+    margin-bottom: 6px;
+}
+
+.molca-references__view-tab {
+    height: 22px;
+    padding-left: 10px;
+    padding-right: 10px;
+    margin-left: 0;
+    margin-right: 2px;
+    border-width: 0;
+    border-radius: 0;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--molca-muted);
+    font-size: 11px;
+}
+
+.molca-references__view-tab:hover {
+    color: var(--molca-text);
+}
+
+.molca-references__view-tab--active {
+    color: var(--molca-heading);
+    -unity-font-style: bold;
+    border-bottom-width: 2px;
+    border-bottom-color: var(--molca-accent);
+}
+
+/* ---- Filters ---- */
+
+.molca-references__filters {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+
+.molca-references__search {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 140px;
+    margin-right: 6px;
+}
+
+/*
+ * Base is the OFF look and --active the calm on look, matching the Doctor's chips: a workspace with
+ * every severity shown reads uniform rather than lit up.
+ */
+.molca-references__chip {
+    height: 20px;
+    padding-left: 9px;
+    padding-right: 9px;
+    margin-left: 3px;
+    border-width: 1px;
+    border-color: var(--molca-border-soft);
+    border-radius: 4px;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--molca-muted);
+    font-size: 11px;
+    opacity: 0.55;
+}
+
+.molca-references__chip--active {
+    color: var(--molca-text);
+    border-color: var(--molca-border);
+    opacity: 1;
+}
+
+.molca-references__filter-summary {
+    font-size: 11px;
+    color: var(--molca-muted);
+    margin-left: 8px;
+    flex-shrink: 1;
+}
+
+.molca-references__filters--narrow .molca-references__search {
+    min-width: 100px;
+}
+
+/* ---- Split: table + detail ---- */
+
+.molca-references__split {
+    flex-direction: row;
+    flex-grow: 1;
+}
+
+/*
+ * Under the narrow-width threshold the two panes stack instead of shrinking to unreadable widths.
+ * The table keeps a bounded height so the detail panel is always reachable without scrolling past
+ * the whole table.
+ */
+.molca-references__split--narrow {
+    flex-direction: column;
+}
+
+.molca-references__table-pane {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 220px;
+}
+
+.molca-references__split--narrow .molca-references__table-pane {
+    max-height: 240px;
+    min-width: 0;
+}
+
+.molca-references__table {
+    flex-grow: 1;
+    min-height: 120px;
+}
+
+.molca-references__detail-pane {
+    width: 38%;
+    min-width: 240px;
+    flex-shrink: 0;
+    border-left-width: 1px;
+    border-left-color: var(--molca-border-soft);
+    padding-left: 8px;
+    margin-left: 8px;
+}
+
+.molca-references__split--narrow .molca-references__detail-pane {
+    width: auto;
+    min-width: 0;
+    flex-grow: 1;
+    border-left-width: 0;
+    border-top-width: 1px;
+    border-top-color: var(--molca-border-soft);
+    padding-left: 0;
+    margin-left: 0;
+    padding-top: 8px;
+    margin-top: 8px;
+}
+
+.molca-references__detail {
+    flex-grow: 1;
+}
+
+/* ---- Table rows ---- */
+
+/*
+ * The header mirrors the row's box model exactly — same cell width classes, same right margins, and a
+ * spacer standing in for the 8px status dot plus its 6px gutter — so a heading always sits over its
+ * column at any pane width.
+ */
+.molca-references__table-header {
+    flex-direction: row;
+    align-items: center;
+    height: 20px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--molca-border-soft);
+    margin-bottom: 2px;
+}
+
+.molca-references__header-dot-spacer {
+    width: 8px;
+    flex-shrink: 0;
+    margin-right: 6px;
+}
+
+.molca-references__header-cell {
+    color: var(--molca-muted);
+    -unity-font-style: bold;
+    font-size: 10px;
+}
+
+.molca-references__row {
+    flex-direction: row;
+    align-items: center;
+    height: 22px;
+}
+
+.molca-references__row-dot {
+    flex-shrink: 0;
+    margin-right: 6px;
+}
+
+/*
+ * Every cell declares an explicit `flex-basis`, and that is the whole reason these are columns.
+ *
+ * The default `flex-basis: auto` makes a flex item's base size its *content* size, so a column of text
+ * cells sizes itself from whatever text each row happens to hold: two rows of the same table land their
+ * values at different x, and the header — short words like "Source" — lands them somewhere else again.
+ * A fixed basis (0 for the proportional columns, a width for the fixed ones) makes a column's width a
+ * function of the pane, never of its contents.
+ *
+ * `flex-basis` beats `width` for a flex item, so the fixed columns state their size as the basis rather
+ * than as a width that would be ignored.
+ */
+.molca-references__cell {
+    flex-grow: 0;
+    flex-shrink: 1;
+    flex-basis: 0;
+    font-size: 11px;
+    color: var(--molca-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -unity-text-align: middle-left;
+    margin-right: 8px;
+}
+
+.molca-references__cell--code {
+    flex-basis: 54px;
+    flex-shrink: 0;
+    color: var(--molca-muted);
+    -unity-font-style: bold;
+}
+
+.molca-references__cell--title {
+    flex-grow: 1.4;
+    min-width: 60px;
+}
+
+.molca-references__cell--owner {
+    flex-grow: 1.2;
+    min-width: 40px;
+    color: var(--molca-muted);
+}
+
+.molca-references__cell--target {
+    flex-grow: 1;
+    min-width: 40px;
+    color: var(--molca-muted);
+}
+
+.molca-references__cell--state {
+    flex-basis: 130px;
+    flex-shrink: 0;
+    color: var(--molca-muted);
+}
+
+.molca-references__cell--repair {
+    flex-basis: 100px;
+    flex-shrink: 0;
+    color: var(--molca-link);
+}
+
+.molca-references__empty {
+    font-size: 11px;
+    color: var(--molca-muted);
+    white-space: normal;
+    padding-top: 10px;
+    padding-bottom: 6px;
+}
+
+/* ---- Detail panel content ---- */
+
+.molca-references__note {
+    font-size: 11px;
+    color: var(--molca-muted);
+    white-space: normal;
+    margin-bottom: 4px;
+}
+
+.molca-references__field {
+    flex-direction: row;
+    align-items: flex-start;
+    margin-bottom: 2px;
+}
+
+.molca-references__field-key {
+    width: 92px;
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--molca-muted);
+}
+
+.molca-references__field-value {
+    flex-grow: 1;
+    flex-shrink: 1;
+    font-size: 11px;
+    color: var(--molca-text);
+    white-space: normal;
+}
+
+.molca-references__field-title {
+    font-size: 11px;
+    -unity-font-style: bold;
+    color: var(--molca-heading);
+    margin-top: 6px;
+    margin-bottom: 2px;
+}
+
+.molca-references__candidate {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.molca-references__candidate-label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    font-size: 11px;
+    color: var(--molca-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.molca-references__actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+
+.molca-references__coverage-row {
+    flex-direction: row;
+    align-items: flex-start;
+    margin-bottom: 3px;
+}
+
+.molca-references__coverage-label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    font-size: 11px;
+    color: var(--molca-text);
+    white-space: normal;
+}
+
+.molca-references__policy-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.molca-references__policy-label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    font-size: 11px;
+    color: var(--molca-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.molca-references__policy-field {
+    width: 110px;
+    flex-shrink: 0;
+}
+
+.molca-references__policy-locked {
+    width: 110px;
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--molca-muted);
+    -unity-text-align: middle-left;
+}

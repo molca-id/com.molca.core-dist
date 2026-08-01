@@ -14,6 +14,9 @@ namespace Molca.ContentPackage.Services
     /// Note: The initialization priority should be set in the Unity Inspector on the GameObject
     /// that has this component. Recommended priority: 150 (after core systems, before app-specific systems).
     /// </summary>
+    // Without this module the subsystem logs an error and returns without initializing, so no package
+    // ever installs. Declaring it surfaces that at edit time rather than as silence at runtime.
+    [RequiresSettingModule(typeof(ContentPackageSettings))]
     public class PackageSubsystem : RuntimeSubsystem
     {
         #region Private Fields
@@ -125,6 +128,9 @@ namespace Molca.ContentPackage.Services
             Log("[PackageSubsystem] Teardown");
             _downloadQueue?.Dispose();
             _downloadQueue = null;
+            // Addressables holds the internal id transform in a static, so a release access provider
+            // that is not uninstalled outlives this subsystem and keeps appending a dead ticket.
+            _packageService?.ShutdownReleaseProtocol();
             base.Teardown();
         }
 
@@ -157,7 +163,10 @@ namespace Molca.ContentPackage.Services
                     cancellationToken.ThrowIfCancellationRequested();
 
                     var state = _packageService.GetPackageState(cfg.packageId);
-                    if (state?.status == PackageStatus.Installed) continue;
+                    // IsInstalled, not status == Installed: a required package with an update
+                    // available is already installed and usable, and re-installing it here would
+                    // force an unrequested update every launch.
+                    if (state != null && state.IsInstalled) continue;
 
                     Log($"[PackageSubsystem] Auto-installing required package: {cfg.packageId}");
                     var result = await _packageService.InstallPackageAsync(cfg.packageId, null, cancellationToken);

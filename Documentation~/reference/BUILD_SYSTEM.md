@@ -67,9 +67,16 @@ fires so integrations (webhooks, changelog writers) can react.
 ## Validation
 
 The build path is guarded by Doctor checks — `build-scenes-valid`, `build-profile-valid`, and
-`version-settings-valid` — plus `SceneReferenceBuildValidator`, which confirms
+`version-settings-valid` — plus `ReferenceBuildGate`, which confirms
 [scene references](REFERENCE_SYSTEM.md) resolve in the build scene set. Run the Doctor before a release
 build (see [Extending Molca Doctor](DOCTOR_CHECKS.md)).
+
+`ReferenceBuildGate` is an `IPreprocessBuildWithReport`, so it runs for **every** build entry point —
+Molca Build Manager, **File → Build**, and batch-mode CI — not only Molca's own build command. It fails
+**closed**: a coverage gap or a scan failure aborts a production build rather than passing green, and a
+build that processes a scene the gate never validated fails rather than letting an explicit
+`BuildPlayerOptions.scenes` list bypass it. A development build may lower the coverage and scan-failure
+findings; duplicate providers, ambiguous fallbacks and wrong target types stay errors either way.
 
 ## See also
 

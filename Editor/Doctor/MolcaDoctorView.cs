@@ -165,6 +165,17 @@ namespace Molca.Editor.Doctor
             _exportButton.style.marginLeft = 4;
             toolbar.Add(_exportButton);
 
+            // Doctor reports; it never repairs (IDoctorCheck is side-effect free by contract). This is the
+            // hand-off to the surface that does, so "what is wrong" and "fix it" are one click apart.
+            var remediate = MolcaButtons.Toolbar(
+                "Remediation…",
+                () => Hub.MolcaHubWindow.OpenWorkspace(
+                    Remediation.Hub.RemediationWorkspaceProvider.WorkspaceId));
+            remediate.style.marginLeft = 4;
+            remediate.tooltip = "Open the Remediation workspace, which repairs the findings that have a "
+                                + "single correct answer and explains the rest.";
+            toolbar.Add(remediate);
+
             var spacer = new VisualElement();
             spacer.AddToClassList("molca-doctor__toolbar-spacer");
             toolbar.Add(spacer);
