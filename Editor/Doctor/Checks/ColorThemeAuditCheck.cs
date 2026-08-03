@@ -20,7 +20,7 @@ namespace Molca.Editor.Doctor
     /// healthy, because they are all reading the same scan.
     /// <para/>
     /// It also fixes a real blind spot in the older
-    /// <c>ColorIDReferenceValidityCheck</c>, which unions keys across every <see cref="ColorModule"/> and
+    /// the retired ColorID reference check, which unioned keys across every <c>ColorModule</c> and
     /// so accepts a reference that is defined in <i>any</i> palette. Under V2 every selectable variant is
     /// checked separately, and a reference missing from one variant is reported with that variant named —
     /// because switching to it renders magenta at runtime.

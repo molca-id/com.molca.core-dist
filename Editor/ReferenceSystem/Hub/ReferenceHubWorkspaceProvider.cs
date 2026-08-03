@@ -31,7 +31,7 @@ namespace Molca.Editor.ReferenceSystem.Hub
                 // project health, and References is the specialist surface you arrive at from it.
                 order: 20,
                 createContent: () => new ReferenceHubView(),
-                icon: "d_Linked",
+                icon: "references",
                 group: MolcaHubWorkspaceGroups.Quality,
                 cacheContent: true),
         };

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -9,6 +10,33 @@ using UnityEngine.UIElements;
 
 namespace Molca.Editor.Hub.Sections
 {
+    /// <summary>One stable string-table entry with all of its locale cells.</summary>
+    internal sealed class LocalizationCatalogEntryView
+    {
+        internal LocalizationCatalogEntryView(IReadOnlyList<LocalizationCatalogCell> cells)
+        {
+            Cells = cells ?? System.Array.Empty<LocalizationCatalogCell>();
+            var first = Cells.First();
+            CollectionId = first.CollectionId;
+            CollectionName = first.CollectionName;
+            EntryId = first.EntryId;
+            Key = first.Key;
+        }
+
+        internal string CollectionId { get; }
+        internal string CollectionName { get; }
+        internal long EntryId { get; }
+        internal string Key { get; }
+        internal IReadOnlyList<LocalizationCatalogCell> Cells { get; }
+        internal int MissingCount => Cells.Count(cell => cell.IsMissing);
+        internal int ReadOnlyCount => Cells.Count(cell => cell.IsReadOnly);
+
+        internal LocalizationCatalogCell PreviewCell(string preferredLocale) =>
+            Cells.FirstOrDefault(cell => string.Equals(
+                cell.LocaleCode, preferredLocale, System.StringComparison.OrdinalIgnoreCase))
+            ?? Cells.First();
+    }
+
     /// <summary>
     /// Localization Hub foundation that renders the same audit snapshot used by Doctor, builds, and MCP.
     /// </summary>
@@ -24,6 +52,7 @@ namespace Molca.Editor.Hub.Sections
         /// </param>
         internal MolcaHubLocalizationSection(bool deferInitialScan = true)
         {
+            AddToClassList("molca-workspace");
             AddToClassList("molca-hub-localization-section");
             _content = new VisualElement();
             Add(_content);
@@ -126,38 +155,67 @@ namespace Molca.Editor.Hub.Sections
             }
             else
             {
+                var list = new VisualElement();
+                list.AddToClassList("molca-list");
                 foreach (var module in AssetDatabase.FindAssets("t:LocalizationModule")
                              .Select(AssetDatabase.GUIDToAssetPath)
                              .Select(AssetDatabase.LoadAssetAtPath<LocalizationModule>)
                              .Where(module => module != null))
-                foreach (var language in LanguagesOrEmpty(module))
                 {
-                    var profile = language.PresentationProfile;
-                    var summary = profile == null
-                        ? $"{language.Code} · profile missing"
-                        : $"{language.Code} · {profile.WritingDirection} · " +
-                          $"font {(profile.PrimaryFont == null ? "missing" : profile.PrimaryFont.name)} · " +
-                          $"{profile.GetMissingRequiredCharacters().Count} missing glyph(s) · " +
-                          $"fallback {string.Join(" → ", module.GetFallbackChain(language.Code))}";
-                    var row = new VisualElement();
-                    row.style.flexDirection = FlexDirection.Row;
-                    var label = new Label(summary);
-                    label.style.flexGrow = 1;
-                    label.style.whiteSpace = WhiteSpace.Normal;
-                    row.Add(label);
-                    if (profile == null)
-                        row.Add(new Button(() => CreatePresentationProfile(module, language.Code))
+                    var languages = LanguagesOrEmpty(module);
+                    var missingProfiles = languages.Count(language => language.PresentationProfile == null);
+                    var group = new MolcaListGroup(
+                        module.name,
+                        $"{languages.Count} locale(s)",
+                        missingProfiles > 0 ? MolcaStatusKind.Warning : MolcaStatusKind.Ok,
+                        missingProfiles > 0 ? $"{missingProfiles} need profiles" : "Complete");
+
+                    foreach (var language in languages)
+                    {
+                        var profile = language.PresentationProfile;
+                        var subtitle = profile == null
+                            ? "Presentation profile missing"
+                            : profile.WritingDirection.ToString();
+                        var row = new MolcaListRow(language.Code, subtitle);
+
+                        var font = new Label(profile?.PrimaryFont == null
+                            ? "Font missing"
+                            : profile.PrimaryFont.name);
+                        font.AddToClassList("molca-list-row__value");
+                        row.AddMetadata(font);
+
+                        var glyphs = profile?.GetMissingRequiredCharacters().Count ?? 0;
+                        if (profile == null || glyphs > 0)
+                            row.AddMetadata(new MolcaStatusBadge(
+                                MolcaStatusKind.Warning,
+                                profile == null ? "Profile missing" : $"{glyphs} glyphs missing"));
+
+                        if (profile == null)
                         {
-                            text = "Create Profile",
-                        });
-                    else
-                        row.Add(new Button(() =>
+                            row.AddAction(MolcaButtons.Mini("Create Profile",
+                                () => CreatePresentationProfile(module, language.Code)));
+                        }
+                        else
                         {
-                            Selection.activeObject = profile;
-                            EditorGUIUtility.PingObject(profile);
-                        }) { text = "Select Profile" });
-                    card.Body.Add(row);
+                            row.AddAction(MolcaButtons.Mini("Select Profile", () =>
+                            {
+                                Selection.activeObject = profile;
+                                EditorGUIUtility.PingObject(profile);
+                            }));
+                        }
+
+                        row.AddDetail(ListDetailRow(
+                            "Fallback chain",
+                            string.Join(" → ", module.GetFallbackChain(language.Code))));
+                        row.AddDetail(ListDetailRow(
+                            "Required glyphs",
+                            profile == null ? "Unknown until a profile is assigned" : $"{glyphs} missing"));
+                        group.Body.Add(row);
+                    }
+
+                    list.Add(group);
                 }
+                card.Body.Add(list);
             }
             _content.Add(card);
         }
@@ -355,39 +413,82 @@ namespace Molca.Editor.Hub.Sections
 
         private void BuildCatalog()
         {
-            const int maxRenderedCells = 80;
+            const int maxRenderedEntries = 80;
             var snapshot = LocalizationCatalogAuthoringService.Capture();
-            var collectionCount = snapshot.Cells
-                .Select(cell => cell.CollectionId)
-                .Distinct()
-                .Count();
-            var entryCount = snapshot.Cells
-                .Select(cell => $"{cell.CollectionId}:{cell.EntryId}")
+            var entries = GroupCatalogEntries(snapshot.Cells);
+            var collectionCount = entries
+                .Select(entry => entry.CollectionId)
                 .Distinct()
                 .Count();
             var card = new MolcaSectionCard(
                 "String Catalog",
-                $"{collectionCount} collection(s) · {entryCount} key(s) · " +
+                $"{collectionCount} collection(s) · {entries.Count} key(s) · " +
                 $"{snapshot.Cells.Count(cell => cell.IsMissing)} missing cell(s)",
                 snapshot.Cells.Any(cell => cell.IsReadOnly)
                     ? MolcaStatusKind.Warning
                     : MolcaStatusKind.Ok,
                 null,
-                "Stable collection and entry identities are shown with every locale value.");
+                "Each stable entry appears once; expand it to switch between locale values.");
 
             foreach (var warning in snapshot.Warnings)
                 card.Body.Add(WrappedLabel($"Warning: {warning}"));
-            foreach (var cell in snapshot.Cells.Take(maxRenderedCells))
+
+            var list = new VisualElement();
+            list.AddToClassList("molca-list");
+            var renderedEntries = entries.Take(maxRenderedEntries).ToList();
+            var defaultLocale = LocalizationCatalogAuthoringService.GetDefaultLocaleCode();
+            foreach (var collection in renderedEntries
+                         .GroupBy(entry => new { entry.CollectionId, entry.CollectionName })
+                         .OrderBy(group => group.Key.CollectionName, System.StringComparer.Ordinal))
             {
-                var renderedValue = cell.IsMissing ? "— missing —" : cell.Value;
-                var ownership = cell.IsReadOnly ? " · read-only" : string.Empty;
-                card.Body.Add(WrappedLabel(
-                    $"{cell.CollectionName} · {cell.Key} [{cell.LocaleCode}]{ownership}\n" +
-                    $"{renderedValue}\n{cell.CollectionId} / {cell.EntryId}"));
+                var collectionEntries = collection.ToList();
+                var missing = collectionEntries.Sum(entry => entry.MissingCount);
+                var group = new MolcaListGroup(
+                    collection.Key.CollectionName,
+                    $"{collectionEntries.Count} key(s)",
+                    missing > 0 ? MolcaStatusKind.Warning : MolcaStatusKind.Ok,
+                    missing > 0 ? $"{missing} missing" : "Complete");
+
+                foreach (var entry in collectionEntries)
+                {
+                    var previewCell = entry.PreviewCell(defaultLocale);
+                    var row = new MolcaListRow(entry.Key, entry.CollectionName);
+                    var renderedValue = new Label(
+                        previewCell.IsMissing ? "— missing —" : previewCell.Value)
+                    {
+                        tooltip = $"{previewCell.LocaleCode} preview",
+                    };
+                    renderedValue.AddToClassList("molca-list-row__value");
+                    row.AddMetadata(renderedValue);
+
+                    var localeLabel = new Label(
+                        $"{entry.Cells.Count} {(entry.Cells.Count == 1 ? "locale" : "locales")}");
+                    localeLabel.AddToClassList("molca-list-row__meta");
+                    row.AddMetadata(localeLabel);
+
+                    if (entry.MissingCount > 0)
+                        row.AddMetadata(new MolcaStatusBadge(
+                            MolcaStatusKind.Warning,
+                            $"{entry.MissingCount} missing"));
+                    if (entry.ReadOnlyCount > 0)
+                        row.AddMetadata(new MolcaStatusBadge(
+                            MolcaStatusKind.Idle,
+                            entry.ReadOnlyCount == entry.Cells.Count
+                                ? "Read-only"
+                                : $"{entry.ReadOnlyCount} read-only"));
+
+                    row.AddDetail(BuildLocaleTabs(entry.Cells, defaultLocale));
+                    row.AddDetail(ListDetailRow("Collection id", entry.CollectionId));
+                    row.AddDetail(ListDetailRow("Entry id", entry.EntryId.ToString()));
+                    group.Body.Add(row);
+                }
+
+                list.Add(group);
             }
-            if (snapshot.Cells.Count > maxRenderedCells)
+            card.Body.Add(list);
+            if (entries.Count > maxRenderedEntries)
                 card.Body.Add(WrappedLabel(
-                    $"{snapshot.Cells.Count - maxRenderedCells} additional cell(s). " +
+                    $"{entries.Count - maxRenderedEntries} additional key(s). " +
                     "Use the collection id below or CSV export for bulk work."));
 
             var editor = new VisualElement();
@@ -461,12 +562,97 @@ namespace Molca.Editor.Hub.Sections
             _content.Add(card);
         }
 
+        /// <summary>Projects the catalog matrix into one stable row per collection entry.</summary>
+        internal static IReadOnlyList<LocalizationCatalogEntryView> GroupCatalogEntries(
+            IEnumerable<LocalizationCatalogCell> cells) =>
+            (cells ?? System.Array.Empty<LocalizationCatalogCell>())
+            .GroupBy(cell => new { cell.CollectionId, cell.EntryId })
+            .Select(group => new LocalizationCatalogEntryView(group
+                .OrderBy(cell => cell.LocaleCode, System.StringComparer.Ordinal)
+                .ToList()))
+            .OrderBy(entry => entry.CollectionName, System.StringComparer.Ordinal)
+            .ThenBy(entry => entry.Key, System.StringComparer.Ordinal)
+            .ThenBy(entry => entry.EntryId)
+            .ToList();
+
+        private static VisualElement BuildLocaleTabs(
+            IReadOnlyList<LocalizationCatalogCell> cells,
+            string preferredLocale)
+        {
+            var root = new VisualElement();
+
+            var tabs = new VisualElement();
+            tabs.AddToClassList("molca-workspace-subtabs");
+            tabs.style.flexWrap = Wrap.Wrap;
+            root.Add(tabs);
+
+            var panel = new VisualElement();
+            root.Add(panel);
+
+            var buttons = new List<(Button Button, LocalizationCatalogCell Cell)>();
+            void Select(LocalizationCatalogCell selected)
+            {
+                foreach (var tab in buttons)
+                    tab.Button.EnableInClassList(
+                        "molca-workspace-subtab--active",
+                        object.ReferenceEquals(tab.Cell, selected));
+
+                panel.Clear();
+                panel.Add(ListDetailRow(
+                    "Value",
+                    selected.IsMissing ? "— missing —" : selected.Value));
+                panel.Add(ListDetailRow("Locale", selected.LocaleCode));
+                panel.Add(ListDetailRow("Format", selected.IsSmart ? "Smart string" : "Plain string"));
+                panel.Add(ListDetailRow(
+                    "Ownership",
+                    selected.IsReadOnly ? "SDK-owned · read-only" : "Project-owned · editable"));
+                panel.Add(ListDetailRow("Table asset", selected.TableAssetPath));
+            }
+
+            foreach (var cell in cells)
+            {
+                var button = new Button(() => Select(cell))
+                {
+                    text = cell.IsMissing ? $"{cell.LocaleCode} · Missing" : cell.LocaleCode,
+                    tooltip = cell.IsMissing
+                        ? $"{cell.LocaleCode}: missing value"
+                        : cell.IsReadOnly
+                            ? $"{cell.LocaleCode}: read-only"
+                            : $"Show {cell.LocaleCode}",
+                };
+                button.AddToClassList("molca-workspace-subtab");
+                tabs.Add(button);
+                buttons.Add((button, cell));
+            }
+
+            var initial = cells.FirstOrDefault(cell => string.Equals(
+                              cell.LocaleCode, preferredLocale, System.StringComparison.OrdinalIgnoreCase))
+                          ?? cells.First();
+            Select(initial);
+            return root;
+        }
+
         private static Label WrappedLabel(string text)
         {
             var label = new Label(text);
             label.style.whiteSpace = WhiteSpace.Normal;
             label.AddToClassList("molca-hub-muted");
             return label;
+        }
+
+        private static VisualElement ListDetailRow(string label, string value)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("molca-list-detail-row");
+
+            var key = new Label(label ?? string.Empty);
+            key.AddToClassList("molca-list-detail-row__label");
+            row.Add(key);
+
+            var renderedValue = new Label(value ?? string.Empty);
+            renderedValue.AddToClassList("molca-list-detail-row__value");
+            row.Add(renderedValue);
+            return row;
         }
 
         private void BuildArchiveAuthoring()

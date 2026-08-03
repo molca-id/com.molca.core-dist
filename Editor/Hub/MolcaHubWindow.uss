@@ -19,43 +19,54 @@
 .molca-hub-workspace-toolbar {
     flex-shrink: 0;
     flex-direction: row;
-    align-items: stretch;
-    padding-top: 0;
+    align-items: flex-end;
+    min-height: 38px;
+    padding-top: 4px;
     padding-bottom: 0;
-    padding-left: 8px;
-    padding-right: 8px;
+    padding-left: 6px;
+    padding-right: 6px;
     background-color: var(--hub-card-header);
     border-bottom-width: 1px;
     border-bottom-color: var(--hub-border);
 }
 
 /*
- * Workspace tab: an [icon] [label] row with a bottom accent underline. The underline is a dedicated
- * child element (.molca-hub-workspace-tab__underline), NOT a button border — Unity's built-in Button
- * repaints its own border box on :focus/:active, which erased a border-based underline the instant a
- * tab was clicked and took focus. A child element is immune to that. Tabs stretch full toolbar height
- * so the underline can sit flush on the header's bottom seam.
+ * Browser-style workspace tab: [icon] [label] [close], joined to the workspace surface when active.
+ * The accent is still a dedicated child (.molca-hub-workspace-tab__underline), because Unity's Button
+ * focus/active repaint can replace its own border colors. The close button is absolutely positioned so
+ * hover visibility and pinning never invalidate MolcaHubTabStrip's captured full-width measurement.
  */
 /*
  * NOTE: `flex-shrink: 0` is load-bearing, not cosmetic. Without it, tabs compress below their content
  * width once the strip runs out of room and labels are cut mid-word. Holding the content width is also
  * what makes MolcaHubTabStrip's single width measurement trustworthy at any window size, which is how
  * the strip knows when to collapse to icons and when to overflow. The icon-only width constant
- * (MolcaHubTabStrip.IconOnlyTabWidth = 38px) is derived from this rule's horizontal padding (12 + 12)
- * plus the icon's 14px width — keep the three in sync.
+ * (MolcaHubTabStrip.IconOnlyTabWidth = 38px) is set explicitly by the icon-only rule below.
  */
 .molca-hub-workspace-tab {
+    position: relative;
     flex-shrink: 0;
     flex-direction: row;
     align-items: center;
-    margin-left: 0;
+    min-height: 34px;
+    margin-left: 1px;
     margin-right: 0;
-    padding-top: 8px;
-    padding-bottom: 8px;
-    padding-left: 12px;
-    padding-right: 12px;
-    border-width: 0;
-    border-radius: 0;
+    margin-bottom: -1px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 10px;
+    padding-right: 26px;
+    border-top-width: 1px;
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-bottom-width: 0;
+    border-top-color: rgba(0, 0, 0, 0);
+    border-left-color: rgba(0, 0, 0, 0);
+    border-right-color: rgba(0, 0, 0, 0);
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
     background-color: rgba(0, 0, 0, 0);
     color: var(--hub-muted);
     font-size: 12px;
@@ -68,6 +79,15 @@
     background-color: var(--hub-control);
 }
 
+.molca-hub-workspace-tab--active,
+.molca-hub-workspace-tab--active:hover {
+    color: var(--hub-heading);
+    background-color: var(--hub-bg);
+    border-top-color: var(--hub-border);
+    border-left-color: var(--hub-border);
+    border-right-color: var(--hub-border);
+}
+
 /* No explicit color: `color` is an inherited USS property, so the label picks up the tab's muted /
    hover / active color automatically. (Setting `color: inherit` is invalid in Unity USS — it
    spams "read value of type Color while reading a value of type Keyword" and leaves the label
@@ -77,10 +97,48 @@
 }
 
 .molca-hub-workspace-tab__icon {
-    width: 14px;
-    height: 14px;
+    width: 15px;
+    height: 15px;
     margin-right: 6px;
     flex-shrink: 0;
+}
+
+.molca-hub-workspace-tab__close {
+    position: absolute;
+    right: 4px;
+    top: 8px;
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    min-height: 16px;
+    margin: 0;
+    padding: 0;
+    border-width: 0;
+    border-radius: 3px;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--hub-muted);
+    font-size: 13px;
+    -unity-text-align: middle-center;
+    opacity: 0;
+}
+
+.molca-hub-workspace-tab:hover .molca-hub-workspace-tab__close,
+.molca-hub-workspace-tab--active .molca-hub-workspace-tab__close {
+    opacity: 1;
+}
+
+.molca-hub-workspace-tab__close:hover {
+    color: var(--hub-heading);
+    background-color: var(--hub-control);
+}
+
+.molca-hub-workspace-tab--pinned .molca-hub-workspace-tab__close,
+.molca-hub-workspace-tab--icon-only .molca-hub-workspace-tab__close {
+    opacity: 0;
+}
+
+.molca-hub-workspace-tab--anchored {
+    padding-right: 10px;
 }
 
 /*
@@ -92,6 +150,13 @@
     margin-right: 0;
 }
 
+.molca-hub-workspace-tab--icon-only {
+    width: 38px;
+    min-width: 38px;
+    padding-left: 11px;
+    padding-right: 11px;
+}
+
 /*
  * Overflow chevron ("» N"): the same tab chrome, minus the selection underline it never carries, and
  * pushed hard against the right edge so it reads as an affordance rather than another workspace.
@@ -99,6 +164,9 @@
 .molca-hub-workspace-tab--overflow {
     padding-left: 8px;
     padding-right: 8px;
+    border-width: 0;
+    border-radius: 3px;
+    margin-bottom: 2px;
     -unity-font-style: bold;
 }
 
@@ -111,23 +179,26 @@
     padding-left: 8px;
     padding-right: 8px;
     min-width: 30px;
+    border-width: 0;
+    border-radius: 3px;
+    margin-bottom: 2px;
     justify-content: center;
 }
 
 .molca-hub-workspace-tab--tabs-menu .molca-hub-workspace-tab__icon {
+    width: 14px;
+    height: 14px;
     margin-right: 0;
 }
 
 /*
- * Bottom accent underline. Absolutely positioned along the tab's bottom edge (out of flow, so it
- * never shifts the icon/label row) and overlapping the toolbar's 1px bottom border. Transparent at
- * rest; a faint hint on hover; the full accent color when the tab is the active workspace.
+ * Top accent inside the active browser tab. It is out of flow and therefore measurement-safe.
  */
 .molca-hub-workspace-tab__underline {
     position: absolute;
-    left: 6px;
-    right: 6px;
-    bottom: -1px;
+    left: 5px;
+    right: 5px;
+    top: 0;
     height: 2px;
     border-radius: 1px;
     background-color: rgba(0, 0, 0, 0);
@@ -168,7 +239,8 @@
 /* Thin vertical divider between adjacent tabs for clearer separation. */
 .molca-hub-tab-divider {
     width: 1px;
-    margin-top: 8px;
+    height: 18px;
+    margin-top: 0;
     margin-bottom: 8px;
     flex-shrink: 0;
     background-color: var(--hub-border-soft);
@@ -181,15 +253,15 @@
 .molca-hub-tab-divider--group {
     margin-left: 6px;
     margin-right: 6px;
-    margin-top: 6px;
-    margin-bottom: 6px;
+    margin-top: 0;
+    margin-bottom: 8px;
 }
 
 /* The strip itself is the toolbar's only child and lays its tabs out in a row. */
 .molca-hub-tab-strip {
     flex-grow: 1;
     flex-direction: row;
-    align-items: stretch;
+    align-items: flex-end;
     overflow: hidden;
 }
 

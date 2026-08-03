@@ -1,0 +1,48 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0a2e0d59f04e2ad4cbb6f2c364082897, type: 3}
+  m_Name: Content Package Settings
+  m_EditorClassIdentifier: 
+  packageConfigs:
+  - packageId: test.package
+    displayName: Test Package
+    metadata:
+      version: 0.0.1
+      description: Test Package Description
+      author: 
+      tags:
+      - Sample
+    isVisible: 1
+    isRequired: 0
+    dependencies:
+    - packageId: core
+    addressableLabels:
+    - Test_DLC_Exclude
+  - packageId: core
+    displayName: Core
+    metadata:
+      version: 1.0.0
+      description: 
+      author: 
+      tags: []
+    isVisible: 0
+    isRequired: 1
+    dependencies: []
+    addressableLabels:
+    - core
+  _remoteCatalogUrl: https://pub-6f9aefb916d9436799b97fd4ca46e2d5.r2.dev/content/StandaloneWindows64/catalog_0.0.1.bin
+  _remotePackagesManifestUrl: https://pub-6f9aefb916d9436799b97fd4ca46e2d5.r2.dev/content/StandaloneWindows64/packages.json
+  _checkForCatalogUpdates: 1
+  _maxRetryAttempts: 3
+  _enableVerboseLogging: 0
+  _enableContentVersioning: 0
+  _appVersion: 

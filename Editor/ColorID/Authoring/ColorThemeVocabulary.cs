@@ -407,6 +407,14 @@ namespace Molca.ColorID.Editor
                 + "than V1's 0.40, which failed even the large-text threshold at 2.28:1."),
             new LegacyColorAlias("Text", "20", "surface/wash-subtle",
                 "8 uses and every one is an Image. Despite the swatch name this is a fill, not text."),
+            new LegacyColorAlias("Text", "Secondary", "text/muted",
+                "A pair the V1 vocabulary never defined — Text carried only {20,40,60,80,100} — so it has "
+                + "always resolved to the magenta sentinel. One use: Confirmation Detailed's Cancel button, "
+                + "overriding an instance of Button.prefab whose own ColorID is Text.60. Since Text.60 "
+                + "already aliases to text/muted, whose authored description is literally \"Secondary "
+                + "text\", the override was the author naming the source's own colour and mistyping the "
+                + "key. Aliased here rather than deleted so the intent survives; it renders as the source "
+                + "always intended. Decided 2026-08-02."),
 
             new LegacyColorAlias("Gray", "20", "surface/sunken", "8 uses, all Image."),
             new LegacyColorAlias("Gray", "60", "border/default", "5 uses, all Image."),
@@ -424,7 +432,13 @@ namespace Molca.ColorID.Editor
                 + "legacy pair carried as a prefab-instance override, and EnterPIN's Cancel Button carries "
                 + "one. It was therefore resolving to the magenta sentinel under V2. Black at 0.6 alpha, "
                 + "so the alias restores exactly what V1 rendered."),
-            new LegacyColorAlias("Black", "80", "surface/scrim-strong", "2 uses, both Image.")
+            new LegacyColorAlias("Black", "80", "surface/scrim-strong", "2 uses, both Image."),
+            new LegacyColorAlias("Black", "100", $"{NeutralRampPrefix}1000",
+                "Missed for the same reason as Black.60 — carried only as a prefab-instance override, which "
+                + "the inventory's text scan does not see — so it too was resolving to magenta. One use: "
+                + "ContentPackage List Item's pressed state. The scrim ramp stops at 80 because a scrim is "
+                + "by definition translucent, so fully opaque black maps to the neutral primitive instead. "
+                + "Decided 2026-08-02.")
         };
 
         /// <summary>

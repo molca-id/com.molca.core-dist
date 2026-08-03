@@ -1,0 +1,1041 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: eb0596794a6643cb89c5ec2ec95bfda2, type: 3}
+  m_Name: Molca Color Theme Set
+  m_EditorClassIdentifier: Molca::Molca.ColorID.ColorThemeSet
+  _stableSetId: molca-core-color-vocabulary-v1
+  _displayName: Molca Colour Vocabulary
+  _schemaVersion: 1
+  _tokenDefinitions:
+  - _id: palette/neutral/0
+    _displayName: 
+    _description: Pure grey ramp step. Variant-invariant.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/neutral/200
+    _displayName: 
+    _description: Pure grey ramp step. Variant-invariant.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/neutral/400
+    _displayName: 
+    _description: Pure grey ramp step. Variant-invariant.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/neutral/600
+    _displayName: 
+    _description: Pure grey ramp step. Variant-invariant.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/neutral/800
+    _displayName: 
+    _description: Pure grey ramp step. Variant-invariant.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/neutral/1000
+    _displayName: 
+    _description: Pure grey ramp step. Variant-invariant.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/shell/base
+    _displayName: 
+    _description: App chrome base tone.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/shell/raised
+    _displayName: 
+    _description: Second app chrome level, for raised surfaces.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/shell/disabled
+    _displayName: 
+    _description: Chrome tone used for disabled fills.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/ink/base
+    _displayName: 
+    _description: Foreground base tone.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/brand/500
+    _displayName: 
+    _description: The brand colour. The only genuine brand hue in this palette.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/green/500
+    _displayName: 
+    _description: Success hue. Variant-invariant.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/amber/500
+    _displayName: 
+    _description: Warning hue. Variant-invariant.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: palette/red/500
+    _displayName: 
+    _description: Error hue. Variant-invariant.
+    _kind: 0
+    _usage: 256
+    _required: 0
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: surface/canvas
+    _displayName: 
+    _description: The window background. Translucent (alpha 0.9) as in V1, so anything
+      measuring contrast against it must name an under-surface.
+    _kind: 1
+    _usage: 1
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: surface/panel
+    _displayName: 
+    _description: An opaque panel or card background.
+    _kind: 1
+    _usage: 1
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: surface/raised
+    _displayName: 
+    _description: A surface raised above the panel level.
+    _kind: 1
+    _usage: 1
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: surface/sunken
+    _displayName: 
+    _description: A recessed well or input background.
+    _kind: 1
+    _usage: 1
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: surface/scrim
+    _displayName: 
+    _description: Modal overlay behind a dialog.
+    _kind: 1
+    _usage: 1
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: surface/scrim-medium
+    _displayName: 
+    _description: A mid-weight modal overlay. Added after the content-migration preview
+      found a live Black.60 site that the first vocabulary pass had no alias for.
+    _kind: 1
+    _usage: 1
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: surface/scrim-strong
+    _displayName: 
+    _description: A heavier modal overlay.
+    _kind: 1
+    _usage: 1
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: surface/wash-subtle
+    _displayName: 
+    _description: "The ink colour at 20% used as a fill \u2014 a divider, hover wash
+      or disabled backing. Named a surface because every measured V1 use of Text.20
+      was an Image."
+    _kind: 1
+    _usage: 1
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: surface/wash-strong
+    _displayName: 
+    _description: The ink colour at 80% used as a fill.
+    _kind: 1
+    _usage: 1
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: text/primary
+    _displayName: 
+    _description: Default body text.
+    _kind: 1
+    _usage: 6
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: text/muted
+    _displayName: 
+    _description: Secondary text. Clears 4.5:1 on the canvas in both variants, at
+      a per-variant alpha.
+    _kind: 1
+    _usage: 6
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: text/subtle
+    _displayName: 
+    _description: De-emphasised text. Held to the large-text threshold (3:1) by design,
+      not to 4.5:1, so it is only for large or non-essential text.
+    _kind: 1
+    _usage: 2
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: text/accent
+    _displayName: 
+    _description: Brand-coloured text.
+    _kind: 1
+    _usage: 2
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: border/default
+    _displayName: 
+    _description: Default border and divider.
+    _kind: 1
+    _usage: 8
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: focus/ring
+    _displayName: 
+    _description: Keyboard focus indicator.
+    _kind: 1
+    _usage: 16
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: action/primary/fill
+    _displayName: 
+    _description: Primary button fill.
+    _kind: 1
+    _usage: 1
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: action/primary/on-fill
+    _displayName: 
+    _description: Text and icons on a primary fill. Aliases opposite ends of the
+      neutral ramp per variant, because the Dark brand is light and the Light brand
+      is dark.
+    _kind: 1
+    _usage: 6
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: action/pressed/fill
+    _displayName: 
+    _description: Pressed-state fill.
+    _kind: 1
+    _usage: 1
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: action/disabled/fill
+    _displayName: 
+    _description: Disabled-state fill.
+    _kind: 1
+    _usage: 1
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: status/success/fill
+    _displayName: 
+    _description: "Success fill. Not a text colour \u2014 its ratio on the Light
+      canvas is about 1.1:1."
+    _kind: 1
+    _usage: 33
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: status/warning/fill
+    _displayName: 
+    _description: Warning fill. The only V1 key bound to a 3D Renderer.
+    _kind: 1
+    _usage: 33
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: status/error/text
+    _displayName: 
+    _description: Error text. Named /text because measured V1 usage was 4 labels
+      to 1 fill.
+    _kind: 1
+    _usage: 34
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  - _id: status/error/surface
+    _displayName: 
+    _description: Error background wash.
+    _kind: 1
+    _usage: 33
+    _required: 1
+    _deprecated: 0
+    _replacementId: 
+    _tags: []
+  _variants:
+  - _id: dark
+    _displayName: Dark
+    _values:
+    - _tokenId: palette/neutral/0
+      _expression:
+        _kind: 0
+        _literal: {r: 0, g: 0, b: 0, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/neutral/200
+      _expression:
+        _kind: 0
+        _literal: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/neutral/400
+      _expression:
+        _kind: 0
+        _literal: {r: 0.4, g: 0.4, b: 0.4, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/neutral/600
+      _expression:
+        _kind: 0
+        _literal: {r: 0.6, g: 0.6, b: 0.6, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/neutral/800
+      _expression:
+        _kind: 0
+        _literal: {r: 0.8, g: 0.8, b: 0.8, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/neutral/1000
+      _expression:
+        _kind: 0
+        _literal: {r: 1, g: 1, b: 1, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/shell/base
+      _expression:
+        _kind: 0
+        _literal: {r: 0.137255, g: 0.121569, b: 0.12549, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/shell/raised
+      _expression:
+        _kind: 0
+        _literal: {r: 0.152941, g: 0.152941, b: 0.164706, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/shell/disabled
+      _expression:
+        _kind: 0
+        _literal: {r: 0.137255, g: 0.121569, b: 0.12549, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/ink/base
+      _expression:
+        _kind: 0
+        _literal: {r: 0.92549, g: 0.929412, b: 0.933333, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/brand/500
+      _expression:
+        _kind: 0
+        _literal: {r: 0.811765, g: 1, b: 0.2, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/green/500
+      _expression:
+        _kind: 0
+        _literal: {r: 0.423529, g: 0.894118, b: 0.094118, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/amber/500
+      _expression:
+        _kind: 0
+        _literal: {r: 0.952941, g: 0.760784, b: 0.070588, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/red/500
+      _expression:
+        _kind: 0
+        _literal: {r: 0.952941, g: 0.070588, b: 0.376471, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: surface/canvas
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/shell/base
+        _alphaMultiplier: 0.901961
+    - _tokenId: surface/panel
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/shell/base
+        _alphaMultiplier: 1
+    - _tokenId: surface/raised
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/shell/raised
+        _alphaMultiplier: 1
+    - _tokenId: surface/sunken
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/neutral/200
+        _alphaMultiplier: 1
+    - _tokenId: surface/scrim
+      _expression:
+        _kind: 0
+        _literal: {r: 0, g: 0, b: 0, a: 0.4}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: surface/scrim-medium
+      _expression:
+        _kind: 0
+        _literal: {r: 0, g: 0, b: 0, a: 0.6}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: surface/scrim-strong
+      _expression:
+        _kind: 0
+        _literal: {r: 0, g: 0, b: 0, a: 0.8}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: surface/wash-subtle
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/ink/base
+        _alphaMultiplier: 0.2
+    - _tokenId: surface/wash-strong
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/ink/base
+        _alphaMultiplier: 0.8
+    - _tokenId: text/primary
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/ink/base
+        _alphaMultiplier: 1
+    - _tokenId: text/muted
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/ink/base
+        _alphaMultiplier: 0.6
+    - _tokenId: text/subtle
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/ink/base
+        _alphaMultiplier: 0.4
+    - _tokenId: text/accent
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/brand/500
+        _alphaMultiplier: 1
+    - _tokenId: border/default
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/neutral/600
+        _alphaMultiplier: 1
+    - _tokenId: focus/ring
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/brand/500
+        _alphaMultiplier: 1
+    - _tokenId: action/primary/fill
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/brand/500
+        _alphaMultiplier: 1
+    - _tokenId: action/primary/on-fill
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/neutral/0
+        _alphaMultiplier: 1
+    - _tokenId: action/pressed/fill
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/neutral/1000
+        _alphaMultiplier: 1
+    - _tokenId: action/disabled/fill
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/shell/disabled
+        _alphaMultiplier: 0.392157
+    - _tokenId: status/success/fill
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/green/500
+        _alphaMultiplier: 1
+    - _tokenId: status/warning/fill
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/amber/500
+        _alphaMultiplier: 1
+    - _tokenId: status/error/text
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/red/500
+        _alphaMultiplier: 1
+    - _tokenId: status/error/surface
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/red/500
+        _alphaMultiplier: 0.15
+    _isHighContrast: 0
+    _tags: []
+  - _id: light
+    _displayName: Light
+    _values:
+    - _tokenId: palette/neutral/0
+      _expression:
+        _kind: 0
+        _literal: {r: 0, g: 0, b: 0, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/neutral/200
+      _expression:
+        _kind: 0
+        _literal: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/neutral/400
+      _expression:
+        _kind: 0
+        _literal: {r: 0.4, g: 0.4, b: 0.4, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/neutral/600
+      _expression:
+        _kind: 0
+        _literal: {r: 0.6, g: 0.6, b: 0.6, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/neutral/800
+      _expression:
+        _kind: 0
+        _literal: {r: 0.8, g: 0.8, b: 0.8, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/neutral/1000
+      _expression:
+        _kind: 0
+        _literal: {r: 1, g: 1, b: 1, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/shell/base
+      _expression:
+        _kind: 0
+        _literal: {r: 0.843137, g: 0.843137, b: 0.843137, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/shell/raised
+      _expression:
+        _kind: 0
+        _literal: {r: 0.726429, g: 0.778831, b: 0.803774, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/shell/disabled
+      _expression:
+        _kind: 0
+        _literal: {r: 0.879245, g: 0.827818, b: 0.840675, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/ink/base
+      _expression:
+        _kind: 0
+        _literal: {r: 0.12549, g: 0.12549, b: 0.12549, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/brand/500
+      _expression:
+        _kind: 0
+        _literal: {r: 0.380653, g: 0.396226, b: 0.331185, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/green/500
+      _expression:
+        _kind: 0
+        _literal: {r: 0.423529, g: 0.894118, b: 0.094118, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/amber/500
+      _expression:
+        _kind: 0
+        _literal: {r: 0.952941, g: 0.760784, b: 0.070588, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: palette/red/500
+      _expression:
+        _kind: 0
+        _literal: {r: 0.952941, g: 0.070588, b: 0.376471, a: 1}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: surface/canvas
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/shell/base
+        _alphaMultiplier: 0.901961
+    - _tokenId: surface/panel
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/shell/base
+        _alphaMultiplier: 1
+    - _tokenId: surface/raised
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/shell/raised
+        _alphaMultiplier: 1
+    - _tokenId: surface/sunken
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/neutral/200
+        _alphaMultiplier: 1
+    - _tokenId: surface/scrim
+      _expression:
+        _kind: 0
+        _literal: {r: 0, g: 0, b: 0, a: 0.4}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: surface/scrim-medium
+      _expression:
+        _kind: 0
+        _literal: {r: 0, g: 0, b: 0, a: 0.6}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: surface/scrim-strong
+      _expression:
+        _kind: 0
+        _literal: {r: 0, g: 0, b: 0, a: 0.8}
+        _aliasTokenId: 
+        _alphaMultiplier: 1
+    - _tokenId: surface/wash-subtle
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/ink/base
+        _alphaMultiplier: 0.2
+    - _tokenId: surface/wash-strong
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/ink/base
+        _alphaMultiplier: 0.8
+    - _tokenId: text/primary
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/ink/base
+        _alphaMultiplier: 1
+    - _tokenId: text/muted
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/ink/base
+        _alphaMultiplier: 0.67
+    - _tokenId: text/subtle
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/ink/base
+        _alphaMultiplier: 0.53
+    - _tokenId: text/accent
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/brand/500
+        _alphaMultiplier: 1
+    - _tokenId: border/default
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/neutral/600
+        _alphaMultiplier: 1
+    - _tokenId: focus/ring
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/brand/500
+        _alphaMultiplier: 1
+    - _tokenId: action/primary/fill
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/brand/500
+        _alphaMultiplier: 1
+    - _tokenId: action/primary/on-fill
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/neutral/1000
+        _alphaMultiplier: 1
+    - _tokenId: action/pressed/fill
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/neutral/1000
+        _alphaMultiplier: 1
+    - _tokenId: action/disabled/fill
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/shell/disabled
+        _alphaMultiplier: 0.392157
+    - _tokenId: status/success/fill
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/green/500
+        _alphaMultiplier: 1
+    - _tokenId: status/warning/fill
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/amber/500
+        _alphaMultiplier: 1
+    - _tokenId: status/error/text
+      _expression:
+        _kind: 1
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/red/500
+        _alphaMultiplier: 1
+    - _tokenId: status/error/surface
+      _expression:
+        _kind: 2
+        _literal: {r: 1, g: 0, b: 1, a: 1}
+        _aliasTokenId: palette/red/500
+        _alphaMultiplier: 0.15
+    _isHighContrast: 0
+    _tags: []
+  _legacyAliases:
+  - _legacySwatchName: Default
+    _legacyColorId: Text
+    _canonicalTokenId: text/primary
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 63 uses, 55 of them TextMeshPro. The 8 Image uses inherit the text colour
+      as a fill; review whether those want surface/wash-subtle instead.
+  - _legacySwatchName: Default
+    _legacyColorId: Primary
+    _canonicalTokenId: action/primary/fill
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: "26 uses, 23 of them Image. The 3 TextMeshPro uses want text/accent \u2014
+      same colour, so rendering is unchanged either way."
+  - _legacySwatchName: Default
+    _legacyColorId: Secondary
+    _canonicalTokenId: surface/panel
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 'Its RGB is identical to Default.Background: never a secondary brand colour,
+      but the surface base at full alpha.'
+  - _legacySwatchName: Default
+    _legacyColorId: Accent
+    _canonicalTokenId: surface/raised
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 9 uses, all Image, and a distinct chrome tone rather than a brand accent.
+  - _legacySwatchName: Default
+    _legacyColorId: Background
+    _canonicalTokenId: surface/canvas
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 19 uses, all Image.
+  - _legacySwatchName: Default
+    _legacyColorId: Disabled
+    _canonicalTokenId: action/disabled/fill
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: Background RGB at 0.39 alpha; used only as a ColorIDButton disabled state.
+  - _legacySwatchName: Default
+    _legacyColorId: Error
+    _canonicalTokenId: status/error/text
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 5 uses, 4 of them TextMeshPro.
+  - _legacySwatchName: Default
+    _legacyColorId: Warning
+    _canonicalTokenId: status/warning/fill
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: "One use, a 3D Renderer \u2014 the only material-path binding in the project."
+  - _legacySwatchName: Default
+    _legacyColorId: Success
+    _canonicalTokenId: status/success/fill
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: Unused in content; aliased so any future reference resolves.
+  - _legacySwatchName: Text
+    _legacyColorId: 100
+    _canonicalTokenId: text/primary
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: Byte-identical to Default.Text at 8 bits in both variants, so the two
+      collapse.
+  - _legacySwatchName: Text
+    _legacyColorId: 80
+    _canonicalTokenId: surface/wash-strong
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 4 uses, 3 of them Image.
+  - _legacySwatchName: Text
+    _legacyColorId: 60
+    _canonicalTokenId: text/muted
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 23 uses, 17 of them TextMeshPro. Dark is byte-identical; Light is deliberately
+      0.67 rather than V1's 0.60, which failed WCAG AA at 3.80:1.
+  - _legacySwatchName: Text
+    _legacyColorId: 40
+    _canonicalTokenId: text/subtle
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 9 uses, 6 of them TextMeshPro. Dark is byte-identical; Light is deliberately
+      0.53 rather than V1's 0.40, which failed even the large-text threshold at 2.28:1.
+  - _legacySwatchName: Text
+    _legacyColorId: 20
+    _canonicalTokenId: surface/wash-subtle
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 8 uses and every one is an Image. Despite the swatch name this is a fill,
+      not text.
+  - _legacySwatchName: Text
+    _legacyColorId: Secondary
+    _canonicalTokenId: text/muted
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: "A pair the V1 vocabulary never defined \u2014 Text carried only {20,40,60,80,100}
+      \u2014 so it has always resolved to the magenta sentinel. One use: Confirmation
+      Detailed's Cancel button, overriding an instance of Button.prefab whose own
+      ColorID is Text.60. Since Text.60 already aliases to text/muted, whose authored
+      description is literally \"Secondary text\", the override was the author naming
+      the source's own colour and mistyping the key. Aliased here rather than deleted
+      so the intent survives; it renders as the source always intended. Decided 2026-08-02."
+  - _legacySwatchName: Gray
+    _legacyColorId: 20
+    _canonicalTokenId: surface/sunken
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 8 uses, all Image.
+  - _legacySwatchName: Gray
+    _legacyColorId: 60
+    _canonicalTokenId: border/default
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 5 uses, all Image.
+  - _legacySwatchName: Gray
+    _legacyColorId: 100
+    _canonicalTokenId: action/pressed/fill
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: One use, a ColorIDButton pressed state.
+  - _legacySwatchName: Gray
+    _legacyColorId: 0
+    _canonicalTokenId: palette/neutral/0
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: Unused; maps to a primitive.
+  - _legacySwatchName: Gray
+    _legacyColorId: 40
+    _canonicalTokenId: palette/neutral/400
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: Unused; maps to a primitive.
+  - _legacySwatchName: Gray
+    _legacyColorId: 80
+    _canonicalTokenId: palette/neutral/800
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: Unused; maps to a primitive.
+  - _legacySwatchName: Black
+    _legacyColorId: 40
+    _canonicalTokenId: surface/scrim
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 4 uses split 2 Image / 2 TextMeshPro. Black at 40% is an overlay idiom,
+      so it maps to a scrim; the 2 text uses are the least certain mapping in this
+      table and want review.
+  - _legacySwatchName: Black
+    _legacyColorId: 60
+    _canonicalTokenId: surface/scrim-medium
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 'Missed by the first vocabulary pass: the Phase 0 inventory''s text scan
+      does not see a legacy pair carried as a prefab-instance override, and EnterPIN''s
+      Cancel Button carries one. It was therefore resolving to the magenta sentinel
+      under V2. Black at 0.6 alpha, so the alias restores exactly what V1 rendered.'
+  - _legacySwatchName: Black
+    _legacyColorId: 80
+    _canonicalTokenId: surface/scrim-strong
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: 2 uses, both Image.
+  - _legacySwatchName: Black
+    _legacyColorId: 100
+    _canonicalTokenId: palette/neutral/1000
+    _deprecatedSince: 1.18.0
+    _removalVersion: 2.0.0
+    _note: "Missed for the same reason as Black.60 \u2014 carried only as a prefab-instance
+      override, which the inventory's text scan does not see \u2014 so it too was
+      resolving to magenta. One use: ContentPackage List Item's pressed state. The
+      scrim ramp stops at 80 because a scrim is by definition translucent, so fully
+      opaque black maps to the neutral primitive instead. Decided 2026-08-02."
+  _accessibilityRequirements:
+  - _foregroundTokenId: text/primary
+    _backgroundTokenId: surface/canvas
+    _minimumRatio: 4.5
+    _appliesToVariants: []
+    _underSurfaceTokenId: palette/shell/base
+    _rationale: Body text on the window background. Measures about 14:1 in Dark.
+    _severity: 2
+  - _foregroundTokenId: text/primary
+    _backgroundTokenId: surface/panel
+    _minimumRatio: 4.5
+    _appliesToVariants: []
+    _underSurfaceTokenId: 
+    _rationale: Body text on an opaque panel.
+    _severity: 2
+  - _foregroundTokenId: text/muted
+    _backgroundTokenId: surface/canvas
+    _minimumRatio: 4.5
+    _appliesToVariants: []
+    _underSurfaceTokenId: palette/shell/base
+    _rationale: Secondary text on the window background. Measures 5.86:1 in Dark.
+      Light failed at 3.80:1 under V1's single-alpha value; raising the Light alpha
+      to 0.67 reaches 4.62:1, so this is now locked at Error in both variants.
+    _severity: 2
+  - _foregroundTokenId: text/subtle
+    _backgroundTokenId: surface/canvas
+    _minimumRatio: 3
+    _appliesToVariants: []
+    _underSurfaceTokenId: palette/shell/base
+    _rationale: De-emphasised text, held to the large-text threshold by design. Measures
+      3.38:1 in Dark. Light failed at 2.28:1 under V1's single-alpha value; raising
+      the Light alpha to 0.53 reaches 3.16:1. Locked at Error so neither variant
+      can regress.
+    _severity: 2
+  - _foregroundTokenId: action/primary/on-fill
+    _backgroundTokenId: action/primary/fill
+    _minimumRatio: 4.5
+    _appliesToVariants: []
+    _underSurfaceTokenId: 
+    _rationale: Label on a primary button. The per-variant alias is what makes this
+      pass in both.
+    _severity: 2
+  - _foregroundTokenId: status/error/text
+    _backgroundTokenId: surface/canvas
+    _minimumRatio: 3
+    _appliesToVariants: []
+    _underSurfaceTokenId: palette/shell/base
+    _rationale: "Error text on the window background measures about 4.0:1 in Dark
+      \u2014 short of 4.5:1. Recorded as a warning rather than an error because this
+      is the shipped V1 value; darkening the red or lightening the canvas is a design
+      decision."
+    _severity: 1

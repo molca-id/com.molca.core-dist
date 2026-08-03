@@ -14,21 +14,22 @@ you've skimmed the [Overview](OVERVIEW.md) for the layer model.
 Add Core via the Unity Package Manager using a Git URL (**Add package from git URL…**):
 
 ```
-https://github.com/molca-id/com.molca.core-dist.git#1.16.2
+https://github.com/molca-id/com.molca.core-dist.git#2.0.0
 ```
 
-Replace `1.16.2` with the version tag you want. To also use the shared SDK layer, add
-`com.molca.sdk` the same way (it declares `com.molca.core` as a dependency). Everything under
-`Packages/com.molca.*` is **read-only** — you extend it from your own `Assets/` folder, never by
-editing the package.
+Replace `2.0.0` with the version tag you want. If this project already uses Core 1.x, follow
+[Upgrading to 2.0](UPGRADING_TO_2_0.md) before changing consumer code. The former shared SDK layer is
+already included in Core 2.0 under `Molca.App`; do not add `com.molca.sdk`. Everything under
+`Packages/com.molca.*` is **read-only** — extend it from your own `Assets/` folder, never by editing the
+package.
 
 ## 2. Configure the project
 
 Core boots from a `MolcaProjectSettings` asset (which points at your `RuntimeManager` prefab and
-`GlobalSettings`). Run **Molca → Onboarding Wizard** to seed these into consumer space — it clones the
-read-only Core defaults into `Assets/_Molca/Settings/` (idempotent; see [Onboarding](ONBOARDING.md) and
-[Settings](SETTINGS.md)). The wizard is post-compile convenience only; the project compiles from the
-package alone.
+`GlobalSettings`). Open **Molca Hub → Onboarding** to see what this
+project still needs and to generate these into consumer space under `Assets/_Molca/Settings/`
+(idempotent; see [Onboarding](ONBOARDING.md) and [Settings](SETTINGS.md)). Onboarding is post-compile
+convenience only; the project compiles from the package alone.
 
 At runtime, `RuntimeManager` instantiates itself from that settings asset, runs the bootstrap sequence,
 and initializes every subsystem on its prefab. You don't call `DontDestroyOnLoad` or manage

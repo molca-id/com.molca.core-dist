@@ -22,7 +22,7 @@ namespace Molca.Editor.Hub
                 () => new Molca.Editor.Doctor.MolcaDoctorView(), icon: "doctor",
                 group: MolcaHubWorkspaceGroups.Quality),
             new MolcaHubWorkspaceItem("assistant", "Assistant", 10,
-                () => new AssistantChatView(), icon: "mcp",
+                () => new AssistantChatView(), icon: "assistant",
                 group: MolcaHubWorkspaceGroups.Assistance),
         };
     }

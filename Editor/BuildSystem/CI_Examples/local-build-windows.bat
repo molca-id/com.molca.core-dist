@@ -4,7 +4,7 @@ REM This script builds the project locally using the command-line build method
 
 REM ===== CONFIGURATION =====
 REM Update these paths for your system
-SET UNITY_PATH="C:\Program Files\Unity\Hub\Editor\2022.3.x\Editor\Unity.exe"
+SET UNITY_PATH="C:\Program Files\Unity\Hub\Editor\6000.0.x\Editor\Unity.exe"
 SET PROJECT_PATH=%~dp0..\..\..\..\..
 SET BUILD_LOG=%PROJECT_PATH%\build.log
 

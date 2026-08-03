@@ -212,6 +212,55 @@ namespace Molca.ColorID
             if (_reportProblems) Debug.LogWarning($"[ColorThemeBinding] '{name}': {message}", this);
         }
 
+        /// <summary>Repoints the single binding at a different token and reapplies it.</summary>
+        /// <param name="tokenId">The canonical token ID to read from now on.</param>
+        /// <remarks>
+        /// <b>Signature shaped for <see cref="UnityEngine.Events.UnityEvent"/>:</b> one string argument, so
+        /// it can be wired straight to a button's toggle or click event from the Inspector. That is the V2
+        /// replacement for <c>ColorID.SetColorId</c>, which the same wiring used to call with a
+        /// <c>"Swatch/Color"</c> composite; the argument here is a canonical token ID.
+        /// <para/>
+        /// Only valid when this component has exactly one binding — with several, which one a bare
+        /// <c>SetToken("…")</c> meant would be positional and silent, so it logs and does nothing instead.
+        /// Use <see cref="SetToken(int, string)"/> there.
+        /// </remarks>
+        public void SetToken(string tokenId)
+        {
+            if (_bindings.Count != 1)
+            {
+                Debug.LogWarning(
+                    $"[ColorThemeBinding] '{name}': SetToken(string) needs exactly one binding but this "
+                    + $"component has {_bindings.Count}. Use SetToken(index, tokenId) to say which.", this);
+                return;
+            }
+
+            SetToken(0, tokenId);
+        }
+
+        /// <summary>Repoints one binding at a different token and reapplies it.</summary>
+        /// <param name="index">The binding's index in <see cref="Bindings"/>.</param>
+        /// <param name="tokenId">The canonical token ID to read from now on.</param>
+        /// <remarks>
+        /// Reapplies immediately, bypassing the generation gate: the theme has not changed, this binding
+        /// has, and the gate would otherwise swallow the change as already-applied.
+        /// </remarks>
+        public void SetToken(int index, string tokenId)
+        {
+            if (index < 0 || index >= _bindings.Count)
+            {
+                Debug.LogWarning(
+                    $"[ColorThemeBinding] '{name}': binding {index} does not exist "
+                    + $"(this component has {_bindings.Count}).", this);
+                return;
+            }
+
+            var binding = _bindings[index];
+            if (binding == null) return;
+
+            binding.Retarget(new ColorTokenReference(tokenId));
+            RefreshBindings();
+        }
+
         /// <summary>Adds a binding at runtime or from an authoring tool.</summary>
         /// <param name="binding">The binding to add.</param>
         /// <remarks>

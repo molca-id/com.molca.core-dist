@@ -44,6 +44,17 @@ namespace Molca.Editor.Mcp
             /// <c>false</c>, which is the correct reading — they are all overwrite backups.
             /// </remarks>
             public bool WasCreated;
+            /// <summary>Additional files captured by the same atomic action.</summary>
+            public List<FileBackup> AdditionalFiles = new();
+        }
+
+        /// <summary>One additional file in a multi-file snapshot entry.</summary>
+        public sealed class FileBackup
+        {
+            /// <summary>Path restored when the entry is reverted.</summary>
+            public string TargetPath;
+            /// <summary>Absolute path of the stored backup copy.</summary>
+            public string BackupPath;
         }
 
         private static string Root
@@ -102,6 +113,72 @@ namespace Molca.Editor.Mcp
             catch (Exception ex)
             {
                 Debug.LogWarning($"[Molca MCP] Undo snapshot failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Backs up a complete set of files as one undo entry. Either every existing file is captured or
+        /// no entry is recorded, so large migrations cannot be split across the stack's entry limit.
+        /// </summary>
+        /// <param name="targetPaths">Paths the action will write.</param>
+        /// <param name="tool">Tool or fix performing the action.</param>
+        /// <param name="description">Human description shown when reverting.</param>
+        /// <returns>The single entry id, or <c>null</c> when any file could not be captured.</returns>
+        public static string SnapshotMany(
+            IEnumerable<string> targetPaths, string tool, string description)
+        {
+            string backupDirectory = null;
+            try
+            {
+                var paths = (targetPaths ?? Array.Empty<string>())
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (paths.Count == 0 || paths.Any(path => !File.Exists(path)))
+                    return null;
+
+                var id = Guid.NewGuid().ToString("N");
+                backupDirectory = Path.Combine(Root, id);
+                Directory.CreateDirectory(backupDirectory);
+
+                var backups = new List<FileBackup>(paths.Count);
+                for (var i = 0; i < paths.Count; i++)
+                {
+                    string backupPath = Path.Combine(backupDirectory, $"{i:D5}.snapshot");
+                    File.Copy(paths[i], backupPath, overwrite: true);
+                    backups.Add(new FileBackup
+                    {
+                        TargetPath = paths[i],
+                        BackupPath = backupPath
+                    });
+                }
+
+                var first = backups[0];
+                var entries = Load();
+                entries.Add(new Entry
+                {
+                    Id = id,
+                    Tool = tool,
+                    Description = description,
+                    TargetPath = first.TargetPath,
+                    BackupPath = first.BackupPath,
+                    AdditionalFiles = backups.Skip(1).ToList(),
+                    TimestampUtc = DateTime.UtcNow.ToString("o")
+                });
+                Prune(entries);
+                Save(entries);
+                return id;
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(backupDirectory) && Directory.Exists(backupDirectory))
+                        Directory.Delete(backupDirectory, recursive: true);
+                }
+                catch { /* best effort */ }
+                Debug.LogWarning($"[Molca MCP] Multi-file undo snapshot failed: {ex.Message}");
                 return null;
             }
         }
@@ -193,7 +270,7 @@ namespace Molca.Editor.Mcp
                     return "Backup file is missing; entry discarded.";
                 }
 
-                File.Copy(entry.BackupPath, entry.TargetPath, overwrite: true);
+                RestoreSnapshot(entry);
                 entries.RemoveAt(entries.Count - 1);
                 DeleteBackup(entry);
                 Save(entries);
@@ -242,8 +319,7 @@ namespace Molca.Editor.Mcp
                     }
                     else if (File.Exists(entry.BackupPath))
                     {
-                        File.Copy(entry.BackupPath, entry.TargetPath, overwrite: true);
-                        ReloadIfActiveScene(entry.TargetPath);
+                        RestoreSnapshot(entry);
                         reverted++;
                         lastDescription = entry.Description;
                     }
@@ -272,6 +348,20 @@ namespace Molca.Editor.Mcp
             var active = EditorSceneManager.GetActiveScene();
             if (!string.IsNullOrEmpty(active.path) && active.path == rel)
                 EditorSceneManager.OpenScene(rel, OpenSceneMode.Single);
+        }
+
+        private static void RestoreSnapshot(Entry entry)
+        {
+            File.Copy(entry.BackupPath, entry.TargetPath, overwrite: true);
+            ReloadIfActiveScene(entry.TargetPath);
+            foreach (var file in entry.AdditionalFiles ?? new List<FileBackup>())
+            {
+                if (file == null || string.IsNullOrEmpty(file.BackupPath) ||
+                    string.IsNullOrEmpty(file.TargetPath) || !File.Exists(file.BackupPath))
+                    continue;
+                File.Copy(file.BackupPath, file.TargetPath, overwrite: true);
+                ReloadIfActiveScene(file.TargetPath);
+            }
         }
 
         private static void Prune(List<Entry> entries)
@@ -332,7 +422,12 @@ namespace Molca.Editor.Mcp
                     BackupPath = t.Value<string>("backupPath"),
                     TimestampUtc = t.Value<string>("timestampUtc"),
                     // Missing on entries written before creation tracking; false is the right reading.
-                    WasCreated = t.Value<bool?>("wasCreated") ?? false
+                    WasCreated = t.Value<bool?>("wasCreated") ?? false,
+                    AdditionalFiles = (t["additionalFiles"] as JArray)?.Select(file => new FileBackup
+                    {
+                        TargetPath = file.Value<string>("targetPath"),
+                        BackupPath = file.Value<string>("backupPath")
+                    }).ToList() ?? new List<FileBackup>()
                 }).ToList();
             }
             catch { return new List<Entry>(); }
@@ -351,7 +446,13 @@ namespace Molca.Editor.Mcp
                     ["targetPath"] = e.TargetPath,
                     ["backupPath"] = e.BackupPath,
                     ["timestampUtc"] = e.TimestampUtc,
-                    ["wasCreated"] = e.WasCreated
+                    ["wasCreated"] = e.WasCreated,
+                    ["additionalFiles"] = new JArray((e.AdditionalFiles ?? new List<FileBackup>())
+                        .Select(file => new JObject
+                        {
+                            ["targetPath"] = file.TargetPath,
+                            ["backupPath"] = file.BackupPath
+                        }))
                 }));
                 File.WriteAllText(IndexPath, arr.ToString(Newtonsoft.Json.Formatting.Indented));
             }

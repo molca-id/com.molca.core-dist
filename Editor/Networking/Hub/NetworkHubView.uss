@@ -169,6 +169,7 @@
     padding-bottom: 4px;
     padding-left: 6px;
     padding-right: 6px;
+    min-height: 44px;
 }
 
 .molca-network__row:hover {
@@ -177,6 +178,9 @@
 
 .molca-network__row--selected {
     background-color: var(--molca-row-selected);
+    border-left-width: 3px;
+    border-left-color: var(--molca-accent);
+    padding-left: 3px;
 }
 
 .molca-network__row--selected .molca-network__row-title {

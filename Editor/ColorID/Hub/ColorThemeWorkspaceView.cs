@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Molca.ColorID;
+using Molca.Editor.Upgrade;
 using Molca.Editor.UI.Components;
 using UnityEditor;
 // ColorField and the other editor-only controls live here, not in UnityEngine.UIElements.
@@ -43,7 +44,7 @@ namespace Molca.ColorID.Editor
 
         private readonly MolcaRail _rail = new MolcaRail();
         private readonly VisualElement _content = new VisualElement();
-        private readonly Label _status = new Label();
+        private readonly MolcaWorkspaceHeader _header = new MolcaWorkspaceHeader("Themes");
 
         private ColorThemeWorkspaceModel _model;
         private string _tokenFilter = string.Empty;
@@ -53,16 +54,14 @@ namespace Molca.ColorID.Editor
         /// <summary>Creates the workspace.</summary>
         public ColorThemeWorkspaceView()
         {
-            style.flexGrow = 1;
-
-            Add(BuildToolbar());
+            AddToClassList("molca-workspace");
+            _header.AddAction(MolcaButtons.Toolbar("Refresh", Rebuild));
+            Add(_header);
 
             var split = new VisualElement();
-            split.style.flexDirection = FlexDirection.Row;
-            split.style.flexGrow = 1;
+            split.AddToClassList("molca-workspace-split");
             Add(split);
 
-            _rail.style.width = 168;
             _rail.AddItem(OverviewMode, "Overview");
             _rail.AddItem(TokensMode, "Tokens");
             _rail.AddItem(AccessibilityMode, "Accessibility");
@@ -76,7 +75,7 @@ namespace Molca.ColorID.Editor
             // Both axes: the matrix is a fixed-width table, so a narrow Hub window must be able to scroll
             // sideways to it rather than squeezing the columns into each other.
             var scroll = new ScrollView(ScrollViewMode.VerticalAndHorizontal) { style = { flexGrow = 1 } };
-            _content.style.flexGrow = 1;
+            _content.AddToClassList("molca-workspace-split__content");
             scroll.Add(_content);
             split.Add(scroll);
 
@@ -84,31 +83,12 @@ namespace Molca.ColorID.Editor
             _rail.Select(OverviewMode);
         }
 
-        private VisualElement BuildToolbar()
-        {
-            var bar = new VisualElement();
-            bar.style.flexDirection = FlexDirection.Row;
-            bar.style.alignItems = Align.Center;
-            bar.style.paddingLeft = 6;
-            bar.style.paddingRight = 6;
-            bar.style.paddingTop = 4;
-            bar.style.paddingBottom = 4;
-
-            bar.Add(MolcaButtons.Toolbar("Refresh", Rebuild));
-
-            _status.style.marginLeft = 8;
-            _status.style.flexGrow = 1;
-            bar.Add(_status);
-
-            return bar;
-        }
-
         /// <summary>Re-reads every service and redraws.</summary>
         private void Rebuild()
         {
             // A full audit walks the project, so the window says what it is doing rather than appearing to
             // hang. Cleared in the finally so a failed audit does not leave a stale "scanning" message.
-            _status.text = "Scanning project…";
+            _header.SetSummary("Scanning project…");
             try
             {
                 _model = ColorThemeWorkspaceModel.Build();
@@ -120,7 +100,7 @@ namespace Molca.ColorID.Editor
             }
             finally
             {
-                _status.text = DescribeHealth();
+                _header.SetSummary(DescribeHealth());
             }
 
             if (_model != null && _previewVariantId == null)
@@ -222,21 +202,10 @@ namespace Molca.ColorID.Editor
 
             foreach (string problem in _model.Problems) _content.Add(Note(problem));
 
-            var progress = new MolcaSectionCard("Migration progress",
-                "How much of this project reads canonical tokens rather than legacy pairs.");
-
-            var report = _model.Deprecation;
-            float share = report.MigrationProgress;
-            progress.Body.Add(KeyValue("Canonical references", report.CanonicalSiteCount.ToString()));
-            progress.Body.Add(KeyValue("Legacy references", report.LegacySiteCount.ToString()));
-            progress.Body.Add(KeyValue("Migrated", share < 0f ? "no references found" : $"{share:P1}"));
-
-            if (!report.IsConclusive)
-            {
-                progress.Body.Add(Note("This scan is not conclusive, so the counts are a lower bound and "
-                                       + "cannot be used as evidence for removing an alias."));
-            }
-            _content.Add(progress);
+            var upgrade = new MolcaSectionCard("1.x to 2.x readiness",
+                "The unified upgrade report finds every remaining legacy subsystem artefact.");
+            upgrade.Body.Add(Row(MolcaButtons.Primary("Run upgrade report", MolcaUpgradeMenu.Report)));
+            _content.Add(upgrade);
 
             if (_model.Audit.Findings.Count > 0)
             {
@@ -588,7 +557,7 @@ namespace Molca.ColorID.Editor
                 "Canonical token ID",
                 (pair, tokenId) =>
                 {
-                    if (!ColorID.TryParseComposite(pair, out string swatch, out string colorId))
+                    if (!TryParseLegacyPair(pair, out string swatch, out string colorId))
                     {
                         EditorUtility.DisplayDialog("Map a legacy pair",
                             $"'{pair}' is not a legacy pair. Use Swatch.ColorId, e.g. Default.Text.",
@@ -770,36 +739,19 @@ namespace Molca.ColorID.Editor
                     ? $"{_model.ThemeSet.LegacyAliases.Count} mapped pairs"
                     : "No theme set installed.");
 
-            if (_model.Deprecation != null)
+            foreach (var alias in _model.ThemeSet.LegacyAliases.Take(30))
             {
-                foreach (var alias in _model.Deprecation.Blocking.Take(30))
-                {
-                    aliases.Body.Add(KeyValue($"{alias.Key} → {alias.CanonicalTokenId}",
-                        $"{alias.Status} ({alias.ProjectSiteCount} project, {alias.PackageSiteCount} package)"));
-                }
-
-                var removable = _model.Deprecation.Removable.ToList();
-                if (removable.Count > 0)
-                {
-                    aliases.Body.Add(Note($"{removable.Count} alias(es) show no usage and declare a removal "
-                                          + "version: " + string.Join(", ", removable.Select(a => a.Key))));
-                }
+                if (alias == null) continue;
+                aliases.Body.Add(KeyValue(alias.Key.ToString(), alias.CanonicalTokenId));
             }
             _content.Add(aliases);
 
             var content = new MolcaSectionCard("Content migration",
-                "Convert ColorID components into ColorThemeBinding components.");
+                "Find and repair serialized 1.x content from one report.");
 
-            content.Body.Add(Note("Preview writes the full plan to the Console. Applying edits content "
-                                  + "assets, so commit or stash first — every refusal in the plan is there "
-                                  + "because migrating that site would break something."));
-            content.Body.Add(Row(
-                MolcaButtons.Primary("Preview all prefabs", ColorContentMigrationMenu.PreviewAll),
-                MolcaButtons.Mini("Migrate…", () =>
-                {
-                    ColorContentMigrationMenu.MigrateAll();
-                    Rebuild();
-                })));
+            content.Body.Add(Note("The unified report owns migration order and exposes deterministic "
+                                  + "repairs through the Remediation workspace."));
+            content.Body.Add(Row(MolcaButtons.Primary("Run upgrade report", MolcaUpgradeMenu.Report)));
             _content.Add(content);
         }
 
@@ -829,7 +781,7 @@ namespace Molca.ColorID.Editor
 
             var reports = new MolcaSectionCard("Reports");
             reports.Body.Add(Row(
-                MolcaButtons.Mini("Compatibility usage", ColorThemeDeprecationReportMenu.Report),
+                MolcaButtons.Mini("Upgrade readiness", MolcaUpgradeMenu.Report),
                 MolcaButtons.Mini("Contrast", ColorThemeSetBootstrap.ReportContrast)));
             _content.Add(reports);
         }
@@ -837,6 +789,20 @@ namespace Molca.ColorID.Editor
         #endregion
 
         #region Small builders
+
+        private static bool TryParseLegacyPair(string pair, out string swatch, out string colorId)
+        {
+            swatch = null;
+            colorId = null;
+            if (string.IsNullOrWhiteSpace(pair)) return false;
+
+            int separator = pair.IndexOf('.');
+            if (separator <= 0 || separator >= pair.Length - 1) return false;
+
+            swatch = pair.Substring(0, separator).Trim();
+            colorId = pair.Substring(separator + 1).Trim();
+            return swatch.Length > 0 && colorId.Length > 0;
+        }
 
         private static VisualElement Row(params VisualElement[] children)
         {

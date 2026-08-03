@@ -32,18 +32,7 @@ namespace Molca.ColorID.Editor
     /// </remarks>
     public static class ColorThemeAuditService
     {
-        // Serialized field names, both spellings. Shipped content predates the _camelCase rename and
-        // FormerlySerializedAs resolves it at load, so on-disk data still overwhelmingly uses the old
-        // names — matching only one spelling finds a small fraction of real usage.
-        private const string LegacyPairPattern =
-            @"_?swatchName:\s*(?<swatch>\S.*?)\s*[\r\n]+\s*_?colorId:\s*(?<color>\S.*?)\s*[\r\n]";
-
         private const string TokenIdPattern = @"_tokenId:\s*(?<token>\S.*?)\s*[\r\n]";
-
-        private static readonly System.Text.RegularExpressions.Regex LegacyPairRegex =
-            new System.Text.RegularExpressions.Regex(LegacyPairPattern,
-                System.Text.RegularExpressions.RegexOptions.Compiled
-                | System.Text.RegularExpressions.RegexOptions.Multiline);
 
         private static readonly System.Text.RegularExpressions.Regex TokenIdRegex =
             new System.Text.RegularExpressions.Regex(TokenIdPattern,
@@ -105,12 +94,9 @@ namespace Molca.ColorID.Editor
         {
             if (settings == null)
             {
-                // A legacy-only project is a supported configuration during the compatibility window,
-                // so this is information, not a defect.
                 findings.Add(new ColorThemeFinding(ColorThemeFindingKind.SettingsMissing,
-                    ColorThemeFindingSeverity.Info,
-                    "No ColorThemeSettings module is installed; this project still uses the legacy "
-                    + "ColorModule path. That is supported during the compatibility window."));
+                    ColorThemeFindingSeverity.Error,
+                    "No ColorThemeSettings module is installed, so no colour token can resolve at runtime."));
                 return;
             }
 
@@ -315,39 +301,10 @@ namespace Molca.ColorID.Editor
             string text = File.ReadAllText(path);
 
             // Cheap reject before running the regexes over a large scene file.
-            if (text.IndexOf("colorId:", StringComparison.Ordinal) < 0
-                && text.IndexOf("_tokenId:", StringComparison.Ordinal) < 0)
+            if (text.IndexOf("_tokenId:", StringComparison.Ordinal) < 0)
                 return;
 
             bool isPackageOwned = path.StartsWith("Packages/", StringComparison.OrdinalIgnoreCase);
-
-            foreach (System.Text.RegularExpressions.Match match in LegacyPairRegex.Matches(text))
-            {
-                string swatch = match.Groups["swatch"].Value;
-                string colorId = match.Groups["color"].Value;
-                var key = new LegacyColorKey(swatch, colorId);
-
-                string canonical = themeSet?.ResolveLegacyToken(key);
-
-                usageSites.Add(new ColorThemeUsageSite(ColorThemeUsageKind.LegacyColorIdComponent, path,
-                    canonical, key.ToString(), isPackageOwned));
-
-                if (themeSet == null) continue;
-
-                if (canonical == null)
-                {
-                    findings.Add(new ColorThemeFinding(ColorThemeFindingKind.UnmappedLegacyPair,
-                        ColorThemeFindingSeverity.Warning,
-                        $"Legacy colour '{key}' has no authored alias, so it resolves only by guess or "
-                        + "not at all. Add a LegacyColorAlias mapping it to a canonical token.",
-                        path, key.ToString(), null, isPackageOwned));
-                    continue;
-                }
-
-                ReportPerVariantResolution(canonical, key.ToString(), path, resolvedVariants, findings,
-                    isPackageOwned);
-                ReportDeprecated(themeSet, canonical, path, findings, isPackageOwned);
-            }
 
             foreach (System.Text.RegularExpressions.Match match in TokenIdRegex.Matches(text))
             {
@@ -355,7 +312,7 @@ namespace Molca.ColorID.Editor
                 if (string.IsNullOrEmpty(tokenId)) continue;
 
                 usageSites.Add(new ColorThemeUsageSite(ColorThemeUsageKind.CanonicalTokenReference, path,
-                    tokenId, null, isPackageOwned));
+                    tokenId, isPackageOwned));
 
                 if (themeSet == null) continue;
 
@@ -379,7 +336,7 @@ namespace Molca.ColorID.Editor
         /// </summary>
         /// <remarks>
         /// This is the V1 blind spot the plan calls out: the old validity check unioned keys across
-        /// every <see cref="ColorModule"/>, so a key present in <i>any</i> palette was accepted even
+        /// every <c>ColorModule</c>, so a key present in <i>any</i> palette was accepted even
         /// though switching to a palette that lacked it produced magenta at runtime. Every variant is
         /// checked separately here, and the failing variants are named.
         /// </remarks>
@@ -527,7 +484,7 @@ namespace Molca.ColorID.Editor
 
                 foreach (var site in usageSites)
                 {
-                    xor ^= Hash($"{site.AssetPath}|{site.Kind}|{site.CanonicalTokenId}|{site.LegacyKey}");
+                    xor ^= Hash($"{site.AssetPath}|{site.Kind}|{site.CanonicalTokenId}");
                 }
 
                 accumulator ^= xor;

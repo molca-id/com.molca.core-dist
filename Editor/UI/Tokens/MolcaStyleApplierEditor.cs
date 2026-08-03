@@ -145,9 +145,8 @@ namespace Molca.Editor.UI.Tokens
             if (token.HasLegacyColorPair)
             {
                 EditorGUILayout.HelpBox(
-                    $"Legacy colour pair '{token.SwatchName}.{token.ColorId}'. Applying writes a V1 "
-                    + "ColorID. Migrate the catalog entry to a canonical colour token to get variant "
-                    + "coverage and contrast validation.", MessageType.Info);
+                    $"Legacy colour pair '{token.SwatchName}.{token.ColorId}'. Run the 1.x to 2.x "
+                    + "upgrade repair before applying this catalog entry.", MessageType.Warning);
                 return;
             }
 

@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 063a14519f2f83945be210c5d86b8d8b, type: 3}
+  m_Name: HTTP Settings
+  m_EditorClassIdentifier: 
+  _baseUrl: 
+  _maxConcurrentRequests: 4
+  _defaultTimeout: 30
+  _enableRequestHistory: 1
+  _maxHistorySize: 100
+  _defaultHeaderKeys: []
+  _defaultHeaderValues: []
+  _enableRetry: 0
+  _maxRetries: 2
+  _retryBaseDelaySeconds: 0.5
+  _followRedirects: 1
+  _validateSSL: 1
+  _enableLogging: 0

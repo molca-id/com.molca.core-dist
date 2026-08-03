@@ -2,7 +2,7 @@
 # Place this file as .gitlab-ci.yml in your repository root
 
 variables:
-  UNITY_VERSION: "2022.3.x"
+  UNITY_VERSION: "6000.0.x"
   BUILD_PATH: "$CI_PROJECT_DIR/Builds"
 
 stages:

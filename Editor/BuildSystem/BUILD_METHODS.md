@@ -73,7 +73,7 @@ BuildManager.Build("development");  // or "staging" or "production"
 ### Windows Example:
 
 ```batch
-"C:\Program Files\Unity\Hub\Editor\2022.3.x\Editor\Unity.exe" ^
+"C:\Program Files\Unity\Hub\Editor\6000.0.x\Editor\Unity.exe" ^
   -quit ^
   -batchmode ^
   -nographics ^
@@ -86,7 +86,7 @@ BuildManager.Build("development");  // or "staging" or "production"
 ### macOS/Linux Example:
 
 ```bash
-/Applications/Unity/Hub/Editor/2022.3.x/Unity.app/Contents/MacOS/Unity \
+/Applications/Unity/Hub/Editor/6000.0.x/Unity.app/Contents/MacOS/Unity \
   -quit \
   -batchmode \
   -nographics \

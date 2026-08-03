@@ -8,9 +8,9 @@ using UnityEngine.UIElements;
 namespace Molca.Editor.Hub
 {
     /// <summary>
-    /// The Hub's workspace toolbar: builds one tab per resolved workspace, measures them, and degrades the
-    /// strip — icon-only, then an overflow menu — so it renders correctly at any provider count and any
-    /// window width.
+    /// Browser-style workspace tabs for the Hub: builds one icon-bearing tab per resolved workspace, supports
+    /// close/reopen and pinning, measures the strip, and degrades it — icon-only, then an overflow menu — so it
+    /// renders correctly at any provider count and any window width.
     /// </summary>
     /// <remarks>
     /// Placement: <c>Packages/com.molca.core/Editor/Hub/</c>. Owned by <see cref="MolcaHubWindow"/>, which
@@ -18,8 +18,8 @@ namespace Molca.Editor.Hub
     /// anchored Settings home tab is synthesized here (it is not provider-contributed) and never collapses to
     /// icon-only, never overflows, and is always effectively pinned. The fitting decision itself is the pure
     /// static <see cref="Fit"/>, so it is testable without a panel. The strip also owns the tab-management
-    /// affordances — a per-tab context menu and an always-visible tabs menu button — so showing, hiding, and
-    /// pinning never requires a trip to Settings ▸ Editor. Editor-only; main thread.
+    /// affordances — a close button, per-tab context menu, and always-visible tabs menu — so closing, reopening,
+    /// and pinning never requires a trip to Settings ▸ Editor. Editor-only; main thread.
     /// </remarks>
     internal sealed class MolcaHubTabStrip : VisualElement
     {
@@ -54,6 +54,8 @@ namespace Molca.Editor.Hub
         private readonly Dictionary<string, VisualElement> _dividers = new Dictionary<string, VisualElement>(StringComparer.Ordinal);
         private readonly Dictionary<string, Label> _labels = new Dictionary<string, Label>(StringComparer.Ordinal);
         private readonly Dictionary<string, VisualElement> _pinMarks = new Dictionary<string, VisualElement>(StringComparer.Ordinal);
+        private readonly Dictionary<string, Button> _closeButtons = new Dictionary<string, Button>(StringComparer.Ordinal);
+        private readonly Dictionary<string, bool> _hasIcons = new Dictionary<string, bool>(StringComparer.Ordinal);
 
         // Full-fidelity width per tab id, captured on the first post-build layout pass. Once a tab is
         // collapsed its full width is no longer observable, so the first capture wins and is only discarded
@@ -68,6 +70,7 @@ namespace Molca.Editor.Hub
         private string _activeId = MolcaHubWorkspaceRegistry.SettingsId;
         private float _lastAppliedWidth = -1f;
         private bool _applying;
+        private int _buildRevision;
 
         // Inputs the fit depends on but that do not change per layout pass. Re-read when the selection, the
         // item set, or the pinned set changes, so a geometry storm never turns into a pref-read storm.
@@ -95,8 +98,18 @@ namespace Molca.Editor.Hub
             _items = items ?? (IReadOnlyList<MolcaHubWorkspaceItem>)Array.Empty<MolcaHubWorkspaceItem>();
             _fullWidths.Clear();
             _lastAppliedWidth = -1f;
+            _lastLayout = null;
             ReadPreferences();
             Build();
+
+            // Replacing the children does not necessarily change this strip's own rectangle, so its
+            // GeometryChangedEvent may not fire. That is the normal path when a workspace is enabled from
+            // Settings: without this deferred pass every rebuilt tab remains full-width until the user
+            // resizes the Hub. Wait one layout cycle so the new labels have trustworthy resolved widths,
+            // then fit against the unchanged strip width. The revision guard makes rapid toggle changes
+            // collapse into the most recent rebuild.
+            var revision = ++_buildRevision;
+            schedule.Execute(() => ReflowAfterBuild(revision));
         }
 
         /// <summary>Highlights <paramref name="workspaceId"/> as the active tab without rebuilding.</summary>
@@ -124,13 +137,15 @@ namespace Molca.Editor.Hub
             _dividers.Clear();
             _labels.Clear();
             _pinMarks.Clear();
+            _closeButtons.Clear();
+            _hasIcons.Clear();
             _overflowButton = null;
             _tabsMenuButton = null;
 
             // Settings is the anchored home tab (Core-owned, always first). Every other tab — Core's own
             // Doctor/Assistant/Sequence and any consumer-contributed workspace — comes from the registry.
             // Left-aligned tabs sit before the flexible spacer; right-anchored tabs (e.g. Docs) after it.
-            Add(BuildTab(MolcaHubWorkspaceRegistry.SettingsId, "Settings", "settings"));
+            Add(BuildTab(MolcaHubWorkspaceRegistry.SettingsId, "Settings", "settings", closable: false));
 
             string previousGroup = null;
             var first = true;
@@ -169,7 +184,7 @@ namespace Molca.Editor.Hub
             // hidden tab: a hidden workspace is filtered out of the item set entirely, so there is no tab left
             // to right-click, which previously made Settings ▸ Editor the sole way back. Unlike the overflow
             // chevron this button never hides — the tab set is manageable at any width and any tab count.
-            _tabsMenuButton = new Button(ShowTabsMenu) { tooltip = "Show or hide workspace tabs" };
+            _tabsMenuButton = new Button(ShowTabsMenu) { tooltip = "Open, reopen, or pin workspace tabs" };
             _tabsMenuButton.AddToClassList("molca-hub-workspace-tab");
             _tabsMenuButton.AddToClassList("molca-hub-workspace-tab--tabs-menu");
 
@@ -197,18 +212,21 @@ namespace Molca.Editor.Hub
         }
 
         /// <summary>
-        /// Builds one workspace toolbar tab as <c>[icon] [label] [underline]</c>. The selection indicator is a
-        /// child <see cref="VisualElement"/> strip (styled via the parent's <c>--active</c> class), not a
-        /// button border: Unity's built-in <see cref="Button"/> repaints its own border box on focus, which
-        /// would erase a border-based underline the moment the tab is clicked.
+        /// Builds one workspace toolbar tab as <c>[icon] [label] [close] [selection strip]</c>. The close button
+        /// is hidden for Settings and pinned tabs; closing the active tab selects its adjacent browser-style
+        /// fallback before the registry rebuilds the strip.
         /// </summary>
-        private Button BuildTab(string workspaceId, string label, string icon)
+        private Button BuildTab(string workspaceId, string label, string icon, bool closable = true)
         {
             var button = new Button(() => _onSelect?.Invoke(workspaceId));
             button.AddToClassList("molca-hub-workspace-tab");
+            if (!closable) button.AddToClassList("molca-hub-workspace-tab--anchored");
             button.userData = workspaceId;
 
-            var iconTexture = ResolveTabIcon(icon);
+            // A provider may omit Icon when it follows the family-name convention; falling back to the stable
+            // workspace id keeps custom tabs compatible while making an icon the default rather than an opt-in.
+            var iconTexture = ResolveTabIcon(string.IsNullOrEmpty(icon) ? workspaceId : icon);
+            _hasIcons[workspaceId] = iconTexture != null;
             if (iconTexture != null)
             {
                 var image = new Image { image = iconTexture, scaleMode = ScaleMode.ScaleToFit };
@@ -220,6 +238,19 @@ namespace Molca.Editor.Hub
             var text = new Label(label) { pickingMode = PickingMode.Ignore };
             text.AddToClassList("molca-hub-workspace-tab__label");
             button.Add(text);
+
+            if (closable)
+            {
+                var close = new Button(() => CloseTab(workspaceId))
+                {
+                    text = "×",
+                    tooltip = "Close " + label,
+                };
+                close.AddToClassList("molca-hub-workspace-tab__close");
+                close.RegisterCallback<ClickEvent>(evt => evt.StopPropagation());
+                button.Add(close);
+                _closeButtons[workspaceId] = close;
+            }
 
             var underline = new VisualElement { pickingMode = PickingMode.Ignore };
             underline.AddToClassList("molca-hub-workspace-tab__underline");
@@ -288,6 +319,34 @@ namespace Molca.Editor.Hub
             ApplyLayout(width);
         }
 
+        private void ReflowAfterBuild(int revision)
+        {
+            if (revision != _buildRevision || panel == null) return;
+
+            var width = resolvedStyle.width;
+            if (width <= 0f || float.IsNaN(width))
+            {
+                RetryReflowAfterBuild(revision);
+                return;
+            }
+
+            CaptureFullWidths();
+            if (_fullWidths.Count < _buttons.Count)
+            {
+                // UI Toolkit can run a scheduled callback after the strip is attached but before its new
+                // children have completed layout. The strip rectangle then stays unchanged, so there is no
+                // later GeometryChangedEvent to rescue the rebuild. Retry until every full label width is
+                // observable rather than fitting with the 38px pre-layout fallback.
+                RetryReflowAfterBuild(revision);
+                return;
+            }
+            _lastAppliedWidth = width;
+            ApplyLayout(width);
+        }
+
+        private void RetryReflowAfterBuild(int revision) =>
+            schedule.Execute(() => ReflowAfterBuild(revision));
+
         /// <summary>
         /// Records each tab's full-fidelity width the first time layout reports one. <c>flex-shrink: 0</c>
         /// means a tab resolves to its content width even when the strip is too narrow, so a single capture
@@ -333,6 +392,8 @@ namespace Molca.Editor.Hub
                     // The pin marker is a bare dot, so the tooltip is what actually names it. A collapsed tab
                     // already needs its label there, so the two are combined rather than one winning.
                     var isPinned = _pinnedLookup.Contains(id);
+                    if (_closeButtons.TryGetValue(id, out var close))
+                        close.pickingMode = isPinned || iconOnly ? PickingMode.Ignore : PickingMode.Position;
                     pair.Value.tooltip = iconOnly
                         ? (isPinned ? LabelOf(id) + " (pinned)" : LabelOf(id))
                         : (isPinned ? "Pinned" : null);
@@ -368,8 +429,17 @@ namespace Molca.Editor.Hub
         private void UpdatePinMarks()
         {
             foreach (var pair in _pinMarks)
-                pair.Value.style.display =
-                    _pinnedLookup.Contains(pair.Key) ? DisplayStyle.Flex : DisplayStyle.None;
+            {
+                var pinned = _pinnedLookup.Contains(pair.Key);
+                pair.Value.style.display = pinned ? DisplayStyle.Flex : DisplayStyle.None;
+                if (_buttons.TryGetValue(pair.Key, out var tab))
+                    tab.EnableInClassList("molca-hub-workspace-tab--pinned", pinned);
+                if (_closeButtons.TryGetValue(pair.Key, out var close))
+                {
+                    var iconOnly = _lastLayout?.IconOnly == true && !KeepsLabel(pair.Key);
+                    close.pickingMode = pinned || iconOnly ? PickingMode.Ignore : PickingMode.Position;
+                }
+            }
         }
 
         /// <summary>
@@ -398,11 +468,13 @@ namespace Molca.Editor.Hub
             AddMeasure(MolcaHubWorkspaceRegistry.SettingsId, hasIcon: true, rightAnchored: false, anchored: true);
             foreach (var item in _items)
                 if (!item.RightAnchored)
-                    AddMeasure(item.Id, !string.IsNullOrEmpty(item.Icon), false, false);
+                    AddMeasure(item.Id, HasResolvedIcon(item.Id), false, false);
             foreach (var item in _items)
                 if (item.RightAnchored)
-                    AddMeasure(item.Id, !string.IsNullOrEmpty(item.Icon), true, false);
+                    AddMeasure(item.Id, HasResolvedIcon(item.Id), true, false);
         }
+
+        private bool HasResolvedIcon(string id) => _hasIcons.TryGetValue(id, out var resolved) && resolved;
 
         private void AddMeasure(string id, bool hasIcon, bool rightAnchored, bool anchored)
         {
@@ -587,6 +659,63 @@ namespace Molca.Editor.Hub
             return total;
         }
 
+        // ---- Browser close behavior -----------------------------------------------------------------
+
+        private void CloseTab(string workspaceId)
+        {
+            if (string.IsNullOrEmpty(workspaceId)
+                || string.Equals(workspaceId, MolcaHubWorkspaceRegistry.SettingsId, StringComparison.Ordinal)
+                || _pinnedLookup.Contains(workspaceId))
+                return;
+
+            if (string.Equals(workspaceId, _activeId, StringComparison.Ordinal))
+            {
+                var fallback = NextAfterClose(OrderedTabIds(), workspaceId, _activeId);
+                if (!string.Equals(fallback, workspaceId, StringComparison.Ordinal))
+                    _onSelect?.Invoke(fallback);
+            }
+
+            // Hidden tabs remain discoverable in the tabs menu, which is the Hub equivalent of a browser's
+            // recently-closed/open-tabs affordance. VisibilityChanged rebuilds the strip and view cache.
+            MolcaHubWorkspaceRegistry.SetHidden(workspaceId, true);
+        }
+
+        private IReadOnlyList<string> OrderedTabIds()
+        {
+            var ids = new List<string>(_items.Count + 1) { MolcaHubWorkspaceRegistry.SettingsId };
+            foreach (var item in _items)
+                if (!item.RightAnchored) ids.Add(item.Id);
+            foreach (var item in _items)
+                if (item.RightAnchored) ids.Add(item.Id);
+            return ids;
+        }
+
+        /// <summary>
+        /// Chooses the browser-style selection after a tab closes: an inactive close keeps the current tab;
+        /// an active close prefers the tab immediately to its right, then the one to its left, then Settings.
+        /// </summary>
+        internal static string NextAfterClose(IReadOnlyList<string> orderedIds, string closingId, string activeId)
+        {
+            if (!string.Equals(closingId, activeId, StringComparison.Ordinal))
+                return string.IsNullOrEmpty(activeId) ? MolcaHubWorkspaceRegistry.SettingsId : activeId;
+
+            if (orderedIds == null || orderedIds.Count == 0)
+                return MolcaHubWorkspaceRegistry.SettingsId;
+
+            var index = -1;
+            for (int i = 0; i < orderedIds.Count; i++)
+            {
+                if (!string.Equals(orderedIds[i], closingId, StringComparison.Ordinal)) continue;
+                index = i;
+                break;
+            }
+
+            if (index < 0) return MolcaHubWorkspaceRegistry.SettingsId;
+            if (index + 1 < orderedIds.Count) return orderedIds[index + 1];
+            if (index > 0) return orderedIds[index - 1];
+            return MolcaHubWorkspaceRegistry.SettingsId;
+        }
+
         // ---- Menus -----------------------------------------------------------------------------------
 
         private void ShowOverflowMenu()
@@ -740,7 +869,8 @@ namespace Molca.Editor.Hub
 
             evt.menu.AppendAction(pinned ? "Unpin" : "Pin",
                 _ => MolcaHubWorkspaceRegistry.SetPinned(workspaceId, !pinned));
-            evt.menu.AppendAction("Hide tab", _ => MolcaHubWorkspaceRegistry.SetHidden(workspaceId, true));
+            evt.menu.AppendAction("Close tab", _ => CloseTab(workspaceId),
+                pinned ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
             evt.menu.AppendSeparator();
             evt.menu.AppendAction("Manage tabs…", _ => _onManageTabs?.Invoke(),
                 _onManageTabs == null ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);

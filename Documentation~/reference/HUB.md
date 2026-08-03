@@ -18,7 +18,9 @@ points a fork or project can add to without editing Core.
   Integrations, MCP, Network, Runtime, Sequences, Tasks, Assistant, **Add-ons**, and **About** — and the
   **Docs** branch, which renders every `Documentation~/reference/*.md` shipped by an installed
   `com.molca.*` package (see [Authoring Hub Docs](DOCS_AUTHORING.md)).
-- **Workspace tabs.** Full-window tools contributed alongside Settings — Core ships **Doctor**,
+- **Workspace tabs.** Full-window tools contributed alongside Settings — Core ships
+  **Onboarding** (see [Onboarding](ONBOARDING.md)), **Doctor**,
+  **Remediation** (see [Remediation](REMEDIATION.md)),
   **References** (see [Scene Reference System](REFERENCE_SYSTEM.md#the-references-workspace)),
   **Network** (see [Routes & Catalog](NETWORKING_CATALOG.md)),
   **Localization** (see [Localization](LOCALIZATION.md)), and **Assistant**;
@@ -218,5 +220,5 @@ once you have confirmed your captions carry no customer names, ticket bodies, fi
 - [Extending Molca Doctor with Custom Checks](DOCTOR_CHECKS.md)
 - [Core MCP Tools](CORE_MCP_TOOLS.md)
 - [Build System & Versioning](BUILD_SYSTEM.md)
-- [Onboarding Wizard](ONBOARDING.md)
+- [Onboarding](ONBOARDING.md)
 - [Add-ons](ADDONS.md)

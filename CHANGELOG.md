@@ -2,6 +2,117 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [2.0.0] - 2026-08-02
+
+> ### Major upgrade: run the unified report before continuing
+>
+> Core 2.0 removes the retired 1.x runtime surface while keeping its editor-only migrators. Projects can
+> upgrade directly from 1.x: missing legacy components are identified by their durable Unity script GUID,
+> migrated to canonical 2.x data, verified, and removed without requiring the deleted runtime classes.
+>
+> After the package loads and the project compiles, Core runs the read-only upgrade audit once. If retired
+> source references prevent compilation, use the replacement table first; once compilation resumes, Core
+> audits serialized state and offers
+> **Molca Hub → Remediation**. The same report is always available from **Molca → Upgrade → Report 1.x →
+> 2.x Readiness**. See [Upgrading Molca Core 1.x to 2.0](Documentation~/reference/UPGRADING_TO_2_0.md)
+> for the ordered workflow and generated API replacement table.
+
+### Changed
+- **The Onboarding Wizard is now an onboarding checklist.** `Molca > Onboarding Wizard` and its six
+  hand-placed cards are replaced by a validation checklist — one row per check, each with a state derived
+  from the project and, where there is a single correct next move, a button that takes it. It is reachable
+  as **Molca Hub → Onboarding** (first tab in the Quality group), from **Molca → Onboarding**, and from an
+  activity-rail chip that appears while anything is outstanding. Nothing is sequential and no progress is
+  recorded: every row is re-derived on each refresh, so deleting the asset that satisfied a row returns it
+  to *To do* rather than leaving a wizard "completed" against a project that has since been pulled apart.
+- **Audit findings and framework opinions are separated, and labelled.** Rows are grouped as **Required**
+  (sourced only from a registered remediation domain — something Molca asserts the project got wrong) and
+  **Recommended** (the project starter and optional tooling — declining one is a choice, not a fault). No
+  starter step can be promoted to Required: that would need the audit to report "you could enable more
+  things", which manufactures findings and teaches people to stop reading them. `MolcaOnboardingChecklistTests`
+  pins both halves of the rule.
+- **Onboarding rows never run a project-wide audit to draw themselves.** A remediation row reports what the
+  Remediation workspace last found and says *Not checked yet* when nothing has run, with its action opening
+  that workspace; opening the checklist scans nothing. Evaluation is read-only by contract and happens on
+  attach and on Refresh, never on a timer.
+- **The Doctor card is not carried over.** A smoke run is neither cheap nor something that can be "done", so
+  a row for it could only ever show a button beside a status it had to invent. Doctor remains a Hub
+  workspace in the Quality group.
+- **One upgrade surface across Core.** `MolcaUpgradeAudit` discovers each subsystem's detector through
+  `TypeCache`, reports content and consumer source locations together, and projects every locally decidable,
+  reversible fix into the Hub's Upgrade remediation domain. Legacy networking now appears as one aggregate,
+  rerunnable catalog migration; versioned network schema migration runs there before network validation.
+  Every content-writing upgrade records its complete affected file set as one MCP undo entry, including
+  migrations larger than the undo stack's normal entry limit and assets created by networking migration.
+- **Retired persistent callbacks are visible instead of failing silently.** Prefab, scene, and asset YAML
+  still targeting `ColorID.SetColorId` is reported at file/line and serialized callback context. Core does not
+  guess a V2 token or rewrite project-owned interaction semantics.
+- **Shipped samples carry no credentials.** Notification providers are disabled with blank webhook/thread
+  fields, and the Starter Project's assembly identifiers and dead
+  colour callbacks match the 2.0 assemblies. Package validation now refuses credential-shaped content without
+  echoing matched values into logs.
+- **Remediation review lists keep the finding context.** Repeated findings are summarized by exact finding
+  and asset counts, then grouped by asset with their originating message and property visible on expansion.
+  Repeated groups start collapsed, exact duplicate contexts use a multiplier, and filtering opens matches.
+- **String Catalog keys render once across locales.** Each stable collection entry now previews the default
+  locale in its summary and exposes every language through tabs in the expanded row, with missing and
+  read-only states rolled up without duplicating the key list.
+- **Workspace tabs reflow immediately after visibility changes.** Enabling or disabling a workspace now
+  recomputes the unchanged Hub width after rebuilding the tab list, so labels collapse to icons instead of
+  overflowing until the window is resized. The deferred pass retries while UI Toolkit is still measuring the
+  rebuilt children, covering slower editor and batch-mode layout cycles.
+- **Colour consumers now use the canonical theme contract.** `ColorSchemeDropdown` and
+  `ColorSchemeToggle` bind variant ids and display names through `IColorThemeService`; UI token catalogs,
+  Figma mapping, inspectors, audits, and bundled starter content no longer depend on legacy colour ids.
+- **A Core 2.x transition now announces actionable leftovers once per project.** Clean installs remain
+  silent; projects with findings receive the report and an opt-in link to Remediation after package import.
+- **Colour migration prerequisites are explicit and non-writing.** Projects with missing, ambiguous,
+  invalid, or uninstalled V2 themes see a blocking finding before any colour fix is offered. Core inventories
+  legacy fields but never guesses that a customized 1.x palette should become the stock V2 vocabulary.
+
+### Removed
+- **The 1.x colour runtime surface:** `ColorID`, `ColorIDReference`, `ColorModule`, `IColorProvider`,
+  `IColorSchemeService`, `ColorTargetApplier`, `ColorUtility`, `BooleanColor`, the legacy provider adapters,
+  and `IColorThemeService.LegacyProvider`. Consumer code replacements are generated from the same data used
+  by `RetiredApiUsageDetector`, preventing the guide and the live audit from drifting.
+- **Superseded editor menus, inspectors, migration code, and Doctor checks that required the deleted
+  runtime types.** The retained type-independent migrators remain available through the unified report;
+  compatibility menu/CLI entry points call the same guarded services for existing automation.
+
+### Added
+- **`LocalizedText.RuntimeAssigned`** — a declaration that the reference is supplied by code, for labels
+  authored empty on purpose. Consumer projects have many of these, and reporting each one as a missing
+  reference is how a check earns enough noise to stop being read. The flag is not a suppression switch: the
+  audit trades the `localization-reference-empty` warning for the opposite finding,
+  `localization-runtime-assigned-authored`, when a marked label *also* has an authored reference (the
+  authored value renders until code replaces it), and the component asserts the promise at runtime — a
+  marked label that finishes an enabled lifetime with no `SetLocalizedString` call logs a warning naming
+  the object. That last half is the part no audit can reach: whether a caller exists is not a fact about
+  serialized data. Checked at end-of-lifetime rather than on a timer, so a label waiting on a fetch is
+  never accused mid-wait. Both audit branches are pinned by `LocalizationAuditEngineTests`.
+- **`IMolcaOnboardingItemProvider`** — the seam an SDK, fork, or add-on uses to contribute checklist rows
+  without Core referencing it, alongside the existing `IMolcaRemediationDomainProvider` (Required rows) and
+  `IMolcaStarterStep` (Recommended rows), both of which are now surfaced automatically.
+- **`MolcaStarter.InstallStep(id)`** (and an `Install(filter)` overload) so a single starter step can be run
+  from its own row through the same run and `McpUndoStack` recording path as a full install, rather than a
+  second install path that would have to re-implement what makes a starter run revertible.
+- **A "Starter Project Content" sample — the content half of a working project.** 282 files that no
+  generator can invent: the Molca and Poppins font faces and their localized text styles, 26 UI prefabs
+  including a wired `Runtime Manager`, the brand colour palettes, URP profiles and quality tiers,
+  locales and string tables, input actions, lighting settings, shared art and shaders. Import it from
+  **Package Manager ▸ Molca ▸ Samples** and it lands in `Assets/Samples/…`, owned by the project.
+
+  This is the piece that lets a package ship content without shipping an *un-ownable* asset. `Samples~`
+  ends in `~`, so Unity never imports it; the files enter a project only when asked, `.meta` included,
+  and a Core upgrade cannot reach them. It replaces `QuickSetupInstaller` as the recommended new-project
+  path: the sample mechanism performs natively the template-to-project copy, including carrying the GUIDs
+  that make `Runtime Manager`'s `Available Schemes` array resolve. The 1.x Quick Setup menus remain as a
+  compatibility path for projects and automation that still use the legacy folder layout.
+
+  **Import the sample before running the Project Starter.** The starter skips modules that are already
+  registered, so importing first yields the branded, pre-configured graph and the starter fills only
+  genuine gaps. Run the starter first and you get blank generated modules, then two of everything.
+
 ## [1.18.0] - 2026-08-01
 
 > ### ⚠ This is a minor version that contains breaking changes. Read this before upgrading.

@@ -1,7 +1,7 @@
-﻿com.molca.core@1.18.0
-Published: 2026-08-01 22:00:47Z
-Source commit: 94dc0f68
-Files: 2184
+﻿com.molca.core@2.0.0
+Published: 2026-08-03 11:55:52Z
+Source commit: 0c585d7a
+Files: 3079
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -51,12 +51,21 @@ Documentation~/reference/REFERENCE_SYSTEM_MIGRATION.md
 Documentation~/reference/REMEDIATION.md
 Documentation~/reference/REMOTE_EDITOR.md
 Documentation~/reference/RUNTIME_MANAGER.md
+Documentation~/reference/sdk/SDK_APP_FLOW.md
+Documentation~/reference/sdk/SDK_AUTH.md
+Documentation~/reference/sdk/SDK_MEDIA.md
+Documentation~/reference/sdk/SDK_MODALS.md
+Documentation~/reference/sdk/SDK_OVERVIEW.md
+Documentation~/reference/sdk/SDK_QUICK_SETUP.md
+Documentation~/reference/sdk/SDK_UI.md
+Documentation~/reference/sdk/SDK_UTILITIES.md
 Documentation~/reference/SETTINGS.md
 Documentation~/reference/SUBSYSTEMS.md
 Documentation~/reference/TELEMETRY.md
 Documentation~/reference/UI_INTENT_SPEC.md
 Documentation~/reference/UI_TOKENS.md
 Documentation~/reference/UNITY_MCP_TOOLS.md
+Documentation~/reference/UPGRADING_TO_2_0.md
 Documentation~/reference/UTILITIES.md
 Editor.meta
 Editor/About.meta
@@ -121,6 +130,45 @@ Editor/Addons/InstalledAddonsAsset.cs
 Editor/Addons/InstalledAddonsAsset.cs.meta
 Editor/Addons/MolcaAddonsView.uss
 Editor/Addons/MolcaAddonsView.uss.meta
+Editor/AppUI.meta
+Editor/AppUI/AddressablesBuildNotificationProvider.cs
+Editor/AppUI/AddressablesBuildNotificationProvider.cs.meta
+Editor/AppUI/AssemblyInfo.cs
+Editor/AppUI/AssemblyInfo.cs.meta
+Editor/AppUI/ButtonStateEditor.cs
+Editor/AppUI/ButtonStateEditor.cs.meta
+Editor/AppUI/ColorIDButtonDrawer.cs
+Editor/AppUI/ColorIDButtonDrawer.cs.meta
+Editor/AppUI/ColorIDButtonGroupDrawer.cs
+Editor/AppUI/ColorIDButtonGroupDrawer.cs.meta
+Editor/AppUI/ContentPackage.meta
+Editor/AppUI/ContentPackage/ContentPackageManagerPrefabBuilder.cs
+Editor/AppUI/ContentPackage/ContentPackageManagerPrefabBuilder.cs.meta
+Editor/AppUI/ContentPackage/PackageContentButtonDrawer.cs
+Editor/AppUI/ContentPackage/PackageContentButtonDrawer.cs.meta
+Editor/AppUI/Migration.meta
+Editor/AppUI/Migration/ColorTokenReferenceMigration.cs
+Editor/AppUI/Migration/ColorTokenReferenceMigration.cs.meta
+Editor/AppUI/Migration/ColorTokenReferenceMigrationMenu.cs
+Editor/AppUI/Migration/ColorTokenReferenceMigrationMenu.cs.meta
+Editor/AppUI/Migration/ColorTokenReferenceUpgradeDetector.cs
+Editor/AppUI/Migration/ColorTokenReferenceUpgradeDetector.cs.meta
+Editor/AppUI/Migration/ColourReferenceRemediationFix.cs
+Editor/AppUI/Migration/ColourReferenceRemediationFix.cs.meta
+Editor/AppUI/Molca.App.Editor.asmdef
+Editor/AppUI/Molca.App.Editor.asmdef.meta
+Editor/AppUI/Setup.meta
+Editor/AppUI/Setup/QuickSetupInstaller.cs
+Editor/AppUI/Setup/QuickSetupInstaller.cs.meta
+Editor/AppUI/ShaderVariant.meta
+Editor/AppUI/ShaderVariant/ShaderVariantBuildRecorder.cs
+Editor/AppUI/ShaderVariant/ShaderVariantBuildRecorder.cs.meta
+Editor/AppUI/ShaderVariant/ShaderVariantRecord.cs
+Editor/AppUI/ShaderVariant/ShaderVariantRecord.cs.meta
+Editor/AppUI/ShaderVariant/ShaderVariantSplitTool.cs
+Editor/AppUI/ShaderVariant/ShaderVariantSplitTool.cs.meta
+Editor/AppUI/ShaderVariant/VariantCombinator.cs
+Editor/AppUI/ShaderVariant/VariantCombinator.cs.meta
 Editor/AssemblyInfo.cs
 Editor/AssemblyInfo.cs.meta
 Editor/Attributes.meta
@@ -291,11 +339,9 @@ Editor/ColorID/Audit/ColorThemeAuditModels.cs
 Editor/ColorID/Audit/ColorThemeAuditModels.cs.meta
 Editor/ColorID/Audit/ColorThemeAuditService.cs
 Editor/ColorID/Audit/ColorThemeAuditService.cs.meta
-Editor/ColorID/Audit/ColorThemeDeprecationReport.cs
-Editor/ColorID/Audit/ColorThemeDeprecationReport.cs.meta
-Editor/ColorID/Audit/ColorThemeDeprecationReportMenu.cs
-Editor/ColorID/Audit/ColorThemeDeprecationReportMenu.cs.meta
 Editor/ColorID/Authoring.meta
+Editor/ColorID/Authoring/ColorThemeAssetLocator.cs
+Editor/ColorID/Authoring/ColorThemeAssetLocator.cs.meta
 Editor/ColorID/Authoring/ColorThemeBindingAuthoring.cs
 Editor/ColorID/Authoring/ColorThemeBindingAuthoring.cs.meta
 Editor/ColorID/Authoring/ColorThemeInstaller.cs
@@ -307,12 +353,6 @@ Editor/ColorID/Authoring/ColorThemeVocabulary.cs.meta
 Editor/ColorID/Build.meta
 Editor/ColorID/Build/ColorThemeBuildValidator.cs
 Editor/ColorID/Build/ColorThemeBuildValidator.cs.meta
-Editor/ColorID/ColorIDEditor.cs
-Editor/ColorID/ColorIDEditor.cs.meta
-Editor/ColorID/ColorIDReferenceDrawer.cs
-Editor/ColorID/ColorIDReferenceDrawer.cs.meta
-Editor/ColorID/ColorModuleEditor.cs
-Editor/ColorID/ColorModuleEditor.cs.meta
 Editor/ColorID/Drawers.meta
 Editor/ColorID/Drawers/ColorTokenReferenceDrawer.cs
 Editor/ColorID/Drawers/ColorTokenReferenceDrawer.cs.meta
@@ -341,14 +381,17 @@ Editor/ColorID/Remediation.meta
 Editor/ColorID/Remediation/ColorThemeRemediation.cs
 Editor/ColorID/Remediation/ColorThemeRemediation.cs.meta
 Editor/ColorID/Transactions.meta
-Editor/ColorID/Transactions/ColorContentMigration.cs
-Editor/ColorID/Transactions/ColorContentMigration.cs.meta
-Editor/ColorID/Transactions/ColorContentMigrationMenu.cs
-Editor/ColorID/Transactions/ColorContentMigrationMenu.cs.meta
 Editor/ColorID/Transactions/ColorThemeSetEditing.cs
 Editor/ColorID/Transactions/ColorThemeSetEditing.cs.meta
 Editor/ColorID/Transactions/ColorThemeTransaction.cs
 Editor/ColorID/Transactions/ColorThemeTransaction.cs.meta
+Editor/ColorID/Upgrade.meta
+Editor/ColorID/Upgrade/ColorThemeUpgradeReadiness.cs
+Editor/ColorID/Upgrade/ColorThemeUpgradeReadiness.cs.meta
+Editor/ColorID/Upgrade/LegacyColorContentMigration.cs
+Editor/ColorID/Upgrade/LegacyColorContentMigration.cs.meta
+Editor/ColorID/Upgrade/LegacyColorContentRemediationFix.cs
+Editor/ColorID/Upgrade/LegacyColorContentRemediationFix.cs.meta
 Editor/ContentPackage.meta
 Editor/ContentPackage/AddressablesBuildUtility.cs
 Editor/ContentPackage/AddressablesBuildUtility.cs.meta
@@ -389,10 +432,6 @@ Editor/Doctor/Checks/BuildProfileCheck.cs
 Editor/Doctor/Checks/BuildProfileCheck.cs.meta
 Editor/Doctor/Checks/BuildScenesCheck.cs
 Editor/Doctor/Checks/BuildScenesCheck.cs.meta
-Editor/Doctor/Checks/ColorIDReferenceEarlyAccessCheck.cs
-Editor/Doctor/Checks/ColorIDReferenceEarlyAccessCheck.cs.meta
-Editor/Doctor/Checks/ColorIDReferenceValidityCheck.cs
-Editor/Doctor/Checks/ColorIDReferenceValidityCheck.cs.meta
 Editor/Doctor/Checks/ColorThemeAuditCheck.cs
 Editor/Doctor/Checks/ColorThemeAuditCheck.cs.meta
 Editor/Doctor/Checks/ContentPackageCheck.cs
@@ -595,10 +634,16 @@ Editor/Hub/Workspaces/ContentWorkspaceSession.cs.meta
 Editor/Hub/Workspaces/ContentWorkspaceView.cs
 Editor/Hub/Workspaces/ContentWorkspaceView.cs.meta
 Editor/Icons.meta
+Editor/Icons/molca-assistant.png
+Editor/Icons/molca-assistant.png.meta
 Editor/Icons/molca-audio.png
 Editor/Icons/molca-audio.png.meta
+Editor/Icons/molca-automation.png
+Editor/Icons/molca-automation.png.meta
 Editor/Icons/molca-content.png
 Editor/Icons/molca-content.png.meta
+Editor/Icons/molca-docs.png
+Editor/Icons/molca-docs.png.meta
 Editor/Icons/molca-doctor.png
 Editor/Icons/molca-doctor.png.meta
 Editor/Icons/MolcaEditorIcons.cs
@@ -613,12 +658,20 @@ Editor/Icons/molca-mcp.png
 Editor/Icons/molca-mcp.png.meta
 Editor/Icons/molca-networking.png
 Editor/Icons/molca-networking.png.meta
+Editor/Icons/molca-references.png
+Editor/Icons/molca-references.png.meta
+Editor/Icons/molca-remediation.png
+Editor/Icons/molca-remediation.png.meta
+Editor/Icons/molca-sentry.png
+Editor/Icons/molca-sentry.png.meta
 Editor/Icons/molca-sequence.png
 Editor/Icons/molca-sequence.png.meta
 Editor/Icons/molca-settings.png
 Editor/Icons/molca-settings.png.meta
 Editor/Icons/molca-storage.png
 Editor/Icons/molca-storage.png.meta
+Editor/Icons/molca-themes.png
+Editor/Icons/molca-themes.png.meta
 Editor/Icons/molca-utils.png
 Editor/Icons/molca-utils.png.meta
 Editor/Icons/molca-window.png
@@ -626,10 +679,16 @@ Editor/Icons/molca-window.png.meta
 Editor/Icons/rasterize-icons.ps1
 Editor/Icons/rasterize-icons.ps1.meta
 Editor/Icons/svg.meta
+Editor/Icons/svg/molca-assistant.svg
+Editor/Icons/svg/molca-assistant.svg.meta
 Editor/Icons/svg/molca-audio.svg
 Editor/Icons/svg/molca-audio.svg.meta
+Editor/Icons/svg/molca-automation.svg
+Editor/Icons/svg/molca-automation.svg.meta
 Editor/Icons/svg/molca-content.svg
 Editor/Icons/svg/molca-content.svg.meta
+Editor/Icons/svg/molca-docs.svg
+Editor/Icons/svg/molca-docs.svg.meta
 Editor/Icons/svg/molca-doctor.svg
 Editor/Icons/svg/molca-doctor.svg.meta
 Editor/Icons/svg/molca-localization.svg
@@ -638,12 +697,20 @@ Editor/Icons/svg/molca-mcp.svg
 Editor/Icons/svg/molca-mcp.svg.meta
 Editor/Icons/svg/molca-networking.svg
 Editor/Icons/svg/molca-networking.svg.meta
+Editor/Icons/svg/molca-references.svg
+Editor/Icons/svg/molca-references.svg.meta
+Editor/Icons/svg/molca-remediation.svg
+Editor/Icons/svg/molca-remediation.svg.meta
+Editor/Icons/svg/molca-sentry.svg
+Editor/Icons/svg/molca-sentry.svg.meta
 Editor/Icons/svg/molca-sequence.svg
 Editor/Icons/svg/molca-sequence.svg.meta
 Editor/Icons/svg/molca-settings.svg
 Editor/Icons/svg/molca-settings.svg.meta
 Editor/Icons/svg/molca-storage.svg
 Editor/Icons/svg/molca-storage.svg.meta
+Editor/Icons/svg/molca-themes.svg
+Editor/Icons/svg/molca-themes.svg.meta
 Editor/Icons/svg/molca-utils.svg
 Editor/Icons/svg/molca-utils.svg.meta
 Editor/Icons/svg/molca-window.svg
@@ -711,6 +778,8 @@ Editor/Localization/LocalizationRemoteCatalogEditorClient.cs
 Editor/Localization/LocalizationRemoteCatalogEditorClient.cs.meta
 Editor/Localization/LocalizationValueMigrationService.cs
 Editor/Localization/LocalizationValueMigrationService.cs.meta
+Editor/Localization/LocalizedValueInstanceOverrides.cs
+Editor/Localization/LocalizedValueInstanceOverrides.cs.meta
 Editor/Localization/LocalizedValueSerializedUtility.cs
 Editor/Localization/LocalizedValueSerializedUtility.cs.meta
 Editor/Localization/Remediation.meta
@@ -953,6 +1022,17 @@ Editor/MCP/Providers/UnityMcpToolProvider.UIToolkit.cs
 Editor/MCP/Providers/UnityMcpToolProvider.UIToolkit.cs.meta
 Editor/MCP/Providers/UnityMcpToolProvider.Workflow.cs
 Editor/MCP/Providers/UnityMcpToolProvider.Workflow.cs.meta
+Editor/Migration.meta
+Editor/Migration/ComponentLocatorMap.cs
+Editor/Migration/ComponentLocatorMap.cs.meta
+Editor/Migration/LegacyComponentIndex.cs
+Editor/Migration/LegacyComponentIndex.cs.meta
+Editor/Migration/LegacyComponentRemover.cs
+Editor/Migration/LegacyComponentRemover.cs.meta
+Editor/Migration/PrefabInstanceOverrideIndex.cs
+Editor/Migration/PrefabInstanceOverrideIndex.cs.meta
+Editor/Migration/PrefabInstanceOverrideWriter.cs
+Editor/Migration/PrefabInstanceOverrideWriter.cs.meta
 Editor/Molca.Editor.asmdef
 Editor/Molca.Editor.asmdef.meta
 Editor/MolcaEditorPrefs.cs
@@ -1046,6 +1126,8 @@ Editor/Networking/Migration/LegacyNetworkScanReport.cs
 Editor/Networking/Migration/LegacyNetworkScanReport.cs.meta
 Editor/Networking/Migration/NetworkCatalogSchemaMigrator.cs
 Editor/Networking/Migration/NetworkCatalogSchemaMigrator.cs.meta
+Editor/Networking/Migration/NetworkUpgradeDetector.cs
+Editor/Networking/Migration/NetworkUpgradeDetector.cs.meta
 Editor/Networking/OpenApi.meta
 Editor/Networking/OpenApi/NetworkOpenApiImportService.cs
 Editor/Networking/OpenApi/NetworkOpenApiImportService.cs.meta
@@ -1080,10 +1162,25 @@ Editor/Notifications/NotificationSettingsEditor.cs.meta
 Editor/Notifications/README.md
 Editor/Notifications/README.md.meta
 Editor/Onboarding.meta
-Editor/Onboarding/OnboardingWizardView.cs
-Editor/Onboarding/OnboardingWizardView.cs.meta
-Editor/Onboarding/OnboardingWizardWindow.cs
-Editor/Onboarding/OnboardingWizardWindow.cs.meta
+Editor/Onboarding/MolcaOnboardingChecklist.cs
+Editor/Onboarding/MolcaOnboardingChecklist.cs.meta
+Editor/Onboarding/MolcaOnboardingItem.cs
+Editor/Onboarding/MolcaOnboardingItem.cs.meta
+Editor/Onboarding/MolcaOnboardingView.cs
+Editor/Onboarding/MolcaOnboardingView.cs.meta
+Editor/Onboarding/MolcaOnboardingWindow.cs
+Editor/Onboarding/MolcaOnboardingWindow.cs.meta
+Editor/Onboarding/OnboardingActivityProvider.cs
+Editor/Onboarding/OnboardingActivityProvider.cs.meta
+Editor/Onboarding/OnboardingWorkspaceProvider.cs
+Editor/Onboarding/OnboardingWorkspaceProvider.cs.meta
+Editor/Onboarding/Sources.meta
+Editor/Onboarding/Sources/RemediationOnboardingSource.cs
+Editor/Onboarding/Sources/RemediationOnboardingSource.cs.meta
+Editor/Onboarding/Sources/StarterOnboardingSource.cs
+Editor/Onboarding/Sources/StarterOnboardingSource.cs.meta
+Editor/Onboarding/Sources/ToolingOnboardingSource.cs
+Editor/Onboarding/Sources/ToolingOnboardingSource.cs.meta
 Editor/Projects.meta
 Editor/Projects/MolcaProjectApiClient.cs
 Editor/Projects/MolcaProjectApiClient.cs.meta
@@ -1208,6 +1305,8 @@ Editor/Remediation/Hub/RemediationWorkspaceView.cs
 Editor/Remediation/Hub/RemediationWorkspaceView.cs.meta
 Editor/Remediation/IMolcaFix.cs
 Editor/Remediation/IMolcaFix.cs.meta
+Editor/Remediation/MolcaFileSnapshotGroup.cs
+Editor/Remediation/MolcaFileSnapshotGroup.cs.meta
 Editor/Remediation/MolcaFixOutcome.cs
 Editor/Remediation/MolcaFixOutcome.cs.meta
 Editor/Remediation/MolcaFixRegistry.cs
@@ -1415,6 +1514,8 @@ Editor/UI/Components/MolcaSectionCard.cs
 Editor/UI/Components/MolcaSectionCard.cs.meta
 Editor/UI/Components/MolcaStatusKind.cs
 Editor/UI/Components/MolcaStatusKind.cs.meta
+Editor/UI/Components/MolcaWorkbench.cs
+Editor/UI/Components/MolcaWorkbench.cs.meta
 Editor/UI/Fonts.meta
 Editor/UI/Fonts/OFL.txt
 Editor/UI/Fonts/OFL.txt.meta
@@ -1448,6 +1549,27 @@ Editor/UI/Tokens/MolcaUiTokenResolver.cs.meta
 Editor/UIToolkit.meta
 Editor/UIToolkit/UiToolkitAuthoringService.cs
 Editor/UIToolkit/UiToolkitAuthoringService.cs.meta
+Editor/Upgrade.meta
+Editor/Upgrade/LegacyColorContentDetector.cs
+Editor/Upgrade/LegacyColorContentDetector.cs.meta
+Editor/Upgrade/LocalizationUpgradeDetector.cs
+Editor/Upgrade/LocalizationUpgradeDetector.cs.meta
+Editor/Upgrade/MolcaUpgradeAudit.cs
+Editor/Upgrade/MolcaUpgradeAudit.cs.meta
+Editor/Upgrade/MolcaUpgradeMenu.cs
+Editor/Upgrade/MolcaUpgradeMenu.cs.meta
+Editor/Upgrade/MolcaUpgradeNotice.cs
+Editor/Upgrade/MolcaUpgradeNotice.cs.meta
+Editor/Upgrade/RetiredApiUsageDetector.cs
+Editor/Upgrade/RetiredApiUsageDetector.cs.meta
+Editor/Upgrade/RetiredColorUnityEventDetector.cs
+Editor/Upgrade/RetiredColorUnityEventDetector.cs.meta
+Editor/Upgrade/RetiredPackageDetector.cs
+Editor/Upgrade/RetiredPackageDetector.cs.meta
+Editor/Upgrade/UiTokenCatalogUpgradeDetector.cs
+Editor/Upgrade/UiTokenCatalogUpgradeDetector.cs.meta
+Editor/Upgrade/UpgradeRemediation.cs
+Editor/Upgrade/UpgradeRemediation.cs.meta
 Editor/Validation.meta
 FORK_GUIDE.md
 FORK_GUIDE.md.meta
@@ -1528,32 +1650,12 @@ Runtime/ColorID/Bindings/ColorThemeBinding.cs
 Runtime/ColorID/Bindings/ColorThemeBinding.cs.meta
 Runtime/ColorID/Bindings/IColorTargetAdapter.cs
 Runtime/ColorID/Bindings/IColorTargetAdapter.cs.meta
-Runtime/ColorID/ColorID.cs
-Runtime/ColorID/ColorID.cs.meta
-Runtime/ColorID/ColorIDReference.cs
-Runtime/ColorID/ColorIDReference.cs.meta
-Runtime/ColorID/ColorModule.cs
-Runtime/ColorID/ColorModule.cs.meta
 Runtime/ColorID/ColorSchemeManager.cs
 Runtime/ColorID/ColorSchemeManager.cs.meta
-Runtime/ColorID/ColorTargetApplier.cs
-Runtime/ColorID/ColorTargetApplier.cs.meta
-Runtime/ColorID/ColorUtility.cs
-Runtime/ColorID/ColorUtility.cs.meta
 Runtime/ColorID/Compatibility.meta
 Runtime/ColorID/Compatibility/LegacyColorAlias.cs
 Runtime/ColorID/Compatibility/LegacyColorAlias.cs.meta
-Runtime/ColorID/Compatibility/LegacyColorProvider.cs
-Runtime/ColorID/Compatibility/LegacyColorProvider.cs.meta
-Runtime/ColorID/Compatibility/LegacyColorProviderAdapter.cs
-Runtime/ColorID/Compatibility/LegacyColorProviderAdapter.cs.meta
 Runtime/ColorID/Examples.meta
-Runtime/ColorID/Examples/ColorIDReferenceExample.cs
-Runtime/ColorID/Examples/ColorIDReferenceExample.cs.meta
-Runtime/ColorID/IColorProvider.cs
-Runtime/ColorID/IColorProvider.cs.meta
-Runtime/ColorID/IColorSchemeService.cs
-Runtime/ColorID/IColorSchemeService.cs.meta
 Runtime/ColorID/Settings.meta
 Runtime/ColorID/Settings/ColorThemeSettings.cs
 Runtime/ColorID/Settings/ColorThemeSettings.cs.meta
@@ -2108,6 +2210,163 @@ Runtime/Telemetry/TelemetrySettings.cs.meta
 Runtime/Telemetry/TelemetrySubsystem.cs
 Runtime/Telemetry/TelemetrySubsystem.cs.meta
 Runtime/UI.meta
+Runtime/UI/App.meta
+Runtime/UI/App/Molca.App.asmdef
+Runtime/UI/App/Molca.App.asmdef.meta
+Runtime/UI/App/Plugins.meta
+Runtime/UI/App/Plugins/ZXing.Net-LICENSE.txt
+Runtime/UI/App/Plugins/ZXing.Net-LICENSE.txt.meta
+Runtime/UI/App/Plugins/zxing.unity.dll
+Runtime/UI/App/Plugins/zxing.unity.dll.meta
+Runtime/UI/App/Scripts.meta
+Runtime/UI/App/Scripts/AssemblyInfo.cs
+Runtime/UI/App/Scripts/AssemblyInfo.cs.meta
+Runtime/UI/App/Scripts/Auth.meta
+Runtime/UI/App/Scripts/Auth/AuthUI.cs
+Runtime/UI/App/Scripts/Auth/AuthUI.cs.meta
+Runtime/UI/App/Scripts/Auth/UserData.cs
+Runtime/UI/App/Scripts/Auth/UserData.cs.meta
+Runtime/UI/App/Scripts/GameManager.cs
+Runtime/UI/App/Scripts/GameManager.cs.meta
+Runtime/UI/App/Scripts/Home.meta
+Runtime/UI/App/Scripts/Home/AudioSettingUI.cs
+Runtime/UI/App/Scripts/Home/AudioSettingUI.cs.meta
+Runtime/UI/App/Scripts/Home/ProfileUI.cs
+Runtime/UI/App/Scripts/Home/ProfileUI.cs.meta
+Runtime/UI/App/Scripts/Media.meta
+Runtime/UI/App/Scripts/Media/DocumentHandler.cs
+Runtime/UI/App/Scripts/Media/DocumentHandler.cs.meta
+Runtime/UI/App/Scripts/Media/ImageHandler.cs
+Runtime/UI/App/Scripts/Media/ImageHandler.cs.meta
+Runtime/UI/App/Scripts/Media/IMediaHandler.cs
+Runtime/UI/App/Scripts/Media/IMediaHandler.cs.meta
+Runtime/UI/App/Scripts/Media/MediaInfo.cs
+Runtime/UI/App/Scripts/Media/MediaInfo.cs.meta
+Runtime/UI/App/Scripts/Media/MediaLoader.cs
+Runtime/UI/App/Scripts/Media/MediaLoader.cs.meta
+Runtime/UI/App/Scripts/Media/VideoHandler.cs
+Runtime/UI/App/Scripts/Media/VideoHandler.cs.meta
+Runtime/UI/App/Scripts/Modal.meta
+Runtime/UI/App/Scripts/Modal/DatePicker.meta
+Runtime/UI/App/Scripts/Modal/DatePicker/DateField.cs
+Runtime/UI/App/Scripts/Modal/DatePicker/DateField.cs.meta
+Runtime/UI/App/Scripts/Modal/DatePicker/DatePickerExample.cs
+Runtime/UI/App/Scripts/Modal/DatePicker/DatePickerExample.cs.meta
+Runtime/UI/App/Scripts/Modal/DatePicker/DatePickerModal.cs
+Runtime/UI/App/Scripts/Modal/DatePicker/DatePickerModal.cs.meta
+Runtime/UI/App/Scripts/Modal/DatePicker/DatePickerModalHelper.cs
+Runtime/UI/App/Scripts/Modal/DatePicker/DatePickerModalHelper.cs.meta
+Runtime/UI/App/Scripts/Modal/MediaConfirmationModal.cs
+Runtime/UI/App/Scripts/Modal/MediaConfirmationModal.cs.meta
+Runtime/UI/App/Scripts/Modal/MODAL_TYPES_SUMMARY.md
+Runtime/UI/App/Scripts/Modal/MODAL_TYPES_SUMMARY.md.meta
+Runtime/UI/App/Scripts/Modal/Notification.meta
+Runtime/UI/App/Scripts/Modal/Notification/NotificationHelper.cs
+Runtime/UI/App/Scripts/Modal/Notification/NotificationHelper.cs.meta
+Runtime/UI/App/Scripts/Modal/Notification/NotificationModal.cs
+Runtime/UI/App/Scripts/Modal/Notification/NotificationModal.cs.meta
+Runtime/UI/App/Scripts/Modal/NumberInputKeyboard.cs
+Runtime/UI/App/Scripts/Modal/NumberInputKeyboard.cs.meta
+Runtime/UI/App/Scripts/Modal/ProgressModal.cs
+Runtime/UI/App/Scripts/Modal/ProgressModal.cs.meta
+Runtime/UI/App/Scripts/Modal/SelectionModal.cs
+Runtime/UI/App/Scripts/Modal/SelectionModal.cs.meta
+Runtime/UI/App/Scripts/Modal/SelectionOptionUI.cs
+Runtime/UI/App/Scripts/Modal/SelectionOptionUI.cs.meta
+Runtime/UI/App/Scripts/Modal/TextInputModal.cs
+Runtime/UI/App/Scripts/Modal/TextInputModal.cs.meta
+Runtime/UI/App/Scripts/Preload.meta
+Runtime/UI/App/Scripts/Preload/FirstLaunchCheck.cs
+Runtime/UI/App/Scripts/Preload/FirstLaunchCheck.cs.meta
+Runtime/UI/App/Scripts/Preload/IPreloadCheck.cs
+Runtime/UI/App/Scripts/Preload/IPreloadCheck.cs.meta
+Runtime/UI/App/Scripts/Preload/PreloadCheck.cs
+Runtime/UI/App/Scripts/Preload/PreloadCheck.cs.meta
+Runtime/UI/App/Scripts/Preload/ShaderVariantManifest.cs
+Runtime/UI/App/Scripts/Preload/ShaderVariantManifest.cs.meta
+Runtime/UI/App/Scripts/Preload/ShaderWarmupCheck.cs
+Runtime/UI/App/Scripts/Preload/ShaderWarmupCheck.cs.meta
+Runtime/UI/App/Scripts/UI.meta
+Runtime/UI/App/Scripts/UI/BatteryStatus.cs
+Runtime/UI/App/Scripts/UI/BatteryStatus.cs.meta
+Runtime/UI/App/Scripts/UI/BillboardUI.cs
+Runtime/UI/App/Scripts/UI/BillboardUI.cs.meta
+Runtime/UI/App/Scripts/UI/ButtonState.cs
+Runtime/UI/App/Scripts/UI/ButtonState.cs.meta
+Runtime/UI/App/Scripts/UI/ButtonStateGroup.cs
+Runtime/UI/App/Scripts/UI/ButtonStateGroup.cs.meta
+Runtime/UI/App/Scripts/UI/CanvasScaleListener.cs
+Runtime/UI/App/Scripts/UI/CanvasScaleListener.cs.meta
+Runtime/UI/App/Scripts/UI/CodeInputPanel.cs
+Runtime/UI/App/Scripts/UI/CodeInputPanel.cs.meta
+Runtime/UI/App/Scripts/UI/ColorIDButton.cs
+Runtime/UI/App/Scripts/UI/ColorIDButton.cs.meta
+Runtime/UI/App/Scripts/UI/ColorIDButtonGroup.cs
+Runtime/UI/App/Scripts/UI/ColorIDButtonGroup.cs.meta
+Runtime/UI/App/Scripts/UI/ColorSchemeDropdown.cs
+Runtime/UI/App/Scripts/UI/ColorSchemeDropdown.cs.meta
+Runtime/UI/App/Scripts/UI/ColorSchemeToggle.cs
+Runtime/UI/App/Scripts/UI/ColorSchemeToggle.cs.meta
+Runtime/UI/App/Scripts/UI/ContentPackage.meta
+Runtime/UI/App/Scripts/UI/ContentPackage/ContentPackageManagerUI.cs
+Runtime/UI/App/Scripts/UI/ContentPackage/ContentPackageManagerUI.cs.meta
+Runtime/UI/App/Scripts/UI/ContentPackage/PackageContentButton.cs
+Runtime/UI/App/Scripts/UI/ContentPackage/PackageContentButton.cs.meta
+Runtime/UI/App/Scripts/UI/ContentPackage/PackageListItemUI.cs
+Runtime/UI/App/Scripts/UI/ContentPackage/PackageListItemUI.cs.meta
+Runtime/UI/App/Scripts/UI/ContentPackage/PackageListQuery.cs
+Runtime/UI/App/Scripts/UI/ContentPackage/PackageListQuery.cs.meta
+Runtime/UI/App/Scripts/UI/ContentPackage/PREFAB_SETUP.md
+Runtime/UI/App/Scripts/UI/ContentPackage/PREFAB_SETUP.md.meta
+Runtime/UI/App/Scripts/UI/LanguageDropdown.cs
+Runtime/UI/App/Scripts/UI/LanguageDropdown.cs.meta
+Runtime/UI/App/Scripts/UI/MediaInfoCycle.cs
+Runtime/UI/App/Scripts/UI/MediaInfoCycle.cs.meta
+Runtime/UI/App/Scripts/UI/MediaPreviewUI.cs
+Runtime/UI/App/Scripts/UI/MediaPreviewUI.cs.meta
+Runtime/UI/App/Scripts/UI/PanelCycle.cs
+Runtime/UI/App/Scripts/UI/PanelCycle.cs.meta
+Runtime/UI/App/Scripts/UI/PasswordField.cs
+Runtime/UI/App/Scripts/UI/PasswordField.cs.meta
+Runtime/UI/App/Scripts/UI/ProgressBarUI.cs
+Runtime/UI/App/Scripts/UI/ProgressBarUI.cs.meta
+Runtime/UI/App/Scripts/UI/ProjectLogoUI.cs
+Runtime/UI/App/Scripts/UI/ProjectLogoUI.cs.meta
+Runtime/UI/App/Scripts/UI/TimeText.cs
+Runtime/UI/App/Scripts/UI/TimeText.cs.meta
+Runtime/UI/App/Scripts/UI/UIReference.cs
+Runtime/UI/App/Scripts/UI/UIReference.cs.meta
+Runtime/UI/App/Scripts/UI/UIScaleOption.cs
+Runtime/UI/App/Scripts/UI/UIScaleOption.cs.meta
+Runtime/UI/App/Scripts/Utilities.meta
+Runtime/UI/App/Scripts/Utilities/DelayedEvent.cs
+Runtime/UI/App/Scripts/Utilities/DelayedEvent.cs.meta
+Runtime/UI/App/Scripts/Utilities/InputHelper.cs
+Runtime/UI/App/Scripts/Utilities/InputHelper.cs.meta
+Runtime/UI/App/Scripts/Utilities/IntCounter.cs
+Runtime/UI/App/Scripts/Utilities/IntCounter.cs.meta
+Runtime/UI/App/Scripts/Utilities/OutlineGroupHelper.cs
+Runtime/UI/App/Scripts/Utilities/OutlineGroupHelper.cs.meta
+Runtime/UI/App/Scripts/Utilities/ProximityTrigger.cs
+Runtime/UI/App/Scripts/Utilities/ProximityTrigger.cs.meta
+Runtime/UI/App/Scripts/Utilities/QRScanner.cs
+Runtime/UI/App/Scripts/Utilities/QRScanner.cs.meta
+Runtime/UI/App/Scripts/Utilities/RectTransformHelper.cs
+Runtime/UI/App/Scripts/Utilities/RectTransformHelper.cs.meta
+Runtime/UI/App/Scripts/Utilities/RectTransformInterpolate.cs
+Runtime/UI/App/Scripts/Utilities/RectTransformInterpolate.cs.meta
+Runtime/UI/App/Scripts/Utilities/RotateUtil.cs
+Runtime/UI/App/Scripts/Utilities/RotateUtil.cs.meta
+Runtime/UI/App/Scripts/Utilities/SimpleToggle.cs
+Runtime/UI/App/Scripts/Utilities/SimpleToggle.cs.meta
+Runtime/UI/App/Scripts/Utilities/ToggleColor.cs
+Runtime/UI/App/Scripts/Utilities/ToggleColor.cs.meta
+Runtime/UI/App/Scripts/Utilities/ToggleGO.cs
+Runtime/UI/App/Scripts/Utilities/ToggleGO.cs.meta
+Runtime/UI/App/Scripts/Utilities/TransformHelper.cs
+Runtime/UI/App/Scripts/Utilities/TransformHelper.cs.meta
+Runtime/UI/App/Scripts/Utilities/VersionText.cs
+Runtime/UI/App/Scripts/Utilities/VersionText.cs.meta
 Runtime/UI/Fonts.meta
 Runtime/UI/Fonts/OFL.txt
 Runtime/UI/Fonts/OFL.txt.meta
@@ -2182,6 +2441,642 @@ Samples~/ContentPackageDemos/PackageManifestIntegrationDemo.cs
 Samples~/ContentPackageDemos/PackageManifestTests.cs
 Samples~/ContentPackageDemos/README.md
 Samples~/ContentPackageDemos/StateManagementDemo.cs
+Samples~/QuickSetup/Settings/Global.meta
+Samples~/QuickSetup/Settings/Global/Audio Setting.asset
+Samples~/QuickSetup/Settings/Global/Audio Setting.asset.meta
+Samples~/QuickSetup/Settings/Global/Canvas Scale Setting.asset
+Samples~/QuickSetup/Settings/Global/Canvas Scale Setting.asset.meta
+Samples~/QuickSetup/Settings/Global/Content Package Settings.asset
+Samples~/QuickSetup/Settings/Global/Content Package Settings.asset.meta
+Samples~/QuickSetup/Settings/Global/Global Settings.asset
+Samples~/QuickSetup/Settings/Global/Global Settings.asset.meta
+Samples~/QuickSetup/Settings/Global/HTTP Settings.asset
+Samples~/QuickSetup/Settings/Global/HTTP Settings.asset.meta
+Samples~/QuickSetup/Settings/Global/Localization Setting.asset
+Samples~/QuickSetup/Settings/Global/Localization Setting.asset.meta
+Samples~/QuickSetup/Settings/Global/Reference Manager Settings.asset
+Samples~/QuickSetup/Settings/Global/Reference Manager Settings.asset.meta
+Samples~/QuickSetup/Settings/Global/TelemetrySettings.asset
+Samples~/QuickSetup/Settings/Global/TelemetrySettings.asset.meta
+Samples~/QuickSetup/Settings/Molca InputSystem_Actions.inputactions
+Samples~/QuickSetup/Settings/Molca InputSystem_Actions.inputactions.meta
+Samples~/QuickSetup/Settings/Standard Lighting Settings.lighting
+Samples~/QuickSetup/Settings/Standard Lighting Settings.lighting.meta
+Samples~/SdkScenes.meta
+Samples~/SdkScenes/Auth.unity
+Samples~/SdkScenes/Auth.unity.meta
+Samples~/SdkScenes/Home.unity
+Samples~/SdkScenes/Home.unity.meta
+Samples~/SdkScenes/Preload.unity
+Samples~/SdkScenes/Preload.unity.meta
+Samples~/SdkScenes/Testing.meta
+Samples~/SdkScenes/Testing/Molca.App.SceneTests.asmdef
+Samples~/SdkScenes/Testing/Molca.App.SceneTests.asmdef.meta
+Samples~/SdkScenes/Testing/Playground.meta
+Samples~/SdkScenes/Testing/Playground/Playground.unity
+Samples~/SdkScenes/Testing/Playground/Playground.unity.meta
+Samples~/SdkScenes/Testing/Playground/Test_Playground.cs
+Samples~/SdkScenes/Testing/Playground/Test_Playground.cs.meta
+Samples~/SdkTests/AddressablesFlow.meta
+Samples~/SdkTests/AddressablesFlow/852545__over_fields_of_wheat__pastoral-acoustic-guitar.wav
+Samples~/SdkTests/AddressablesFlow/852545__over_fields_of_wheat__pastoral-acoustic-guitar.wav.meta
+Samples~/SdkTests/AddressablesFlow/Test_Addressable Texture.png
+Samples~/SdkTests/AddressablesFlow/Test_Addressable Texture.png.meta
+Samples~/SdkTests/AddressablesFlow/Test_Addressables.unity
+Samples~/SdkTests/AddressablesFlow/Test_Addressables.unity.meta
+Samples~/SdkTests/AddressablesFlow/Test_Adressable Prefab.prefab
+Samples~/SdkTests/AddressablesFlow/Test_Adressable Prefab.prefab.meta
+Samples~/SdkTests/MediaInfo.meta
+Samples~/SdkTests/MediaInfo/11.png
+Samples~/SdkTests/MediaInfo/11.png.meta
+Samples~/SdkTests/MediaInfo/5.png
+Samples~/SdkTests/MediaInfo/5.png.meta
+Samples~/SdkTests/MediaInfo/8.png
+Samples~/SdkTests/MediaInfo/8.png.meta
+Samples~/StarterProject/Art.meta
+Samples~/StarterProject/Art/2D Models.meta
+Samples~/StarterProject/Art/2D Models/Shared.meta
+Samples~/StarterProject/Art/2D Models/Shared/Flags.meta
+Samples~/StarterProject/Art/2D Models/Shared/Flags/flag-indonesia.png
+Samples~/StarterProject/Art/2D Models/Shared/Flags/flag-indonesia.png.meta
+Samples~/StarterProject/Art/2D Models/Shared/Flags/flag-united-kingdom.png
+Samples~/StarterProject/Art/2D Models/Shared/Flags/flag-united-kingdom.png.meta
+Samples~/StarterProject/Art/3D Models.meta
+Samples~/StarterProject/Art/3D Models/Materials.meta
+Samples~/StarterProject/Art/3D Models/Materials/mat_Ground.mat
+Samples~/StarterProject/Art/3D Models/Materials/mat_Ground.mat.meta
+Samples~/StarterProject/Art/3D Models/Materials/mat_Procedural Sky_Dark.mat
+Samples~/StarterProject/Art/3D Models/Materials/mat_Procedural Sky_Dark.mat.meta
+Samples~/StarterProject/Art/3D Models/Materials/mat_Procedural Sky_Day.mat
+Samples~/StarterProject/Art/3D Models/Materials/mat_Procedural Sky_Day.mat.meta
+Samples~/StarterProject/Art/3D Models/Materials/mat_Procedural Sky_Morning.mat
+Samples~/StarterProject/Art/3D Models/Materials/mat_Procedural Sky_Morning.mat.meta
+Samples~/StarterProject/Art/3D Models/Materials/mat_Procedural Sky_Sunset.mat
+Samples~/StarterProject/Art/3D Models/Materials/mat_Procedural Sky_Sunset.mat.meta
+Samples~/StarterProject/Art/3D Models/Ridlo.meta
+Samples~/StarterProject/Art/3D Models/Ridlo/circle.fbx
+Samples~/StarterProject/Art/3D Models/Ridlo/circle.fbx.meta
+Samples~/StarterProject/Art/Audio.meta
+Samples~/StarterProject/Art/Audio/Musical, Misc, Computer, OS Modern, Celestial, Heavenly, Pads, Chimes SND64170.wav
+Samples~/StarterProject/Art/Audio/Musical, Misc, Computer, OS Modern, Celestial, Heavenly, Pads, Chimes SND64170.wav.meta
+Samples~/StarterProject/Art/Audio/User Interface, Click, Neutral, Select Tone SND31030 3.wav
+Samples~/StarterProject/Art/Audio/User Interface, Click, Neutral, Select Tone SND31030 3.wav.meta
+Samples~/StarterProject/Art/Shared.meta
+Samples~/StarterProject/Art/Shared/AR Plane.mat
+Samples~/StarterProject/Art/Shared/AR Plane.mat.meta
+Samples~/StarterProject/Art/Shared/LoadingBG.anim
+Samples~/StarterProject/Art/Shared/LoadingBG.anim.meta
+Samples~/StarterProject/Art/Shared/ModelPreview.mat
+Samples~/StarterProject/Art/Shared/ModelPreview.mat.meta
+Samples~/StarterProject/Art/Shared/Video Texture.renderTexture
+Samples~/StarterProject/Art/Shared/Video Texture.renderTexture.meta
+Samples~/StarterProject/Art/UIs.meta
+Samples~/StarterProject/Art/UIs/Accent.png
+Samples~/StarterProject/Art/UIs/Accent.png.meta
+Samples~/StarterProject/Art/UIs/Account Box.png
+Samples~/StarterProject/Art/UIs/Account Box.png.meta
+Samples~/StarterProject/Art/UIs/Background_Full.png
+Samples~/StarterProject/Art/UIs/Background_Full.png.meta
+Samples~/StarterProject/Art/UIs/Background_Full_2x.png
+Samples~/StarterProject/Art/UIs/Background_Full_2x.png.meta
+Samples~/StarterProject/Art/UIs/Background_Half.png
+Samples~/StarterProject/Art/UIs/Background_Half.png.meta
+Samples~/StarterProject/Art/UIs/Icons.meta
+Samples~/StarterProject/Art/UIs/Icons/animation.png
+Samples~/StarterProject/Art/UIs/Icons/animation.png.meta
+Samples~/StarterProject/Art/UIs/Icons/ArrowLeft.png
+Samples~/StarterProject/Art/UIs/Icons/ArrowLeft.png.meta
+Samples~/StarterProject/Art/UIs/Icons/arrow-right-on-rectangle.png
+Samples~/StarterProject/Art/UIs/Icons/arrow-right-on-rectangle.png.meta
+Samples~/StarterProject/Art/UIs/Icons/bars-3.png
+Samples~/StarterProject/Art/UIs/Icons/bars-3.png.meta
+Samples~/StarterProject/Art/UIs/Icons/bulb.png
+Samples~/StarterProject/Art/UIs/Icons/bulb.png.meta
+Samples~/StarterProject/Art/UIs/Icons/chevron-up.png
+Samples~/StarterProject/Art/UIs/Icons/chevron-up.png.meta
+Samples~/StarterProject/Art/UIs/Icons/delete.png
+Samples~/StarterProject/Art/UIs/Icons/delete.png.meta
+Samples~/StarterProject/Art/UIs/Icons/eye.png
+Samples~/StarterProject/Art/UIs/Icons/eye.png.meta
+Samples~/StarterProject/Art/UIs/Icons/eye-invisible.png
+Samples~/StarterProject/Art/UIs/Icons/eye-invisible.png.meta
+Samples~/StarterProject/Art/UIs/Icons/fa6-solid_helmet-safety.png
+Samples~/StarterProject/Art/UIs/Icons/fa6-solid_helmet-safety.png.meta
+Samples~/StarterProject/Art/UIs/Icons/fa7-solid_helmet-safety.png
+Samples~/StarterProject/Art/UIs/Icons/fa7-solid_helmet-safety.png.meta
+Samples~/StarterProject/Art/UIs/Icons/fluent_document-20-filled.png
+Samples~/StarterProject/Art/UIs/Icons/fluent_document-20-filled.png.meta
+Samples~/StarterProject/Art/UIs/Icons/Frame 2609849.png
+Samples~/StarterProject/Art/UIs/Icons/Frame 2609849.png.meta
+Samples~/StarterProject/Art/UIs/Icons/fullscreen.png
+Samples~/StarterProject/Art/UIs/Icons/fullscreen.png.meta
+Samples~/StarterProject/Art/UIs/Icons/fullscreen_exit.png
+Samples~/StarterProject/Art/UIs/Icons/fullscreen_exit.png.meta
+Samples~/StarterProject/Art/UIs/Icons/game-icons_auto-repair.png
+Samples~/StarterProject/Art/UIs/Icons/game-icons_auto-repair.png.meta
+Samples~/StarterProject/Art/UIs/Icons/ic_round-view-in-ar.png
+Samples~/StarterProject/Art/UIs/Icons/ic_round-view-in-ar.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_access_time.png
+Samples~/StarterProject/Art/UIs/Icons/icon_access_time.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_arrow_forward.png
+Samples~/StarterProject/Art/UIs/Icons/icon_arrow_forward.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_backspace.png
+Samples~/StarterProject/Art/UIs/Icons/icon_backspace.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_brightness med.png
+Samples~/StarterProject/Art/UIs/Icons/icon_brightness med.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_check_circle.png
+Samples~/StarterProject/Art/UIs/Icons/icon_check_circle.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_dark mode.png
+Samples~/StarterProject/Art/UIs/Icons/icon_dark mode.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_home.png
+Samples~/StarterProject/Art/UIs/Icons/icon_home.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_image.png
+Samples~/StarterProject/Art/UIs/Icons/icon_image.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_left.png
+Samples~/StarterProject/Art/UIs/Icons/icon_left.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_light mode.png
+Samples~/StarterProject/Art/UIs/Icons/icon_light mode.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_location_on.png
+Samples~/StarterProject/Art/UIs/Icons/icon_location_on.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_more_vert.png
+Samples~/StarterProject/Art/UIs/Icons/icon_more_vert.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_open_in_new.png
+Samples~/StarterProject/Art/UIs/Icons/icon_open_in_new.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_profile.png
+Samples~/StarterProject/Art/UIs/Icons/icon_profile.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_quit.png
+Samples~/StarterProject/Art/UIs/Icons/icon_quit.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_restore.png
+Samples~/StarterProject/Art/UIs/Icons/icon_restore.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_settings.png
+Samples~/StarterProject/Art/UIs/Icons/icon_settings.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_star.png
+Samples~/StarterProject/Art/UIs/Icons/icon_star.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon_timer.png
+Samples~/StarterProject/Art/UIs/Icons/icon_timer.png.meta
+Samples~/StarterProject/Art/UIs/Icons/iconamoon_check.png
+Samples~/StarterProject/Art/UIs/Icons/iconamoon_check.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon-multi.png
+Samples~/StarterProject/Art/UIs/Icons/icon-multi.png.meta
+Samples~/StarterProject/Art/UIs/Icons/icon-single.png
+Samples~/StarterProject/Art/UIs/Icons/icon-single.png.meta
+Samples~/StarterProject/Art/UIs/Icons/information-circle.png
+Samples~/StarterProject/Art/UIs/Icons/information-circle.png.meta
+Samples~/StarterProject/Art/UIs/Icons/language.png
+Samples~/StarterProject/Art/UIs/Icons/language.png.meta
+Samples~/StarterProject/Art/UIs/Icons/layout-list.png
+Samples~/StarterProject/Art/UIs/Icons/layout-list.png.meta
+Samples~/StarterProject/Art/UIs/Icons/list-bullet.png
+Samples~/StarterProject/Art/UIs/Icons/list-bullet.png.meta
+Samples~/StarterProject/Art/UIs/Icons/loading-icon.png
+Samples~/StarterProject/Art/UIs/Icons/loading-icon.png.meta
+Samples~/StarterProject/Art/UIs/Icons/loading-icon-128x.png
+Samples~/StarterProject/Art/UIs/Icons/loading-icon-128x.png.meta
+Samples~/StarterProject/Art/UIs/Icons/lucide｜app-window.png
+Samples~/StarterProject/Art/UIs/Icons/lucide｜app-window.png.meta
+Samples~/StarterProject/Art/UIs/Icons/lucide｜arrow-up-down.png
+Samples~/StarterProject/Art/UIs/Icons/lucide｜arrow-up-down.png.meta
+Samples~/StarterProject/Art/UIs/Icons/magnifying-glass.png
+Samples~/StarterProject/Art/UIs/Icons/magnifying-glass.png.meta
+Samples~/StarterProject/Art/UIs/Icons/material-symbols_factory.png
+Samples~/StarterProject/Art/UIs/Icons/material-symbols_factory.png.meta
+Samples~/StarterProject/Art/UIs/Icons/mdi_animation-play.png
+Samples~/StarterProject/Art/UIs/Icons/mdi_animation-play.png.meta
+Samples~/StarterProject/Art/UIs/Icons/motion_play.png
+Samples~/StarterProject/Art/UIs/Icons/motion_play.png.meta
+Samples~/StarterProject/Art/UIs/Icons/pause.png
+Samples~/StarterProject/Art/UIs/Icons/pause.png.meta
+Samples~/StarterProject/Art/UIs/Icons/ph_barcode.png
+Samples~/StarterProject/Art/UIs/Icons/ph_barcode.png.meta
+Samples~/StarterProject/Art/UIs/Icons/ph_tree-structure-fill.png
+Samples~/StarterProject/Art/UIs/Icons/ph_tree-structure-fill.png.meta
+Samples~/StarterProject/Art/UIs/Icons/play.png
+Samples~/StarterProject/Art/UIs/Icons/play.png.meta
+Samples~/StarterProject/Art/UIs/Icons/play_unfill.png
+Samples~/StarterProject/Art/UIs/Icons/play_unfill.png.meta
+Samples~/StarterProject/Art/UIs/Icons/plus.png
+Samples~/StarterProject/Art/UIs/Icons/plus.png.meta
+Samples~/StarterProject/Art/UIs/Icons/power.png
+Samples~/StarterProject/Art/UIs/Icons/power.png.meta
+Samples~/StarterProject/Art/UIs/Icons/question-mark-circle.png
+Samples~/StarterProject/Art/UIs/Icons/question-mark-circle.png.meta
+Samples~/StarterProject/Art/UIs/Icons/radio-off.png
+Samples~/StarterProject/Art/UIs/Icons/radio-off.png.meta
+Samples~/StarterProject/Art/UIs/Icons/radio-on.png
+Samples~/StarterProject/Art/UIs/Icons/radio-on.png.meta
+Samples~/StarterProject/Art/UIs/Icons/Read.png
+Samples~/StarterProject/Art/UIs/Icons/Read.png.meta
+Samples~/StarterProject/Art/UIs/Icons/repeat.png
+Samples~/StarterProject/Art/UIs/Icons/repeat.png.meta
+Samples~/StarterProject/Art/UIs/Icons/ri_equalizer-line.png
+Samples~/StarterProject/Art/UIs/Icons/ri_equalizer-line.png.meta
+Samples~/StarterProject/Art/UIs/Icons/Setting.png
+Samples~/StarterProject/Art/UIs/Icons/Setting.png.meta
+Samples~/StarterProject/Art/UIs/Icons/solar_scale-broken.png
+Samples~/StarterProject/Art/UIs/Icons/solar_scale-broken.png.meta
+Samples~/StarterProject/Art/UIs/Icons/sound.png
+Samples~/StarterProject/Art/UIs/Icons/sound.png.meta
+Samples~/StarterProject/Art/UIs/Icons/squares-2x2.png
+Samples~/StarterProject/Art/UIs/Icons/squares-2x2.png.meta
+Samples~/StarterProject/Art/UIs/Icons/subdir_arrow.png
+Samples~/StarterProject/Art/UIs/Icons/subdir_arrow.png.meta
+Samples~/StarterProject/Art/UIs/Icons/tabler_number-123.png
+Samples~/StarterProject/Art/UIs/Icons/tabler_number-123.png.meta
+Samples~/StarterProject/Art/UIs/Icons/tabler_switch-vertical.png
+Samples~/StarterProject/Art/UIs/Icons/tabler_switch-vertical.png.meta
+Samples~/StarterProject/Art/UIs/Icons/User.png
+Samples~/StarterProject/Art/UIs/Icons/User.png.meta
+Samples~/StarterProject/Art/UIs/Icons/videocam_off.png
+Samples~/StarterProject/Art/UIs/Icons/videocam_off.png.meta
+Samples~/StarterProject/Art/UIs/Icons/videocam_on.png
+Samples~/StarterProject/Art/UIs/Icons/videocam_on.png.meta
+Samples~/StarterProject/Art/UIs/Icons/warehouse.png
+Samples~/StarterProject/Art/UIs/Icons/warehouse.png.meta
+Samples~/StarterProject/Art/UIs/Outline-128px.png
+Samples~/StarterProject/Art/UIs/Outline-128px.png.meta
+Samples~/StarterProject/Art/UIs/Outline-32px ExtraBold.png
+Samples~/StarterProject/Art/UIs/Outline-32px ExtraBold.png.meta
+Samples~/StarterProject/Art/UIs/Outline-32px.png
+Samples~/StarterProject/Art/UIs/Outline-32px.png.meta
+Samples~/StarterProject/Art/UIs/Outline-64px ExtraBold.png
+Samples~/StarterProject/Art/UIs/Outline-64px ExtraBold.png.meta
+Samples~/StarterProject/Art/UIs/Outline-64px.png
+Samples~/StarterProject/Art/UIs/Outline-64px.png.meta
+Samples~/StarterProject/Art/UIs/Outline-bold-128px.png
+Samples~/StarterProject/Art/UIs/Outline-bold-128px.png.meta
+Samples~/StarterProject/Art/UIs/Outline-bold-32px.png
+Samples~/StarterProject/Art/UIs/Outline-bold-32px.png.meta
+Samples~/StarterProject/Art/UIs/Outline-bold-64px.png
+Samples~/StarterProject/Art/UIs/Outline-bold-64px.png.meta
+Samples~/StarterProject/Art/UIs/Pattern.png
+Samples~/StarterProject/Art/UIs/Pattern.png.meta
+Samples~/StarterProject/Art/UIs/WhiteAlpha.png
+Samples~/StarterProject/Art/UIs/WhiteAlpha.png.meta
+Samples~/StarterProject/Http Requests.meta
+Samples~/StarterProject/Http Requests/Auth.meta
+Samples~/StarterProject/Http Requests/Media.meta
+Samples~/StarterProject/Prefabs.meta
+Samples~/StarterProject/Prefabs/Modals.meta
+Samples~/StarterProject/Prefabs/Modals/Confirmation Detailed.prefab
+Samples~/StarterProject/Prefabs/Modals/Confirmation Detailed.prefab.meta
+Samples~/StarterProject/Prefabs/Modals/Confirmation Short.prefab
+Samples~/StarterProject/Prefabs/Modals/Confirmation Short.prefab.meta
+Samples~/StarterProject/Prefabs/Modals/Modal Loading.prefab
+Samples~/StarterProject/Prefabs/Modals/Modal Loading.prefab.meta
+Samples~/StarterProject/Prefabs/Modals/Modal Message.prefab
+Samples~/StarterProject/Prefabs/Modals/Modal Message.prefab.meta
+Samples~/StarterProject/Prefabs/Runtime Manager.prefab
+Samples~/StarterProject/Prefabs/Runtime Manager.prefab.meta
+Samples~/StarterProject/Prefabs/SDK Subsystems.prefab
+Samples~/StarterProject/Prefabs/SDK Subsystems.prefab.meta
+Samples~/StarterProject/Prefabs/UI.meta
+Samples~/StarterProject/Prefabs/UI/Audio Volume UI.prefab
+Samples~/StarterProject/Prefabs/UI/Audio Volume UI.prefab.meta
+Samples~/StarterProject/Prefabs/UI/Auth Panel.prefab
+Samples~/StarterProject/Prefabs/UI/Auth Panel.prefab.meta
+Samples~/StarterProject/Prefabs/UI/Button With Icon.prefab
+Samples~/StarterProject/Prefabs/UI/Button With Icon.prefab.meta
+Samples~/StarterProject/Prefabs/UI/Button.prefab
+Samples~/StarterProject/Prefabs/UI/Button.prefab.meta
+Samples~/StarterProject/Prefabs/UI/Color Scheme Dropdown.prefab
+Samples~/StarterProject/Prefabs/UI/Color Scheme Dropdown.prefab.meta
+Samples~/StarterProject/Prefabs/UI/ContentPackage List Item.prefab
+Samples~/StarterProject/Prefabs/UI/ContentPackage List Item.prefab.meta
+Samples~/StarterProject/Prefabs/UI/ContentPackageManager UI.prefab
+Samples~/StarterProject/Prefabs/UI/ContentPackageManager UI.prefab.meta
+Samples~/StarterProject/Prefabs/UI/EnterPIN.prefab
+Samples~/StarterProject/Prefabs/UI/EnterPIN.prefab.meta
+Samples~/StarterProject/Prefabs/UI/General List Item.prefab
+Samples~/StarterProject/Prefabs/UI/General List Item.prefab.meta
+Samples~/StarterProject/Prefabs/UI/Home Panel.prefab
+Samples~/StarterProject/Prefabs/UI/Home Panel.prefab.meta
+Samples~/StarterProject/Prefabs/UI/InputField (TMP).prefab
+Samples~/StarterProject/Prefabs/UI/InputField (TMP).prefab.meta
+Samples~/StarterProject/Prefabs/UI/Language Dropdown.prefab
+Samples~/StarterProject/Prefabs/UI/Language Dropdown.prefab.meta
+Samples~/StarterProject/Prefabs/UI/Media.meta
+Samples~/StarterProject/Prefabs/UI/Media/Document Handler.prefab
+Samples~/StarterProject/Prefabs/UI/Media/Document Handler.prefab.meta
+Samples~/StarterProject/Prefabs/UI/Media/Image Handler.prefab
+Samples~/StarterProject/Prefabs/UI/Media/Image Handler.prefab.meta
+Samples~/StarterProject/Prefabs/UI/Media/MediaPreview.prefab
+Samples~/StarterProject/Prefabs/UI/Media/MediaPreview.prefab.meta
+Samples~/StarterProject/Prefabs/UI/Media/Video Handler.prefab
+Samples~/StarterProject/Prefabs/UI/Media/Video Handler.prefab.meta
+Samples~/StarterProject/Prefabs/UI/MediaInfo Cycle.prefab
+Samples~/StarterProject/Prefabs/UI/MediaInfo Cycle.prefab.meta
+Samples~/StarterProject/Prefabs/UI/Number Key.prefab
+Samples~/StarterProject/Prefabs/UI/Number Key.prefab.meta
+Samples~/StarterProject/Prefabs/UI/NumberKeyboard.prefab
+Samples~/StarterProject/Prefabs/UI/NumberKeyboard.prefab.meta
+Samples~/StarterProject/Prefabs/UI/PackageContent Button.prefab
+Samples~/StarterProject/Prefabs/UI/PackageContent Button.prefab.meta
+Samples~/StarterProject/Prefabs/UI/Password InputField (TMP) Variant.prefab
+Samples~/StarterProject/Prefabs/UI/Password InputField (TMP) Variant.prefab.meta
+Samples~/StarterProject/Prefabs/UI/Username InputField (TMP) Variant.prefab
+Samples~/StarterProject/Prefabs/UI/Username InputField (TMP) Variant.prefab.meta
+Samples~/StarterProject/README.md
+Samples~/StarterProject/ScriptableObjects.meta
+Samples~/StarterProject/ScriptableObjects/Http Request.meta
+Samples~/StarterProject/ScriptableObjects/ModalHelper.asset
+Samples~/StarterProject/ScriptableObjects/ModalHelper.asset.meta
+Samples~/StarterProject/ScriptableObjects/Rect Utility.asset
+Samples~/StarterProject/ScriptableObjects/Rect Utility.asset.meta
+Samples~/StarterProject/ScriptableObjects/Scene Utility.asset
+Samples~/StarterProject/ScriptableObjects/Scene Utility.asset.meta
+Samples~/StarterProject/ScriptableObjects/SceneNames.meta
+Samples~/StarterProject/ScriptableObjects/SceneNames/SN-Auth.asset
+Samples~/StarterProject/ScriptableObjects/SceneNames/SN-Auth.asset.meta
+Samples~/StarterProject/ScriptableObjects/SceneNames/SN-Home.asset
+Samples~/StarterProject/ScriptableObjects/SceneNames/SN-Home.asset.meta
+Samples~/StarterProject/ScriptableObjects/SceneNames/SN-Preload.asset
+Samples~/StarterProject/ScriptableObjects/SceneNames/SN-Preload.asset.meta
+Samples~/StarterProject/Settings.meta
+Samples~/StarterProject/Settings/Audio.meta
+Samples~/StarterProject/Settings/Audio/Base BGM Collection.asset
+Samples~/StarterProject/Settings/Audio/Base BGM Collection.asset.meta
+Samples~/StarterProject/Settings/Audio/Base SFX Collection.asset
+Samples~/StarterProject/Settings/Audio/Base SFX Collection.asset.meta
+Samples~/StarterProject/Settings/Audio/Base VO Collection.asset
+Samples~/StarterProject/Settings/Audio/Base VO Collection.asset.meta
+Samples~/StarterProject/Settings/Audio/BGM Audio Library.asset
+Samples~/StarterProject/Settings/Audio/BGM Audio Library.asset.meta
+Samples~/StarterProject/Settings/Audio/SFX Audio Library.asset
+Samples~/StarterProject/Settings/Audio/SFX Audio Library.asset.meta
+Samples~/StarterProject/Settings/Audio/Voice Audio Library.asset
+Samples~/StarterProject/Settings/Audio/Voice Audio Library.asset.meta
+Samples~/StarterProject/Settings/Budgets.meta
+Samples~/StarterProject/Settings/Budgets/BudgetMonitor Panel Settings.asset
+Samples~/StarterProject/Settings/Budgets/BudgetMonitor Panel Settings.asset.meta
+Samples~/StarterProject/Settings/Budgets/Mobile BudgetSettings.asset
+Samples~/StarterProject/Settings/Budgets/Mobile BudgetSettings.asset.meta
+Samples~/StarterProject/Settings/Budgets/PC BudgetSettings.asset
+Samples~/StarterProject/Settings/Budgets/PC BudgetSettings.asset.meta
+Samples~/StarterProject/Settings/Budgets/Quest BudgetSettings.asset
+Samples~/StarterProject/Settings/Budgets/Quest BudgetSettings.asset.meta
+Samples~/StarterProject/Settings/Build.meta
+Samples~/StarterProject/Settings/Build/Build Settings.asset
+Samples~/StarterProject/Settings/Build/Build Settings.asset.meta
+Samples~/StarterProject/Settings/Build/Profiles.meta
+Samples~/StarterProject/Settings/Build/Profiles/Molca Android - Default.asset
+Samples~/StarterProject/Settings/Build/Profiles/Molca Android - Default.asset.meta
+Samples~/StarterProject/Settings/Build/Profiles/Molca iOS - Default.asset
+Samples~/StarterProject/Settings/Build/Profiles/Molca iOS - Default.asset.meta
+Samples~/StarterProject/Settings/Build/Profiles/Molca PC - Default.asset
+Samples~/StarterProject/Settings/Build/Profiles/Molca PC - Default.asset.meta
+Samples~/StarterProject/Settings/Build/Profiles/Molca Quest - Default.asset
+Samples~/StarterProject/Settings/Build/Profiles/Molca Quest - Default.asset.meta
+Samples~/StarterProject/Settings/Build/Version Settings.asset
+Samples~/StarterProject/Settings/Build/Version Settings.asset.meta
+Samples~/StarterProject/Settings/ContentPackage.meta
+Samples~/StarterProject/Settings/ContentPackage/ContentPackageBuildConfig.asset
+Samples~/StarterProject/Settings/ContentPackage/ContentPackageBuildConfig.asset.meta
+Samples~/StarterProject/Settings/Fonts.meta
+Samples~/StarterProject/Settings/Fonts/Molca.meta
+Samples~/StarterProject/Settings/Fonts/Molca/Molca-Bold SDF.asset
+Samples~/StarterProject/Settings/Fonts/Molca/Molca-Bold SDF.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca/Molca-Bold.otf
+Samples~/StarterProject/Settings/Fonts/Molca/Molca-Bold.otf.meta
+Samples~/StarterProject/Settings/Fonts/Molca/Molca-Medium-alternative SDF.asset
+Samples~/StarterProject/Settings/Fonts/Molca/Molca-Medium-alternative SDF.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca/Molca-Medium-alternative.otf
+Samples~/StarterProject/Settings/Fonts/Molca/Molca-Medium-alternative.otf.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Body LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Body LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Brand-Bold LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Brand-Bold LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Brand-Medium LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Brand-Medium LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Content 10 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Content 10 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Content 12 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Content 12 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Content 14 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Content 14 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Content 16 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Content 16 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Content 28 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Content 28 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-ContentTitle 14 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-ContentTitle 14 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-ContentTitle 16 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-ContentTitle 16 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-ContentTitle 24 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-ContentTitle 24 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-ContentTitle 24_Overlay LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-ContentTitle 24_Overlay LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-ContentTitle 32 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-ContentTitle 32 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Footer LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Footer LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Header LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Header LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Regular 14 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Regular 14 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Regular 16 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Regular 16 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Regular 16_Overlay LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Regular 16_Overlay LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Subtitle LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Subtitle LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Title 16 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Title 16 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Title 18 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Title 18 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Title 20 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Title 20 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Title 24 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Title 24 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Molca-Title 36 LTSI.asset
+Samples~/StarterProject/Settings/Fonts/Molca-Title 36 LTSI.asset.meta
+Samples~/StarterProject/Settings/Fonts/Poppins.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/OFL.txt
+Samples~/StarterProject/Settings/Fonts/Poppins/OFL.txt.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Black.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Black.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-BlackItalic.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-BlackItalic.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Bold SDF.asset
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Bold SDF.asset.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Bold.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Bold.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Bold_Overlay SDF.asset
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Bold_Overlay SDF.asset.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-BoldItalic.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-BoldItalic.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-ExtraBold.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-ExtraBold.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-ExtraBoldItalic.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-ExtraBoldItalic.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-ExtraLight.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-ExtraLight.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-ExtraLightItalic.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-ExtraLightItalic.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Italic.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Italic.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Light.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Light.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-LightItalic.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-LightItalic.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Medium SDF.asset
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Medium SDF.asset.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Medium SDF_Overlay.asset
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Medium SDF_Overlay.asset.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Medium.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Medium.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-MediumItalic.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-MediumItalic.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Regular SDF.asset
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Regular SDF.asset.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Regular SDF_Overlay.asset
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Regular SDF_Overlay.asset.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Regular.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Regular.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-SemiBold SDF.asset
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-SemiBold SDF.asset.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-SemiBold SDF_Overlay.asset
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-SemiBold SDF_Overlay.asset.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-SemiBold.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-SemiBold.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-SemiBoldItalic.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-SemiBoldItalic.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Thin.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-Thin.ttf.meta
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-ThinItalic.ttf
+Samples~/StarterProject/Settings/Fonts/Poppins/Poppins-ThinItalic.ttf.meta
+Samples~/StarterProject/Settings/Global.meta
+Samples~/StarterProject/Settings/Global/Audio Setting.asset
+Samples~/StarterProject/Settings/Global/Audio Setting.asset.meta
+Samples~/StarterProject/Settings/Global/Canvas Scale Setting.asset
+Samples~/StarterProject/Settings/Global/Canvas Scale Setting.asset.meta
+Samples~/StarterProject/Settings/Global/Color Scheme.meta
+Samples~/StarterProject/Settings/Global/Color Theme Settings.asset
+Samples~/StarterProject/Settings/Global/Color Theme Settings.asset.meta
+Samples~/StarterProject/Settings/Global/Content Package Settings.asset
+Samples~/StarterProject/Settings/Global/Content Package Settings.asset.meta
+Samples~/StarterProject/Settings/Global/Global Settings.asset
+Samples~/StarterProject/Settings/Global/Global Settings.asset.meta
+Samples~/StarterProject/Settings/Global/HTTP Settings.asset
+Samples~/StarterProject/Settings/Global/HTTP Settings.asset.meta
+Samples~/StarterProject/Settings/Global/Localization Setting.asset
+Samples~/StarterProject/Settings/Global/Localization Setting.asset.meta
+Samples~/StarterProject/Settings/Global/Reference Manager Settings.asset
+Samples~/StarterProject/Settings/Global/Reference Manager Settings.asset.meta
+Samples~/StarterProject/Settings/Global/TelemetrySettings.asset
+Samples~/StarterProject/Settings/Global/TelemetrySettings.asset.meta
+Samples~/StarterProject/Settings/Global/Themes.meta
+Samples~/StarterProject/Settings/Global/Themes/Molca Color Theme Set.asset
+Samples~/StarterProject/Settings/Global/Themes/Molca Color Theme Set.asset.meta
+Samples~/StarterProject/Settings/Localization.meta
+Samples~/StarterProject/Settings/Localization/LocalePresentation-en.asset
+Samples~/StarterProject/Settings/Localization/LocalePresentation-en.asset.meta
+Samples~/StarterProject/Settings/Localization/LocalePresentation-id.asset
+Samples~/StarterProject/Settings/Localization/LocalePresentation-id.asset.meta
+Samples~/StarterProject/Settings/Localization/Locales.meta
+Samples~/StarterProject/Settings/Localization/Locales/English (en).asset
+Samples~/StarterProject/Settings/Localization/Locales/English (en).asset.meta
+Samples~/StarterProject/Settings/Localization/Locales/Indonesian (id).asset
+Samples~/StarterProject/Settings/Localization/Locales/Indonesian (id).asset.meta
+Samples~/StarterProject/Settings/Localization/Localization Settings.asset
+Samples~/StarterProject/Settings/Localization/Localization Settings.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Auth Shared Data.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Auth Shared Data.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Auth.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Auth.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Auth_en.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Auth_en.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Auth_id.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Auth_id.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Dynamic Shared Data.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Dynamic Shared Data.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Dynamic.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Dynamic.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Dynamic_en.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Dynamic_en.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Dynamic_id.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Dynamic_id.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Setting Shared Data.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Setting Shared Data.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Setting.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Setting.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Setting_en.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Setting_en.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Setting_id.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Setting_id.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Shared Shared Data.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Shared Shared Data.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Shared.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Shared.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Shared_en.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Shared_en.asset.meta
+Samples~/StarterProject/Settings/Localization/String Tables/Shared_id.asset
+Samples~/StarterProject/Settings/Localization/String Tables/Shared_id.asset.meta
+Samples~/StarterProject/Settings/Molca InputSystem_Actions.inputactions
+Samples~/StarterProject/Settings/Molca InputSystem_Actions.inputactions.meta
+Samples~/StarterProject/Settings/Notification.meta
+Samples~/StarterProject/Settings/Notification/Addressables Build Notification Provider.asset
+Samples~/StarterProject/Settings/Notification/Addressables Build Notification Provider.asset.meta
+Samples~/StarterProject/Settings/Notification/BuildNotificationProvider.asset
+Samples~/StarterProject/Settings/Notification/BuildNotificationProvider.asset.meta
+Samples~/StarterProject/Settings/Notification/LightBakingNotificationProvider.asset
+Samples~/StarterProject/Settings/Notification/LightBakingNotificationProvider.asset.meta
+Samples~/StarterProject/Settings/Notification/NotificationSettings.asset
+Samples~/StarterProject/Settings/Notification/NotificationSettings.asset.meta
+Samples~/StarterProject/Settings/Rendering.meta
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset High.asset
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset High.asset.meta
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset Low.asset
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset Low.asset.meta
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset Medium.asset
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset Medium.asset.meta
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset Ultra.asset
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset Ultra.asset.meta
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset Very High.asset
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset Very High.asset.meta
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset Very Low.asset
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset Very Low.asset.meta
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset_Renderer.asset
+Samples~/StarterProject/Settings/Rendering/Molca URP Asset_Renderer.asset.meta
+Samples~/StarterProject/Settings/Rendering/Molca VolumeProfile.asset
+Samples~/StarterProject/Settings/Rendering/Molca VolumeProfile.asset.meta
+Samples~/StarterProject/Settings/Standard Lighting Settings.lighting
+Samples~/StarterProject/Settings/Standard Lighting Settings.lighting.meta
+Samples~/StarterProject/Settings/UI Tokens.meta
+Samples~/StarterProject/Settings/UI Tokens/UI Token Catalog.asset
+Samples~/StarterProject/Settings/UI Tokens/UI Token Catalog.asset.meta
+Samples~/StarterProject/Shaders.meta
+Samples~/StarterProject/Shaders/GradientSky.shader
+Samples~/StarterProject/Shaders/GradientSky.shader.meta
+Samples~/StarterProject/Shaders/UIOverlay.mat
+Samples~/StarterProject/Shaders/UIOverlay.mat.meta
+Samples~/StarterProject/Shaders/UIOverlay.shader
+Samples~/StarterProject/Shaders/UIOverlay.shader.meta
+Samples~/StarterProject/Shared.meta
+Samples~/StarterProject/Shared/2D/Molca-15.png
+Samples~/StarterProject/Shared/2D/Molca-15.png.meta
+Samples~/StarterProject/Shared/2D/Molca-18.png
+Samples~/StarterProject/Shared/2D/Molca-18.png.meta
+Samples~/StarterProject/Shared/2D/Molca-Icon.png
+Samples~/StarterProject/Shared/2D/Molca-Icon.png.meta
+Samples~/StarterProject/Shared/Audio.meta
+Samples~/StarterProject/Shared/Audio/Dialog.meta
+Samples~/StarterProject/Shared/Audio/Dialog/molca-portal_welcome_en.mp3
+Samples~/StarterProject/Shared/Audio/Dialog/molca-portal_welcome_en.mp3.meta
+Samples~/StarterProject/Shared/Audio/Dialog/molca-portal_welcome_id.mp3
+Samples~/StarterProject/Shared/Audio/Dialog/molca-portal_welcome_id.mp3.meta
+Samples~/StarterProject/Shared/AudioMixer/Molca AudioMixer.mixer
+Samples~/StarterProject/Shared/AudioMixer/Molca AudioMixer.mixer.meta
+Samples~/StarterProject/Shared/UI/Battery/Battery Icon.png
+Samples~/StarterProject/Shared/UI/Battery/Battery Icon.png.meta
+Samples~/StarterProject/Shared/UI/Battery/Capacity.png
+Samples~/StarterProject/Shared/UI/Battery/Capacity.png.meta
+Samples~/StarterProject/Shared/UI/landscape-placeholder-1024.png
+Samples~/StarterProject/Shared/UI/landscape-placeholder-1024.png.meta
+Samples~/StarterProject/Shared/UI/Square.png
+Samples~/StarterProject/Shared/UI/Square.png.meta
+Samples~/StarterProject/Shared/Video Render Texture.renderTexture
+Samples~/StarterProject/Shared/Video Render Texture.renderTexture.meta
 Tools~/molca-mcp/package.json
 Tools~/molca-mcp/package-lock.json
 Tools~/molca-mcp/README.md

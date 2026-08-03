@@ -13,12 +13,19 @@ namespace Molca.Localization
         [SerializeField] protected LocalizedTextStyleInfo styleInfo;
         [SerializeField] protected LocalizedString localizedString;
 
+        [Tooltip("The reference is supplied at runtime through SetLocalizedString. An empty slot is " +
+                 "then an authoring decision rather than an omission, and the assignment is asserted " +
+                 "at the end of each enabled lifetime.")]
+        [SerializeField] protected bool runtimeAssigned;
+
         [Inject] private LocalizationManager _locMgr;
 
         protected TextMeshProUGUI tmpText;
         private bool _isInitialized;
         private bool _stringChangedSubscribed;
         private int _refreshGeneration;
+        private bool _runtimeAssignmentObserved;
+        private bool _runtimeAssignmentReported;
 
         /// <summary>Gets or sets the displayed TMP text.</summary>
         protected string Text
@@ -56,6 +63,39 @@ namespace Molca.Localization
             _refreshGeneration++;
             _locMgr?.UnregisterText(this);
             UnsubscribeFromLocalizedString();
+            ReportMissingRuntimeAssignment();
+        }
+
+        /// <summary>
+        /// Reports a <see cref="RuntimeAssigned"/> label that nothing ever supplied a reference to.
+        /// </summary>
+        /// <remarks>
+        /// <para>Whether some caller will invoke <see cref="SetLocalizedString"/> is not a fact about
+        /// serialized data, so no audit can decide it — this is the half of the contract only the running
+        /// application can see, and it is what makes the flag an assertion rather than a suppression.</para>
+        /// <para>Checked at the end of the enabled lifetime rather than on a timer: a label that
+        /// legitimately waits on a fetch is never accused mid-wait, only one that stayed blank for its
+        /// whole visible life. Silent before <see cref="InitializeAsync"/> completes, because an
+        /// enable/disable during bootstrap says nothing about the caller, and silent once reported, so a
+        /// label cycled every frame cannot flood the log.</para>
+        /// </remarks>
+        private void ReportMissingRuntimeAssignment()
+        {
+            if (!runtimeAssigned || _runtimeAssignmentObserved || _runtimeAssignmentReported ||
+                !_isInitialized)
+                return;
+
+            // A subclass may write the protected field directly instead of going through the setter;
+            // the contract is about the reference arriving, not about which path delivered it.
+            if (localizedString != null && !localizedString.IsEmpty)
+                return;
+
+            _runtimeAssignmentReported = true;
+            Debug.LogWarning(
+                $"LocalizedText '{name}' is marked Runtime Assigned, but nothing called " +
+                "SetLocalizedString while it was enabled — it showed no text at all. Assign it from " +
+                "code, or clear Runtime Assigned and author a LocalizedString.",
+                this);
         }
 
         private async Awaitable InitializeAsync()
@@ -152,6 +192,7 @@ namespace Molca.Localization
             _refreshGeneration++;
             UnsubscribeFromLocalizedString();
             localizedString = newLocalizedString;
+            _runtimeAssignmentObserved |= newLocalizedString != null && !newLocalizedString.IsEmpty;
             Text = string.Empty;
 
             if (_isInitialized && isActiveAndEnabled)
@@ -164,6 +205,18 @@ namespace Molca.Localization
         /// <summary>Returns the localized reference assigned to this component.</summary>
         /// <returns>The current localized string reference.</returns>
         public LocalizedString GetLocalizedString() => localizedString;
+
+        /// <summary>
+        /// Whether the reference is supplied at runtime through <see cref="SetLocalizedString"/> rather
+        /// than authored in the Inspector.
+        /// </summary>
+        /// <remarks>
+        /// Declares intent about an empty slot, which serialized data cannot express on its own: the
+        /// localization audit reads it to tell a deliberate blank from a forgotten one, and the component
+        /// asserts at runtime that the promised assignment actually arrives. It is not a suppression
+        /// switch — setting it on a label that also has an authored reference is itself an audit finding.
+        /// </remarks>
+        public bool RuntimeAssigned => runtimeAssigned;
 
         /// <summary>Returns the currently rendered text for non-mutating diagnostics.</summary>
         public string GetRenderedText() =>

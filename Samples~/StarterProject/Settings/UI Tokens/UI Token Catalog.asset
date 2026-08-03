@@ -1,0 +1,268 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7c182df8b5f04ca38dcd34697895702d, type: 3}
+  m_Name: UI Token Catalog
+  m_EditorClassIdentifier: 
+  _tokens:
+  - _id: color/text
+    _category: 1
+    _colorToken:
+      _tokenId: text/primary
+    _swatchName: Default
+    _colorId: Text
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: color/primary
+    _category: 1
+    _colorToken:
+      _tokenId: action/primary/fill
+    _swatchName: Default
+    _colorId: Primary
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: color/background
+    _category: 1
+    _colorToken:
+      _tokenId: surface/canvas
+    _swatchName: Default
+    _colorId: Background
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: color/accent
+    _category: 1
+    _colorToken:
+      _tokenId: surface/raised
+    _swatchName: Default
+    _colorId: Accent
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: color/secondary
+    _category: 1
+    _colorToken:
+      _tokenId: surface/panel
+    _swatchName: Default
+    _colorId: Secondary
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: color/error
+    _category: 1
+    _colorToken:
+      _tokenId: status/error/text
+    _swatchName: Default
+    _colorId: Error
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: color/text-80
+    _category: 1
+    _colorToken:
+      _tokenId: surface/wash-strong
+    _swatchName: Text
+    _colorId: 80
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: color/text-60
+    _category: 1
+    _colorToken:
+      _tokenId: text/muted
+    _swatchName: Text
+    _colorId: 60
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: color/text-40
+    _category: 1
+    _colorToken:
+      _tokenId: text/subtle
+    _swatchName: Text
+    _colorId: 40
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: color/text-20
+    _category: 1
+    _colorToken:
+      _tokenId: surface/wash-subtle
+    _swatchName: Text
+    _colorId: 20
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: color/gray-60
+    _category: 1
+    _colorToken:
+      _tokenId: border/default
+    _swatchName: Gray
+    _colorId: 60
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: color/gray-20
+    _category: 1
+    _colorToken:
+      _tokenId: surface/sunken
+    _swatchName: Gray
+    _colorId: 20
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: text/title
+    _category: 2
+    _colorToken:
+      _tokenId: 
+    _swatchName: 
+    _colorId: 
+    _styleInfo: {fileID: 11400000, guid: 5499049d65c797c479dac45d75226d17, type: 2}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: text/body
+    _category: 2
+    _colorToken:
+      _tokenId: 
+    _swatchName: 
+    _colorId: 
+    _styleInfo: {fileID: 11400000, guid: 2f796a9818753ce40b56e963ff40c095, type: 2}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: text/content-14
+    _category: 2
+    _colorToken:
+      _tokenId: 
+    _swatchName: 
+    _colorId: 
+    _styleInfo: {fileID: 11400000, guid: 1c44a30a7ca44e144b4ad9172a8931c6, type: 2}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: text/content-12
+    _category: 2
+    _colorToken:
+      _tokenId: 
+    _swatchName: 
+    _colorId: 
+    _styleInfo: {fileID: 11400000, guid: 29371a201a6a3054ca1270bd28ef7955, type: 2}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: surface/panel-bg
+    _category: 0
+    _colorToken:
+      _tokenId: 
+    _swatchName: 
+    _colorId: 
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 21300000, guid: 0bf7d3e85ed347f42801f2097be172cf, type: 3}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 0}
+    _value: 0
+  - _id: control/button
+    _category: 3
+    _colorToken:
+      _tokenId: 
+    _swatchName: 
+    _colorId: 
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 5500899582262313246, guid: 5addbc44d7ee4394b95cf760374e1168, type: 3}
+    _value: 0
+  - _id: control/list-item
+    _category: 3
+    _colorToken:
+      _tokenId: 
+    _swatchName: 
+    _colorId: 
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 8757732118547616527, guid: 49e4129016fe8bd409431a0fe00262e8, type: 3}
+    _value: 0
+  - _id: control/input
+    _category: 3
+    _colorToken:
+      _tokenId: 
+    _swatchName: 
+    _colorId: 
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 6053492202578162783, guid: ceb62ddc31b4a5c48a8dbd8d20ccbd3f, type: 3}
+    _value: 0
+  - _id: control/button-icon
+    _category: 3
+    _colorToken:
+      _tokenId: 
+    _swatchName: 
+    _colorId: 
+    _styleInfo: {fileID: 0}
+    _sprite: {fileID: 0}
+    _imageType: 1
+    _referencePixels: 176
+    _prefab: {fileID: 6191700769033341667, guid: 05f1634f333701b4c915b34b22d2665d, type: 3}
+    _value: 0
+  _vrRaycasterTypeName: 

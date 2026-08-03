@@ -276,6 +276,18 @@ namespace Molca.Editor.Networking.Migration
             var skips = new List<LegacyMigrationSkip>();
             var catalog = report.ExistingCatalog;
 
+            // A fresh project with no legacy module values or artifacts has nothing to migrate. Do not
+            // manufacture an environment/catalog merely because the planner normally needs an environment
+            // for later legacy steps.
+            if (!report.HasWork)
+            {
+                return new LegacyMigrationPlan(
+                    report,
+                    catalog?.DefaultEnvironmentId ?? string.Empty,
+                    steps,
+                    skips);
+            }
+
             // Entities this plan will have created by the time later steps run, so a step never plans
             // something an earlier step in the same plan already covers.
             var plannedServices = new HashSet<string>(StringComparer.Ordinal);

@@ -9,7 +9,7 @@ using Molca.ContentPackage;
 using Molca.ContentPackage.Editor;
 using Molca.ContentPackage.Release;
 using Molca.ContentPackage.Utilities;
-using Molca.Editor.UI;
+using Molca.Editor.UI.Components;
 
 namespace Molca.Editor.Hub.Workspaces
 {
@@ -32,7 +32,7 @@ namespace Molca.Editor.Hub.Workspaces
     {
         private readonly VisualElement _tabStrip = new VisualElement();
         private readonly VisualElement _body = new VisualElement();
-        private readonly Label _status = new Label();
+        private readonly MolcaWorkspaceHeader _header = new MolcaWorkspaceHeader("Content");
 
         private ContentPackageSettings _settings;
         private ContentPackageEditingService _editing;
@@ -44,18 +44,11 @@ namespace Molca.Editor.Hub.Workspaces
         /// <summary>Builds the workspace view and selects the last tab.</summary>
         public ContentWorkspaceView()
         {
-            style.flexGrow = 1;
-            style.paddingLeft = 10;
-            style.paddingRight = 10;
-            style.paddingTop = 8;
+            AddToClassList("molca-workspace");
 
-            _tabStrip.style.flexDirection = FlexDirection.Row;
-            _tabStrip.style.marginBottom = 8;
+            Add(_header);
+            _tabStrip.AddToClassList("molca-workspace-subtabs");
             Add(_tabStrip);
-
-            _status.style.marginBottom = 6;
-            _status.style.whiteSpace = WhiteSpace.Normal;
-            Add(_status);
 
             var scroll = new ScrollView { style = { flexGrow = 1 } };
             scroll.Add(_body);
@@ -92,13 +85,8 @@ namespace Molca.Editor.Hub.Workspaces
                 {
                     text = char.ToUpperInvariant(id[0]) + id.Substring(1),
                 };
-                button.style.marginRight = 2;
-                if (id == _activeTab)
-                {
-                    button.style.unityFontStyleAndWeight = FontStyle.Bold;
-                    button.style.borderBottomWidth = 2;
-                    button.style.borderBottomColor = MolcaEditorColors.StatusOk;
-                }
+                button.AddToClassList("molca-workspace-subtab");
+                button.EnableInClassList("molca-workspace-subtab--active", id == _activeTab);
                 _tabStrip.Add(button);
             }
         }
@@ -134,22 +122,29 @@ namespace Molca.Editor.Hub.Workspaces
         {
             if (ContentWorkspaceSession.Busy)
             {
-                _status.text = ContentWorkspaceSession.BusyProgress >= 0f
-                    ? $"⏳ {ContentWorkspaceSession.BusyStatus}  ({ContentWorkspaceSession.BusyProgress:P0})"
-                    : $"⏳ {ContentWorkspaceSession.BusyStatus}";
-                _status.style.color = MolcaEditorColors.StatusWarn;
+                var summary = ContentWorkspaceSession.BusyProgress >= 0f
+                    ? $"{ContentWorkspaceSession.BusyStatus} · {ContentWorkspaceSession.BusyProgress:P0}"
+                    : ContentWorkspaceSession.BusyStatus;
+                _header.SetSummary(summary);
                 return;
             }
 
             if (!string.IsNullOrEmpty(ContentWorkspaceSession.LastPublishSummary))
             {
-                _status.text = ContentWorkspaceSession.LastPublishSummary;
-                _status.style.color = MolcaEditorColors.Muted;
+                _header.SetSummary(ContentWorkspaceSession.LastPublishSummary);
                 return;
             }
 
-            _status.text = "";
+            _header.SetSummary(ActiveTabSummary());
         }
+
+        private string ActiveTabSummary() => _activeTab switch
+        {
+            "release" => "Define compatibility and release identity",
+            "verify" => "Build, inspect, and validate",
+            "publish" => "Sign and promote verified content",
+            _ => _settings == null ? "No package settings found" : $"{_settings.packageConfigs.Count} packages",
+        };
 
         // ── Packages ─────────────────────────────────────────────────────────
 
@@ -157,8 +152,6 @@ namespace Molca.Editor.Hub.Workspaces
         {
             var report = ContentValidation.ValidateSettings(_settings.packageConfigs);
             var graph = ContentWorkspaceSession.LastGraph;
-
-            _body.Add(Header($"{_settings.packageConfigs.Count} package(s)"));
 
             if (graph == null)
             {
@@ -170,65 +163,94 @@ namespace Molca.Editor.Hub.Workspaces
                     MessageType.None));
             }
 
-            foreach (var config in _settings.packageConfigs.Where(entry => entry != null))
-            {
-                var card = Card();
-                var row = Row();
-
-                var issues = report.Issues.Where(issue => issue.PackageId == config.packageId).ToList();
-                row.Add(Dot(issues.Any(i => i.Severity == ContentIssueSeverity.Error) ? MolcaEditorColors.StatusError
-                    : issues.Any(i => i.Severity == ContentIssueSeverity.Warning) ? MolcaEditorColors.StatusWarn
-                    : MolcaEditorColors.StatusOk));
-
-                var title = new Label(string.IsNullOrEmpty(config.displayName)
-                    ? config.packageId
-                    : $"{config.displayName}  ·  {config.packageId}");
-                title.style.unityFontStyleAndWeight = FontStyle.Bold;
-                title.style.flexGrow = 1;
-                row.Add(title);
-
-                var tags = new List<string>();
-                if (config.isRequired) tags.Add("required");
-                if (!config.isVisible) tags.Add("hidden");
-                if (tags.Count > 0) row.Add(Muted(string.Join(" · ", tags)));
-                card.Add(row);
-
-                var node = graph?.Packages.FirstOrDefault(entry => entry.PackageId == config.packageId);
-                if (node != null)
-                {
-                    card.Add(Muted(
-                        $"{node.DirectBundles.Count} direct · {node.DependencyBundles.Count} dependency bundle(s) · " +
-                        $"{SizeFormatter.Format(node.DownloadSizeBytes)} · {node.ResolvedAssetCount} asset(s)"));
-                }
-                else if (graph != null)
-                {
-                    // The graph exists and this package is not in it: a real finding, not a blank.
-                    card.Add(Warn("This package resolved to no bundles in the last build."));
-                }
-
-                card.Add(Muted($"Labels: {string.Join(", ", config.addressableLabels ?? Array.Empty<string>())}"));
-                if (config.dependencies is { Length: > 0 })
-                    card.Add(Muted($"Depends on: {string.Join(", ", config.dependencies.Select(d => d?.packageId))}"));
-
-                foreach (var issue in issues)
-                    card.Add(IssueLine(issue));
-
-                _body.Add(card);
-            }
+            var list = new VisualElement();
+            list.AddToClassList("molca-list");
+            var groupStatus = report.ErrorCount > 0 ? MolcaStatusKind.Error
+                : report.WarningCount > 0 ? MolcaStatusKind.Warning
+                : MolcaStatusKind.Ok;
+            var group = new MolcaListGroup(
+                "Project packages",
+                $"{_settings.packageConfigs.Count} package(s)",
+                groupStatus,
+                report.ErrorCount > 0 ? $"{report.ErrorCount} errors"
+                    : report.WarningCount > 0 ? $"{report.WarningCount} warnings"
+                    : "Valid");
 
             if (_editing.ReadOnlyReason() == null)
             {
-                var add = new Button(() =>
+                group.AddHeaderAction(MolcaButtons.Mini("Add Package", () =>
                 {
                     var result = _editing.AddPackage();
                     if (!result.Changed) Debug.LogWarning($"[ContentPackage] {result.Message}");
                     AssetDatabase.SaveAssets();
                     ContentWorkspaceSession.InvalidateBuild();
                     Rebuild();
-                }) { text = "Add Package" };
-                add.style.marginTop = 6;
-                _body.Add(add);
+                }));
             }
+
+            foreach (var config in _settings.packageConfigs.Where(entry => entry != null))
+            {
+                var issues = report.Issues.Where(issue => issue.PackageId == config.packageId).ToList();
+                var displayName = string.IsNullOrEmpty(config.displayName) ? config.packageId : config.displayName;
+                var row = new MolcaListRow(displayName, config.packageId);
+
+                var issueStatus = issues.Any(i => i.Severity == ContentIssueSeverity.Error)
+                    ? MolcaStatusKind.Error
+                    : issues.Any(i => i.Severity == ContentIssueSeverity.Warning)
+                        ? MolcaStatusKind.Warning
+                        : MolcaStatusKind.Ok;
+                row.AddMetadata(new MolcaStatusBadge(
+                    issueStatus,
+                    issueStatus == MolcaStatusKind.Error ? "Invalid"
+                        : issueStatus == MolcaStatusKind.Warning ? "Review" : "Valid"));
+
+                var tags = new List<string>();
+                if (config.isRequired) tags.Add("required");
+                if (!config.isVisible) tags.Add("hidden");
+                if (tags.Count > 0)
+                {
+                    var tagLabel = new Label(string.Join(" · ", tags));
+                    tagLabel.AddToClassList("molca-list-row__meta");
+                    row.AddMetadata(tagLabel);
+                }
+
+                var node = graph?.Packages.FirstOrDefault(entry => entry.PackageId == config.packageId);
+                if (node != null)
+                {
+                    var value = new Label(
+                        $"{node.DirectBundles.Count} direct · {node.DependencyBundles.Count} dependency bundle(s) · " +
+                        $"{SizeFormatter.Format(node.DownloadSizeBytes)} · {node.ResolvedAssetCount} asset(s)");
+                    value.AddToClassList("molca-list-row__value");
+                    row.AddMetadata(value);
+                }
+                else if (graph != null)
+                {
+                    row.AddMetadata(new MolcaStatusBadge(MolcaStatusKind.Warning, "No bundles"));
+                }
+
+                row.AddDetail(ListDetailRow(
+                    "Addressable labels",
+                    string.Join(", ", config.addressableLabels ?? Array.Empty<string>())));
+                if (config.dependencies is { Length: > 0 })
+                    row.AddDetail(ListDetailRow(
+                        "Dependencies",
+                        string.Join(", ", config.dependencies.Select(d => d?.packageId))));
+
+                if (node != null)
+                    row.AddDetail(ListDetailRow(
+                        "Build ownership",
+                        $"{node.DirectBundles.Count} direct bundles · {node.DependencyBundles.Count} dependencies"));
+                else if (graph != null)
+                    row.AddDetail(Warn("This package resolved to no bundles in the last build."));
+
+                foreach (var issue in issues)
+                    row.AddDetail(IssueLine(issue));
+
+                group.Body.Add(row);
+            }
+
+            list.Add(group);
+            _body.Add(list);
 
             _body.Add(Muted("Edit package fields in the ContentPackageSettings inspector."));
         }
@@ -594,63 +616,51 @@ namespace Molca.Editor.Hub.Workspaces
         private static VisualElement Card()
         {
             var card = new VisualElement();
-            card.style.marginBottom = 8;
-            card.style.paddingLeft = 8;
-            card.style.paddingRight = 8;
-            card.style.paddingTop = 6;
-            card.style.paddingBottom = 6;
-            card.style.borderLeftWidth = 2;
-            card.style.borderLeftColor = MolcaEditorColors.Muted;
+            card.AddToClassList("molca-card");
+            card.AddToClassList("molca-card__body");
             return card;
         }
 
         private static VisualElement Row()
         {
             var row = new VisualElement();
-            row.style.flexDirection = FlexDirection.Row;
-            row.style.alignItems = Align.Center;
+            row.AddToClassList("molca-list-detail-row");
             return row;
         }
 
         private static Label Header(string text)
         {
             var label = new Label(text);
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
-            label.style.marginBottom = 4;
+            label.AddToClassList("molca-list-group__title");
             return label;
         }
 
         private static VisualElement Field(string name, string value)
         {
             var row = Row();
-            var key = new Label(name) { style = { width = 130, color = MolcaEditorColors.Muted } };
-            var val = new Label(value ?? "") { style = { flexGrow = 1, whiteSpace = WhiteSpace.Normal } };
+            var key = new Label(name);
+            key.AddToClassList("molca-list-detail-row__label");
+            var val = new Label(value ?? "");
+            val.AddToClassList("molca-list-detail-row__value");
             row.Add(key);
             row.Add(val);
             return row;
         }
 
+        private static VisualElement ListDetailRow(string name, string value) => Field(name, value);
+
         private static Label Muted(string text)
         {
             var label = new Label(text) { style = { whiteSpace = WhiteSpace.Normal } };
-            label.style.color = MolcaEditorColors.Muted;
-            label.style.fontSize = 11;
+            label.AddToClassList("molca-muted");
             return label;
         }
 
         private static Label Warn(string text)
         {
             var label = new Label(text) { style = { whiteSpace = WhiteSpace.Normal } };
-            label.style.color = MolcaEditorColors.StatusWarn;
+            label.AddToClassList("molca-text--warn");
             return label;
-        }
-
-        private static VisualElement Dot(Color color)
-        {
-            var dot = new Label("●");
-            dot.style.color = color;
-            dot.style.width = 16;
-            return dot;
         }
 
         private static Label IssueLine(ContentIssue issue)
@@ -659,11 +669,11 @@ namespace Molca.Editor.Hub.Workspaces
                 : issue.Severity == ContentIssueSeverity.Warning ? "!" : "·";
             var label = new Label($"{marker} [{issue.Code}] {issue.Message}")
             {
-                style = { whiteSpace = WhiteSpace.Normal, fontSize = 11 },
+                style = { whiteSpace = WhiteSpace.Normal },
             };
-            label.style.color = issue.Severity == ContentIssueSeverity.Error ? MolcaEditorColors.StatusError
-                : issue.Severity == ContentIssueSeverity.Warning ? MolcaEditorColors.StatusWarn
-                : MolcaEditorColors.Muted;
+            label.AddToClassList(issue.Severity == ContentIssueSeverity.Error ? "molca-text--error"
+                : issue.Severity == ContentIssueSeverity.Warning ? "molca-text--warn"
+                : "molca-muted");
             return label;
         }
 

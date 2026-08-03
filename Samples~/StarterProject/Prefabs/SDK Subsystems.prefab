@@ -1,0 +1,245 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1165718622763402585
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2955458682764085048}
+  - component: {fileID: 1822444709877356740}
+  m_Layer: 0
+  m_Name: ConnectionFailModal
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2955458682764085048
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1165718622763402585}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 2781930625934003566}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1822444709877356740
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1165718622763402585}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ec0777dc7306c794bb54d6e0253a1dba, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  confirmationData:
+    title:
+      disabled: 1
+      useLocalizedString: 0
+      localizedString:
+        m_TableReference:
+          m_TableCollectionName: 
+        m_TableEntryReference:
+          m_KeyId: 0
+          m_Key: 
+        m_FallbackState: 0
+        m_WaitForCompletion: 0
+        m_LocalVariables: []
+      translations:
+      - languageCode: en
+        text: 
+      - languageCode: id
+        text: 
+    subtitle:
+      disabled: 1
+      useLocalizedString: 0
+      localizedString:
+        m_TableReference:
+          m_TableCollectionName: 
+        m_TableEntryReference:
+          m_KeyId: 0
+          m_Key: 
+        m_FallbackState: 0
+        m_WaitForCompletion: 0
+        m_LocalVariables: []
+      translations:
+      - languageCode: en
+        text: 
+      - languageCode: id
+        text: 
+    message:
+      disabled: 0
+      useLocalizedString: 0
+      localizedString:
+        m_TableReference:
+          m_TableCollectionName: 
+        m_TableEntryReference:
+          m_KeyId: 0
+          m_Key: 
+        m_FallbackState: 0
+        m_WaitForCompletion: 0
+        m_LocalVariables: []
+      translations:
+      - languageCode: en
+        text: Something wrong, check your connection.
+      - languageCode: id
+        text: Terjadi masalah, cek koneksi anda.
+    details:
+      disabled: 1
+      useLocalizedString: 0
+      localizedString:
+        m_TableReference:
+          m_TableCollectionName: 
+        m_TableEntryReference:
+          m_KeyId: 0
+          m_Key: 
+        m_FallbackState: 0
+        m_WaitForCompletion: 0
+        m_LocalVariables: []
+      translations:
+      - languageCode: en
+        text: 
+      - languageCode: id
+        text: 
+    yesText:
+      disabled: 0
+      useLocalizedString: 0
+      localizedString:
+        m_TableReference:
+          m_TableCollectionName: 
+        m_TableEntryReference:
+          m_KeyId: 0
+          m_Key: 
+        m_FallbackState: 0
+        m_WaitForCompletion: 0
+        m_LocalVariables: []
+      translations:
+      - languageCode: en
+        text: Retry
+      - languageCode: id
+        text: Ulangi
+    noText:
+      disabled: 0
+      useLocalizedString: 1
+      localizedString:
+        m_TableReference:
+          m_TableCollectionName: GUID:c4144d21392f63341b3a81a8a1c7077a
+        m_TableEntryReference:
+          m_KeyId: 68040570258731008
+          m_Key: 
+        m_FallbackState: 0
+        m_WaitForCompletion: 0
+        m_LocalVariables: []
+      translations:
+      - languageCode: en
+        text: Cancel
+      - languageCode: id
+        text: Batalkan
+    showNoButton: 0
+    useAdvancedModal: 0
+    confirmationPrefab: {fileID: 0}
+  confirmCallback:
+    m_PersistentCalls:
+      m_Calls: []
+  cancelCallback:
+    m_PersistentCalls:
+      m_Calls: []
+  references:
+    version: 2
+    RefIds: []
+--- !u!1 &6358018714990688854
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2781930625934003566}
+  - component: {fileID: 6945121009002402283}
+  - component: {fileID: 4795409076523840970}
+  - component: {fileID: 6223697162556985119}
+  m_Layer: 0
+  m_Name: SDK Subsystems
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2781930625934003566
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6358018714990688854}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 2955458682764085048}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &6945121009002402283
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6358018714990688854}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cf1b68f9e74075d478f3f5ca995c9308, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _runtimeMode: -1
+  _initializationPriority: 10
+  enableConnectionFailConfirmation: 0
+  connectionFailConfirmation: {fileID: 1822444709877356740}
+--- !u!114 &4795409076523840970
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6358018714990688854}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 586919dc618ba1b4f8250848042a13c4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _runtimeMode: -1
+  _initializationPriority: 9
+  getDocumentRequest: {fileID: 0}
+  getTexture2DRequest: {fileID: 0}
+  getVideoRequest: {fileID: 0}
+--- !u!114 &6223697162556985119
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6358018714990688854}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9d6350fb5ad2f5f4c91e7cd91f9632ab, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _runtimeMode: -1
+  _initializationPriority: 8
+  cacheFlags: -1
+  clearCacheOnExit: 1

@@ -4,7 +4,7 @@
 
 # ===== CONFIGURATION =====
 # Update these paths for your system
-UNITY_PATH="/Applications/Unity/Hub/Editor/2022.3.x/Unity.app/Contents/MacOS/Unity"
+UNITY_PATH="/Applications/Unity/Hub/Editor/6000.0.x/Unity.app/Contents/MacOS/Unity"
 PROJECT_PATH="$(cd "$(dirname "$0")/../../../../../" && pwd)"
 BUILD_LOG="$PROJECT_PATH/build.log"
 

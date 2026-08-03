@@ -150,6 +150,6 @@ The tests depend on:
 
 - Tests use Unity's built-in logging system for output
 - No external test framework dependencies required
-- Compatible with Unity 2022.3 LTS and newer
+- Compatible with Unity 6000.0 and newer
 - Tests can be adapted to NUnit or other frameworks if needed
 - All tests are deterministic and repeatable

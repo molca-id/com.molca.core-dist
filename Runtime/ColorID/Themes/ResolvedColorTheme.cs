@@ -157,7 +157,7 @@ namespace Molca.ColorID
         /// Deliberately tiny and deliberately marked <see cref="IsDegraded"/>. Its purpose is to keep
         /// a misconfigured application legible enough to read the error that explains the
         /// misconfiguration — not to stand in for a theme. V1's equivalent path created an untracked
-        /// fallback <see cref="ColorModule"/> ScriptableObject and then reported the subsystem as
+        /// fallback <c>ColorModule</c> ScriptableObject and then reported the subsystem as
         /// healthy, which is how a broken setup shipped looking fine.
         /// </remarks>
         internal static ResolvedColorTheme CreateEmergencyFallback(int generation)

@@ -29,7 +29,7 @@ namespace Molca.Editor.Hub.Workspaces
                 label: "Content",
                 order: 20,
                 createContent: () => new ContentWorkspaceView(),
-                icon: "TextAsset Icon",
+                icon: "content",
                 group: MolcaHubWorkspaceGroups.Authoring,
                 cacheContent: true),
         };

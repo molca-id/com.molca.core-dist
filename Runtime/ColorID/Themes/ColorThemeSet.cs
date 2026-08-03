@@ -16,7 +16,7 @@ namespace Molca.ColorID
     /// <c>ColorThemeSettings</c> module, which <c>GlobalSettings</c> owns.
     /// <para/>
     /// The structural inversion versus V1: token <i>definitions</i> live here, once, and a
-    /// <see cref="ColorThemeVariant"/> supplies values for them. V1 gave each <see cref="ColorModule"/>
+    /// <see cref="ColorThemeVariant"/> supplies values for them. V1 gave each <c>ColorModule</c>
     /// its own independent list, which is why a key could exist in Dark and not in Light and switching
     /// theme turned it magenta. A variant here cannot introduce an undeclared token, and validation
     /// rejects a set whose variant omits a required one — so parity is structural rather than
@@ -179,7 +179,7 @@ namespace Molca.ColorID
         /// <remarks>
         /// Called by <see cref="OnValidate"/> and by authoring tools after mutating the asset in the
         /// editor. Deliberately does not itself re-run validation, save, or touch anything outside
-        /// this asset — the opposite of V1's <see cref="ColorModule"/> <c>OnValidate</c>, which
+        /// this asset — the opposite of V1's <c>ColorModule.OnValidate</c>, which
         /// cleared persisted overrides and recoloured every open scene as a side effect of a keystroke.
         /// </remarks>
         public void InvalidateIndexes()

@@ -40,9 +40,11 @@ namespace Molca.Editor.Hub
         public string Group { get; }
 
         /// <summary>
-        /// Optional icon rendered before the tab label. Resolved first as an on-brand Molca family icon
-        /// shipped in the package (e.g. <c>"doctor"</c>, <c>"sequence"</c>, <c>"mcp"</c>), then as a
-        /// built-in editor icon name (e.g. <c>"TextAsset Icon"</c>). <c>null</c>/empty renders label-only.
+        /// Icon rendered before the tab label. Resolved first as an on-brand Molca family icon shipped in
+        /// the package (e.g. <c>"doctor"</c>, <c>"sequence"</c>, <c>"themes"</c>), then as a built-in editor
+        /// icon name. When omitted, the tab tries the stable <see cref="Id"/> as its family icon name; if
+        /// nothing resolves it renders label-only. Use a distinct icon for each workspace so collapsed tabs
+        /// remain identifiable.
         /// </summary>
         public string Icon { get; }
 
@@ -82,7 +84,7 @@ namespace Molca.Editor.Hub
         /// <param name="createContent">Factory that builds the hosted content on selection.</param>
         /// <param name="isAvailable">Optional availability gate; <c>null</c> means always available.</param>
         /// <param name="rightAnchored">When <c>true</c>, anchors the tab to the right of the toolbar.</param>
-        /// <param name="icon">Optional tab icon (Molca family name or built-in editor icon name); see <see cref="Icon"/>.</param>
+        /// <param name="icon">Tab icon (Molca family or built-in editor name); omitted uses <paramref name="id"/>.</param>
         /// <param name="group">Semantic group; <c>null</c> means <see cref="MolcaHubWorkspaceGroups.General"/>.</param>
         /// <param name="cacheContent">When <c>true</c>, opts the view into hide-instead-of-rebuild caching; see <see cref="CacheContent"/>.</param>
         public MolcaHubWorkspaceItem(string id, string label, int order,

@@ -759,17 +759,8 @@ namespace Molca.Editor
         {
             foreach (var target in objects)
             {
-                if (target is LocalizedText localizedText &&
-                    localizedText.enabled &&
-                    (localizedText.GetLocalizedString() == null ||
-                     localizedText.GetLocalizedString().IsEmpty))
-                {
-                    snapshot.AddFinding(new LocalizationAuditFinding(
-                        "localization-reference-empty",
-                        LocalizationAuditSeverity.Warning,
-                        $"Enabled LocalizedText '{target.name}' has no LocalizedString reference.",
-                        assetPath, "localizedString"));
-                }
+                if (target is LocalizedText localizedText && localizedText.enabled)
+                    snapshot.AddFinding(EvaluateReference(localizedText, assetPath));
 
                 if (target is LocalizedText rtlText &&
                     _auditHasConfiguredRtl &&
@@ -875,6 +866,55 @@ namespace Molca.Editor
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Judges one enabled <see cref="LocalizedText"/> reference slot against what the component says
+        /// that slot is for.
+        /// </summary>
+        /// <param name="text">The component to judge.</param>
+        /// <param name="assetPath">Project-relative path of the owning prefab, scene, or asset.</param>
+        /// <returns>The finding, or <c>null</c> when the slot and the declaration agree.</returns>
+        /// <remarks>
+        /// <para>An empty slot is only a defect when nobody claimed responsibility for filling it. A label
+        /// whose text arrives from code — a name, a count, a server string — is authored empty on purpose,
+        /// and reporting every one of them would drown the findings that are real. So the emptiness alone
+        /// no longer decides: <see cref="LocalizedText.RuntimeAssigned"/> does, and the component itself
+        /// checks at runtime that the promise it makes here is kept.</para>
+        /// <para>The declaration is held to the same standard in reverse. Marked *and* authored is
+        /// incoherent — the authored value renders until code replaces it, so the label flashes one string
+        /// and settles on another — and it is how a truthful flag decays into a blanket suppression that
+        /// outlives the reason it was ticked.</para>
+        /// <para>Separate from <see cref="ScanObjects"/>, its only production caller, so the rule can be
+        /// tested against a bare component instead of a prefab fixture.</para>
+        /// </remarks>
+        internal static LocalizationAuditFinding EvaluateReference(LocalizedText text, string assetPath)
+        {
+            if (text == null)
+                return null;
+
+            var reference = text.GetLocalizedString();
+            var isEmpty = reference == null || reference.IsEmpty;
+
+            if (text.RuntimeAssigned)
+                return isEmpty
+                    ? null
+                    : new LocalizationAuditFinding(
+                        "localization-runtime-assigned-authored",
+                        LocalizationAuditSeverity.Warning,
+                        $"LocalizedText '{text.name}' is marked Runtime Assigned but also has an authored " +
+                        "LocalizedString. The authored value renders until code replaces it; keep one of " +
+                        "the two.",
+                        assetPath, "runtimeAssigned");
+
+            return isEmpty
+                ? new LocalizationAuditFinding(
+                    "localization-reference-empty",
+                    LocalizationAuditSeverity.Warning,
+                    $"Enabled LocalizedText '{text.name}' has no LocalizedString reference. Assign one, " +
+                    "or tick Runtime Assigned if code supplies it.",
+                    assetPath, "localizedString")
+                : null;
         }
 
         private static void AddInlineFinding(

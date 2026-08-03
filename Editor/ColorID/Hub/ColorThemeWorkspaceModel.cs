@@ -108,16 +108,13 @@ namespace Molca.ColorID.Editor
         /// <summary>One row per contrast requirement.</summary>
         public IReadOnlyList<ColorThemeContrastRow> Contrast { get; }
 
-        /// <summary>Compatibility usage and the alias removal gate.</summary>
-        public ColorThemeDeprecationReport.Result Deprecation { get; }
-
         /// <summary>Why the model could not be built fully, or empty.</summary>
         public IReadOnlyList<string> Problems { get; }
 
         private ColorThemeWorkspaceModel(ColorThemeAuditSnapshot audit, ColorThemeSet themeSet,
             string themeSetPath, IReadOnlyList<string> variantIds, string defaultVariantId,
             IReadOnlyList<ColorThemeTokenRow> tokens, IReadOnlyList<ColorThemeContrastRow> contrast,
-            ColorThemeDeprecationReport.Result deprecation, IReadOnlyList<string> problems)
+            IReadOnlyList<string> problems)
         {
             Audit = audit;
             ThemeSet = themeSet;
@@ -126,7 +123,6 @@ namespace Molca.ColorID.Editor
             DefaultVariantId = defaultVariantId;
             Tokens = tokens ?? Array.Empty<ColorThemeTokenRow>();
             Contrast = contrast ?? Array.Empty<ColorThemeContrastRow>();
-            Deprecation = deprecation;
             Problems = problems ?? Array.Empty<string>();
         }
 
@@ -165,7 +161,7 @@ namespace Molca.ColorID.Editor
                 problems.Add("No Color Theme Set is installed. Run Molca ▸ ColorID ▸ Install Color Theme "
                              + "Settings (V1 → V2).");
                 return new ColorThemeWorkspaceModel(audit, null, null, null, null, null, null,
-                    ColorThemeDeprecationReport.Build(audit), problems);
+                    problems);
             }
 
             var variantIds = themeSet.GetVariantIds().ToList();
@@ -198,8 +194,7 @@ namespace Molca.ColorID.Editor
                 .ToList();
 
             return new ColorThemeWorkspaceModel(audit, themeSet, themeSetPath, variantIds,
-                ResolveDefaultVariantId(), tokens, contrast, ColorThemeDeprecationReport.Build(audit),
-                problems);
+                ResolveDefaultVariantId(), tokens, contrast, problems);
         }
 
         private static Dictionary<string, int> CountUsage(ColorThemeAuditSnapshot audit)

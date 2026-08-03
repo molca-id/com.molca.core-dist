@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0a4cdf8f1c3618e46add0bd2529ad32e, type: 3}
+  m_Name: TelemetrySettings
+  m_EditorClassIdentifier: Molca::Molca.Telemetry.TelemetrySettings
+  _enableTelemetry: 0
+  _enableConsoleSink: 1
+  _enableFileSink: 0
+  _enableHttpSink: 0
+  _httpEndpointUrl: 
+  _batchSize: 20
+  _flushIntervalSeconds: 30

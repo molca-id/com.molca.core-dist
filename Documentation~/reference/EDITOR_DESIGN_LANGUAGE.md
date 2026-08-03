@@ -28,8 +28,9 @@ re-implement these components per window:
   hex literal.
 - **`Editor/UI/Components/`** — reusable `VisualElement` components styled by
   `MolcaEditorComponents.uss`: `MolcaSectionCard` (+ `MolcaStatusKind`), `MolcaRail`,
-  `MolcaSearchField`, `MolcaLinkRow`, and the `MolcaButtons` factory. The Hub's `MolcaHubSectionCard`/
-  `MolcaHubStatusKind` remain as `[Obsolete]` aliases over these.
+  `MolcaSearchField`, `MolcaLinkRow`, `MolcaWorkspaceHeader`, `MolcaWorkspaceToolbar`,
+  `MolcaListGroup`, `MolcaListRow`, `MolcaStatusBadge`, and the `MolcaButtons` factory. The Hub's
+  `MolcaHubSectionCard`/`MolcaHubStatusKind` remain as `[Obsolete]` aliases over these.
 
 Consume it from a new editor window:
 
@@ -98,8 +99,14 @@ tab (always first, Core-owned); every other tab — Core's Doctor/Assistant/Sequ
 contributed through a provider and discovered via `TypeCache`.
 
 - **Add a tab** by subclassing `MolcaHubWorkspaceProvider` and returning `MolcaHubWorkspaceItem`s
-  (`Id` stable kebab-case, `Label`, `Order`, `CreateContent`, optional `IsAvailable`). No Core edit, no
-  registration call. The `"settings"` id is reserved.
+  (`Id` stable kebab-case, `Label`, `Icon`, `Order`, `CreateContent`, optional `IsAvailable`). No Core
+  edit, no registration call. The `"settings"` id is reserved. Every workspace needs a distinct icon from
+  the Molca icon family; when `Icon` is omitted, the registry tries `molca-{Id}.png` before falling back to
+  a label-only tab.
+- **Tabs behave like browser tabs.** Settings is the non-closable home tab. Workspace tabs can be closed,
+  reopened from the rightmost tabs menu, pinned from their context menu, or collapsed to icon-only when the
+  dock narrows. Closing the active tab selects its right neighbour, then its left neighbour, then Settings.
+  Pinned and active tabs remain visible during overflow fitting.
 - **Host content, don't nest controllers.** `CreateContent` builds a `VisualElement` into the workspace host
   (like Doctor/Assistant/Sequence). It is rebuilt on each selection and must tolerate teardown (the host is
   cleared on tab switch, firing `DetachFromPanelEvent` cleanup). A tab may also open a standalone window, but
@@ -212,6 +219,23 @@ Rails are for switching the primary detail context. They should be stable-width 
 - left selected border uses `--hub-accent`;
 - no rounded card treatment for each row;
 - no descriptive paragraphs inside row buttons unless the design explicitly needs a two-line row.
+
+### Workbench Lists
+
+Use workbench lists for catalogs, findings, packages, and other repeated records. They are a hierarchy,
+not a stack of cards:
+
+- `MolcaWorkspaceHeader` owns the page title, compact state/count summary, and page-level actions.
+- `MolcaWorkspaceToolbar` owns search, filters, and list-level actions immediately above the list.
+- A `molca-list` contains `MolcaListGroup`s; groups own collapsible domain/collection/package headings.
+- `MolcaListRow` keeps the same anatomy everywhere: disclosure, primary identity, optional subtitle,
+  flexible value/metadata, status, then compact actions.
+- Put long identifiers, ownership, validation rationale, and secondary fields in the expandable detail area.
+  The resting row should answer “what is this?” and “does it need attention?” in one scan.
+- Use `MolcaStatusBadge` when state matters. It always pairs a dot with text so status is not color-only.
+- Preserve dedicated layouts where the domain requires them: Network keeps its responsive master/detail
+  split, Themes keeps its horizontally scrollable token matrix, and References keeps its repair table. Their
+  rows, selection, badges, headers, and spacing still follow this shared grammar.
 
 ### Search Fields
 

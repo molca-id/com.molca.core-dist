@@ -23,6 +23,7 @@ namespace Molca.ColorID.Editor
         {
             new MolcaHubWorkspaceItem("themes", "Themes", 20,
                 () => new ColorThemeWorkspaceView(),
+                icon: "themes",
                 group: MolcaHubWorkspaceGroups.Authoring)
         };
     }

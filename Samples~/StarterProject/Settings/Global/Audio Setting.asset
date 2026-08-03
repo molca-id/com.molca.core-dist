@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5883eea119fe37a48a54b90cb7809648, type: 3}
+  m_Name: Audio Setting
+  m_EditorClassIdentifier: 
+  musicLibrary: {fileID: 11400000, guid: f6c11f843325b9b41ac44e79f9dc1b30, type: 2}
+  sfxLibrary: {fileID: 11400000, guid: 2cd0109a6ca3ea04fbc327e08aceb3f0, type: 2}
+  voiceLibrary: {fileID: 11400000, guid: 2e85f60fb1386744187c9991742b7181, type: 2}
+  audioMixer: {fileID: 24100000, guid: a57ea67988bf4f9489708261b569f73f, type: 2}
+  audioMixerMaster: {fileID: 24300002, guid: a57ea67988bf4f9489708261b569f73f, type: 2}
+  audioMixerBGM: {fileID: 7388466212564071607, guid: a57ea67988bf4f9489708261b569f73f, type: 2}
+  audioMixerSFX: {fileID: -8789525668434793841, guid: a57ea67988bf4f9489708261b569f73f, type: 2}
+  audioMixerVO: {fileID: 1846915130223061546, guid: a57ea67988bf4f9489708261b569f73f, type: 2}

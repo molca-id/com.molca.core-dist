@@ -121,7 +121,7 @@ namespace Molca.Editor.Starter
         /// <param name="cancellationToken">Cancellation.</param>
         /// <returns>The preview report.</returns>
         public static MolcaStarterReport Preview(CancellationToken cancellationToken = default)
-            => Run(dryRun: true, cancellationToken);
+            => Run(dryRun: true, null, cancellationToken);
 
         /// <summary>
         /// Installs the recommended configuration, then records what it created so the run can be reverted.
@@ -129,8 +129,32 @@ namespace Molca.Editor.Starter
         /// <param name="cancellationToken">Cancellation.</param>
         /// <returns>The report.</returns>
         public static MolcaStarterReport Install(CancellationToken cancellationToken = default)
+            => Install(null, cancellationToken);
+
+        /// <summary>
+        /// Installs one step by id, through the same run and revert-recording path as a full install.
+        /// </summary>
+        /// <param name="stepId">The <see cref="IMolcaStarterStep.Id"/> to run.</param>
+        /// <param name="cancellationToken">Cancellation.</param>
+        /// <returns>The report, covering only the selected step.</returns>
+        /// <remarks>
+        /// Exists so a per-row affordance (the onboarding checklist) can run a single step without opening a
+        /// second install path that would have to re-implement the <c>McpUndoStack</c> recording — the one
+        /// thing that makes a starter run revertible.
+        /// </remarks>
+        public static MolcaStarterReport InstallStep(string stepId, CancellationToken cancellationToken = default)
+            => Install(step => string.Equals(step.Id, stepId, StringComparison.Ordinal), cancellationToken);
+
+        /// <summary>
+        /// Installs the steps matching <paramref name="filter"/>, recording what they created.
+        /// </summary>
+        /// <param name="filter">Which steps to run; <c>null</c> runs every registered step.</param>
+        /// <param name="cancellationToken">Cancellation.</param>
+        /// <returns>The report, covering only the steps the filter selected.</returns>
+        public static MolcaStarterReport Install(
+            Func<IMolcaStarterStep, bool> filter, CancellationToken cancellationToken = default)
         {
-            var report = Run(dryRun: false, cancellationToken);
+            var report = Run(dryRun: false, filter, cancellationToken);
 
             if (report.CreatedPaths.Count > 0)
             {
@@ -149,13 +173,15 @@ namespace Molca.Editor.Starter
             return report;
         }
 
-        private static MolcaStarterReport Run(bool dryRun, CancellationToken cancellationToken)
+        private static MolcaStarterReport Run(
+            bool dryRun, Func<IMolcaStarterStep, bool> filter, CancellationToken cancellationToken)
         {
             var report = new MolcaStarterReport { WasPreview = dryRun };
 
             foreach (var step in Steps)
             {
                 if (cancellationToken.IsCancellationRequested) break;
+                if (filter != null && !filter(step)) continue;
 
                 if (SafeIsSatisfied(step))
                 {

@@ -36,6 +36,29 @@ namespace Molca.ColorID
             string.IsNullOrEmpty(channel) || channel == Color;
     }
 
+    /// <summary>Outcome of applying a resolved colour to one component target.</summary>
+    /// <remarks>
+    /// Application failures are values rather than exceptions or silent no-ops. Public because external
+    /// <see cref="IColorTargetAdapter"/> implementations return it through <see cref="ColorApplyResult"/>.
+    /// </remarks>
+    public enum ColorApplyOutcome
+    {
+        /// <summary>The colour was written to the target's channel.</summary>
+        Applied = 0,
+
+        /// <summary>The target component or required material was missing.</summary>
+        TargetMissing = 1,
+
+        /// <summary>No adapter handles this component type and channel.</summary>
+        UnsupportedTarget = 2,
+
+        /// <summary>The renderer's material has no usable colour shader property.</summary>
+        MissingShaderProperty = 3,
+
+        /// <summary>The operation was skipped because its write is only valid at runtime.</summary>
+        SkippedInEditMode = 4
+    }
+
     /// <summary>How a binding decides the alpha of the colour it writes.</summary>
     public enum ColorAlphaPolicy
     {

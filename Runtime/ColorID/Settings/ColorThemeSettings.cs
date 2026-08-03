@@ -32,10 +32,8 @@ namespace Molca.ColorID
     /// Authored defaults only — the fields here are never written at runtime. The mutable active
     /// variant lives on <see cref="ColorThemeState"/>.
     /// <para/>
-    /// Installing this module is what switches a project from the legacy <see cref="ColorModule"/> path
-    /// to V2. With it installed, the Runtime Manager prefab no longer needs to serialize palette
-    /// references at all, which removes the whole class of package-GUID closure failure that broke
-    /// fresh installs.
+    /// Core 2.x requires this module and a theme set. The Runtime Manager prefab serializes no palette
+    /// references, which removes the package-GUID closure failure that affected fresh 1.x installs.
     /// </remarks>
     [UnityEngine.Icon("Packages/com.molca.core/Editor/Icons/molca-settings.png")]
     [CreateAssetMenu(fileName = "Color Theme Settings", menuName = "Molca/Settings/Color Theme Settings", order = 12)]

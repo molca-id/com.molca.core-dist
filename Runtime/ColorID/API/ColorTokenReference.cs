@@ -7,7 +7,7 @@ namespace Molca.ColorID
     /// A serialized reference to a canonical colour token. Data only — it holds an ID, not a colour.
     /// </summary>
     /// <remarks>
-    /// The V2 replacement for <see cref="ColorIDReference"/>, and deliberately narrower than it in two
+    /// The V2 replacement for <c>ColorIDReference</c>, and deliberately narrower than it in two
     /// ways:
     /// <list type="bullet">
     /// <item><description>

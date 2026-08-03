@@ -1,0 +1,76 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5b11a58205ec3474ca216360e9fa74a8, type: 3}
+  m_Name: Setting Shared Data
+  m_EditorClassIdentifier: 
+  m_TableCollectionName: Setting
+  m_TableCollectionNameGuidString: dcadd5e9a77a6b644af2dfd6a9b17ff0
+  m_Entries:
+  - m_Id: 102615101440
+    m_Key: setting.Settings
+    m_Metadata:
+      m_Items: []
+  - m_Id: 161889005568
+    m_Key: setting.Language
+    m_Metadata:
+      m_Items: []
+  - m_Id: 224275083264
+    m_Key: setting.Audio
+    m_Metadata:
+      m_Items: []
+  - m_Id: 272585076736
+    m_Key: setting.Audio.MainVolume
+    m_Metadata:
+      m_Items: []
+  - m_Id: 352880832512
+    m_Key: setting.Audio.MusicVolume
+    m_Metadata:
+      m_Items: []
+  - m_Id: 424066560000
+    m_Key: setting.Audio.SFXVolume
+    m_Metadata:
+      m_Items: []
+  - m_Id: 546003365888
+    m_Key: setting.Audio.DialogVolume
+    m_Metadata:
+      m_Items: []
+  - m_Id: 782562111488
+    m_Key: setting.UIScale
+    m_Metadata:
+      m_Items: []
+  - m_Id: 46554609956040704
+    m_Key: setting.About
+    m_Metadata:
+      m_Items: []
+  - m_Id: 46555074424877056
+    m_Key: setting.About.Version
+    m_Metadata:
+      m_Items: []
+  - m_Id: 46558784894939136
+    m_Key: setting.About.Product
+    m_Metadata:
+      m_Items: []
+  - m_Id: 50428644460736512
+    m_Key: setting.ColorScheme
+    m_Metadata:
+      m_Items: []
+  m_Metadata:
+    m_Items: []
+  m_KeyGenerator:
+    rid: 3250793354805379147
+  references:
+    version: 2
+    RefIds:
+    - rid: 3250793354805379147
+      type: {class: DistributedUIDGenerator, ns: UnityEngine.Localization.Tables, asm: Unity.Localization}
+      data:
+        m_CustomEpoch: 1752638875072

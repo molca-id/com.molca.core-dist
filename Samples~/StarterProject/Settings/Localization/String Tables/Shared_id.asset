@@ -1,0 +1,63 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e9620f8c34305754d8cc9a7e49e852d9, type: 3}
+  m_Name: Shared_id
+  m_EditorClassIdentifier: 
+  m_LocaleId:
+    m_Code: id
+  m_SharedData: {fileID: 11400000, guid: c4144d21392f63341b3a81a8a1c7077a, type: 2}
+  m_Metadata:
+    m_Items: []
+  m_TableData:
+  - m_Id: 5957365760
+    m_Localized: Iya
+    m_Metadata:
+      m_Items: []
+  - m_Id: 52392505344
+    m_Localized: Tidak
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68039813379796992
+    m_Localized: Atau
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68040335407067136
+    m_Localized: Baik
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68040421587431424
+    m_Localized: Mengerti
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68040570258731008
+    m_Localized: Batalkan
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68042241953116160
+    m_Localized: Bantuan
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68042336492728320
+    m_Localized: Profil
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68129440430174208
+    m_Localized: Ulangi
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68129495824347136
+    m_Localized: Lewati
+    m_Metadata:
+      m_Items: []
+  references:
+    version: 2
+    RefIds: []

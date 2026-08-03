@@ -303,13 +303,21 @@ namespace Molca
 
 #if UNITY_EDITOR
         /// <summary>
-        /// True if the live, consumer-space settings asset (<see cref="ASSET_PATH"/>) already exists on
-        /// disk. Unlike <see cref="Instance"/>, this never creates it — used by first-run checks (e.g.
-        /// the Onboarding Wizard's auto-offer) that need to know whether the project is genuinely fresh
-        /// without triggering the clone-on-first-access side effect.
+        /// True if settings already exist at the current live path or the legacy 1.x path. Unlike
+        /// <see cref="Instance"/>, this never creates or moves an asset — first-run and upgrade checks use
+        /// it to distinguish a genuinely fresh project from a pre-relocation consumer project.
         /// </summary>
         public static bool LiveAssetExists =>
-            AssetDatabase.LoadAssetAtPath<MolcaProjectSettings>(ASSET_PATH) != null;
+            LiveAssetExistsAt(path => AssetDatabase.LoadAssetAtPath<MolcaProjectSettings>(path) != null);
+
+        /// <summary>Checks both durable settings locations without creating or moving either asset.</summary>
+        internal static bool LiveAssetExistsAt(Func<string, bool> exists) =>
+            exists != null && (exists(ASSET_PATH) || exists(OLD_ASSET_PATH));
+
+        /// <summary>Loads existing settings without invoking the getter's create-or-move behavior.</summary>
+        internal static MolcaProjectSettings LoadExistingAssetWithoutMigration() =>
+            AssetDatabase.LoadAssetAtPath<MolcaProjectSettings>(ASSET_PATH)
+            ?? AssetDatabase.LoadAssetAtPath<MolcaProjectSettings>(OLD_ASSET_PATH);
 
         /// <summary>
         /// Seeds the live project instance at <see cref="ASSET_PATH"/> when none exists yet, generated

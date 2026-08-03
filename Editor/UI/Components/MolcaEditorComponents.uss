@@ -270,6 +270,408 @@
     margin-bottom: 7px;
 }
 
+/* ---- Workbench workspace + data lists ---- */
+
+.molca-workspace {
+    flex-grow: 1;
+    min-height: 0;
+    padding: 12px;
+    background-color: var(--molca-bg);
+}
+
+.molca-workspace-header {
+    flex-direction: row;
+    align-items: center;
+    min-height: 34px;
+    margin-bottom: 8px;
+}
+
+.molca-workspace-header__heading {
+    flex-grow: 1;
+    min-width: 0;
+    flex-direction: row;
+    align-items: center;
+}
+
+.molca-workspace-header__title {
+    color: var(--molca-heading);
+    -unity-font-style: bold;
+    font-size: 15px;
+    flex-shrink: 0;
+}
+
+.molca-workspace-header__summary {
+    color: var(--molca-muted);
+    font-size: 11px;
+    margin-left: 10px;
+    min-width: 0;
+}
+
+.molca-workspace-header__actions,
+.molca-workspace-toolbar__actions,
+.molca-list-group__actions,
+.molca-list-row__actions {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.molca-workspace-header__actions > Button,
+.molca-workspace-toolbar__actions > Button,
+.molca-list-group__actions > Button,
+.molca-list-row__actions > Button {
+    margin-left: 4px;
+}
+
+.molca-workspace-toolbar {
+    flex-direction: row;
+    align-items: center;
+    min-height: 34px;
+    margin-bottom: 8px;
+}
+
+.molca-workspace-toolbar__content {
+    flex-grow: 1;
+    min-width: 0;
+    flex-direction: row;
+    align-items: center;
+}
+
+.molca-workspace-toolbar__content > .molca-search {
+    flex-grow: 1;
+    min-width: 150px;
+    margin-left: 0;
+    margin-right: 8px;
+    margin-bottom: 0;
+}
+
+.molca-workspace-split {
+    flex-direction: row;
+    flex-grow: 1;
+    min-height: 0;
+}
+
+.molca-workspace-split__content {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.molca-list {
+    border-width: 1px;
+    border-color: var(--molca-border);
+    border-radius: 4px;
+    background-color: var(--molca-card);
+    overflow: hidden;
+}
+
+.molca-list-group {
+    border-bottom-width: 1px;
+    border-bottom-color: var(--molca-border);
+}
+
+.molca-list-group__header {
+    flex-direction: row;
+    align-items: center;
+    min-height: 36px;
+    padding-left: 7px;
+    padding-right: 8px;
+    background-color: var(--molca-card-header);
+}
+
+.molca-list-group__toggle,
+.molca-list-row__toggle {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    min-height: 22px;
+    margin: 0;
+    padding: 0;
+    border-width: 0;
+    border-radius: 3px;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--molca-muted);
+    -unity-text-align: middle-center;
+}
+
+.molca-list-group__toggle:hover,
+.molca-list-row__toggle:hover {
+    color: var(--molca-heading);
+    background-color: var(--molca-control);
+}
+
+.molca-list-group__heading {
+    flex-grow: 1;
+    min-width: 0;
+    flex-direction: row;
+    align-items: center;
+}
+
+.molca-list-group__title {
+    color: var(--molca-heading);
+    -unity-font-style: bold;
+    font-size: 11px;
+}
+
+.molca-list-group__summary {
+    color: var(--molca-muted);
+    font-size: 10px;
+    margin-left: 8px;
+}
+
+.molca-list-group__body {
+    background-color: var(--molca-card);
+}
+
+.molca-list-row {
+    border-top-width: 1px;
+    border-top-color: var(--molca-border-soft);
+    background-color: var(--molca-card);
+}
+
+.molca-list-row__line {
+    flex-direction: row;
+    align-items: center;
+    min-height: 44px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+    padding-left: 7px;
+    padding-right: 8px;
+}
+
+.molca-list-row__line:hover {
+    background-color: rgba(198, 242, 58, 0.04);
+}
+
+.molca-list-row--selected > .molca-list-row__line,
+.molca-list-row--expanded > .molca-list-row__line {
+    background-color: var(--molca-row-selected);
+    border-left-width: 3px;
+    border-left-color: var(--molca-accent);
+    padding-left: 4px;
+}
+
+.molca-list-row__leading {
+    width: 26px;
+    min-width: 26px;
+    align-items: center;
+    justify-content: center;
+}
+
+.molca-list-row__main {
+    flex-grow: 1;
+    min-width: 150px;
+}
+
+.molca-list-row__title {
+    color: var(--molca-heading);
+    -unity-font-style: bold;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    -unity-text-overflow-position: end;
+}
+
+.molca-list-row__subtitle {
+    color: var(--molca-muted);
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    -unity-text-overflow-position: end;
+}
+
+.molca-list-row__metadata {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.molca-list-row__metadata > * {
+    margin-left: 8px;
+}
+
+.molca-list-row__value {
+    width: 260px;
+    min-width: 120px;
+    color: var(--molca-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    -unity-text-overflow-position: end;
+}
+
+.molca-list-row__meta {
+    width: 90px;
+    color: var(--molca-muted);
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.molca-list-row__details {
+    padding-top: 9px;
+    padding-bottom: 10px;
+    padding-left: 40px;
+    padding-right: 12px;
+    border-top-width: 1px;
+    border-top-color: var(--molca-border-soft);
+    background-color: var(--molca-panel);
+}
+
+.molca-list-detail-row {
+    flex-direction: row;
+    align-items: flex-start;
+    min-height: 22px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+}
+
+.molca-list-detail-row__label {
+    width: 120px;
+    flex-shrink: 0;
+    color: var(--molca-muted);
+    font-size: 10px;
+}
+
+.molca-list-detail-row__value {
+    flex-grow: 1;
+    min-width: 0;
+    color: var(--molca-text);
+    font-size: 11px;
+    white-space: normal;
+}
+
+.molca-status-badge {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    min-height: 20px;
+    padding-left: 7px;
+    padding-right: 7px;
+    margin-left: 8px;
+    border-radius: 10px;
+    background-color: var(--molca-control);
+}
+
+.molca-status-badge__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 4px;
+    margin-right: 5px;
+    background-color: var(--molca-status-grey);
+}
+
+.molca-status-badge__label {
+    color: var(--molca-text);
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.molca-status-badge--ok { background-color: rgba(87, 200, 74, 0.10); }
+.molca-status-badge--warn { background-color: rgba(216, 178, 74, 0.12); }
+.molca-status-badge--error { background-color: rgba(224, 112, 58, 0.12); }
+.molca-status-badge__dot--ok { background-color: var(--molca-status-green); }
+.molca-status-badge__dot--warn { background-color: var(--molca-status-warn); }
+.molca-status-badge__dot--error { background-color: var(--molca-status-error); }
+.molca-status-badge__dot--idle { background-color: var(--molca-status-grey); }
+
+.molca-empty-state {
+    padding-top: 18px;
+    padding-bottom: 18px;
+    padding-left: 40px;
+    padding-right: 40px;
+    color: var(--molca-muted);
+    white-space: normal;
+    -unity-text-align: middle-center;
+}
+
+.molca-muted {
+    color: var(--molca-muted);
+    font-size: 11px;
+    white-space: normal;
+}
+
+.molca-text--warn {
+    color: var(--molca-status-warn);
+    font-size: 11px;
+    white-space: normal;
+}
+
+.molca-text--error {
+    color: var(--molca-status-error);
+    font-size: 11px;
+    white-space: normal;
+}
+
+.molca-list-note {
+    color: var(--molca-muted);
+    font-size: 11px;
+    white-space: normal;
+    margin-top: 3px;
+    margin-bottom: 3px;
+}
+
+.molca-list-nested {
+    margin-left: 8px;
+}
+
+.molca-list-detail-heading {
+    color: var(--molca-heading);
+    -unity-font-style: bold;
+    white-space: normal;
+    margin-left: 8px;
+    margin-top: 3px;
+}
+
+.molca-list-detail-text {
+    color: var(--molca-text);
+    white-space: normal;
+    margin-left: 20px;
+}
+
+.molca-workspace-subtabs {
+    flex-direction: row;
+    align-items: flex-end;
+    min-height: 32px;
+    margin-bottom: 8px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--molca-border);
+}
+
+.molca-workspace-subtab {
+    min-height: 30px;
+    margin: 0;
+    padding-left: 12px;
+    padding-right: 12px;
+    border-width: 0;
+    border-bottom-width: 2px;
+    border-bottom-color: rgba(0, 0, 0, 0);
+    border-radius: 0;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--molca-muted);
+}
+
+.molca-workspace-subtab:hover {
+    color: var(--molca-heading);
+    background-color: var(--molca-control);
+}
+
+.molca-workspace-subtab--active {
+    color: var(--molca-heading);
+    border-bottom-color: var(--molca-accent);
+    -unity-font-style: bold;
+}
+
+.molca-light .molca-list-row__line:hover {
+    background-color: rgba(109, 154, 15, 0.08);
+}
+
+.molca-light .molca-status-badge--ok { background-color: rgba(87, 200, 74, 0.18); }
+.molca-light .molca-status-badge--warn { background-color: rgba(216, 178, 74, 0.20); }
+.molca-light .molca-status-badge--error { background-color: rgba(224, 112, 58, 0.20); }
+
 /* ---- Markdown renderer (MolcaMarkdown) ----
  * Class vocabulary for the shared editor Markdown renderer (Editor/UI/MolcaMarkdown.cs). Any surface
  * that calls MolcaEditorUi.Apply() can render Markdown via MolcaMarkdown.Render(); the Assistant

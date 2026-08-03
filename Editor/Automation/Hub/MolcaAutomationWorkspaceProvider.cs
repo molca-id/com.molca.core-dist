@@ -14,7 +14,7 @@ namespace Molca.Editor.Automation.Hub
         public override IEnumerable<MolcaHubWorkspaceItem> GetWorkspaces() => new[]
         {
             new MolcaHubWorkspaceItem("automation", "Automation", 40,
-                () => new MolcaAutomationView(), icon: "mcp"),
+                () => new MolcaAutomationView(), icon: "automation"),
         };
     }
 }

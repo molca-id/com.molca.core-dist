@@ -1,0 +1,68 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5b11a58205ec3474ca216360e9fa74a8, type: 3}
+  m_Name: Shared Shared Data
+  m_EditorClassIdentifier: 
+  m_TableCollectionName: Shared
+  m_TableCollectionNameGuidString: c4144d21392f63341b3a81a8a1c7077a
+  m_Entries:
+  - m_Id: 5957365760
+    m_Key: shared.Yes
+    m_Metadata:
+      m_Items: []
+  - m_Id: 52392505344
+    m_Key: shared.No
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68039813379796992
+    m_Key: shared.Or
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68040335407067136
+    m_Key: shared.Okay
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68040421587431424
+    m_Key: shared.Understand
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68040570258731008
+    m_Key: shared.Cancel
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68042241953116160
+    m_Key: shared.Help
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68042336492728320
+    m_Key: shared.Profile
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68129440430174208
+    m_Key: shared.Retry
+    m_Metadata:
+      m_Items: []
+  - m_Id: 68129495824347136
+    m_Key: shared.Skip
+    m_Metadata:
+      m_Items: []
+  m_Metadata:
+    m_Items: []
+  m_KeyGenerator:
+    rid: 5992756398735229226
+  references:
+    version: 2
+    RefIds:
+    - rid: 5992756398735229226
+      type: {class: DistributedUIDGenerator, ns: UnityEngine.Localization.Tables, asm: Unity.Localization}
+      data:
+        m_CustomEpoch: 1736416229789

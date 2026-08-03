@@ -1,6 +1,6 @@
 {
   "name": "com.molca.core",
-  "version": "1.18.0",
+  "version": "2.0.0",
   "displayName": "Molca",
   "description": "General-purpose Unity application framework. Provides RuntimeManager, DI, EventDispatcher, Networking, Settings, Modals, Audio, and related systems. Sequence (SequenceController, Step, StepAuxiliary) ships separately in com.molca.sequence.",
   "unity": "6000.0",
@@ -19,6 +19,11 @@
     "url": "https://molca.id"
   },
   "samples": [
+    {
+      "displayName": "Starter Project Content",
+      "description": "The content a Molca project cannot generate: fonts, UI prefabs, a wired RuntimeManager, brand colour palettes, URP profiles, localization tables, input actions and lighting. Import once, then own it.",
+      "path": "Samples~/StarterProject"
+    },
     {
       "displayName": "Content Package Demos",
       "description": "Manual demo MonoBehaviours and editor utilities for the ContentPackage system.",

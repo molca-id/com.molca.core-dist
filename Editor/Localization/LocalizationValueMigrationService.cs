@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Molca.Editor.Migration;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -20,6 +21,12 @@ namespace Molca.Editor
         private static readonly Queue<string> PlanOrder = new();
 
         /// <summary>Returns a deterministic, read-only inventory of legacy values.</summary>
+        /// <remarks>
+        /// Every candidate is checked for prefab instances that override it. That check is not optional:
+        /// migrating a source rewrites <c>translations</c> into <c>inlineSource.values</c> and empties the
+        /// legacy array, so an instance overriding a row keeps overriding a field nothing reads. Before
+        /// this existed the migration reported success and the difference simply disappeared.
+        /// </remarks>
         public static LocalizationValueMigrationInventory Inventory(string pathFilter = null)
         {
             var candidates = new List<LocalizationValueMigrationCandidate>();
@@ -70,6 +77,8 @@ namespace Molca.Editor
                     candidates);
             }
 
+            AttachInstanceOverrides(candidates);
+
             var ordered = candidates
                 .OrderBy(candidate => candidate.AssetPath, StringComparer.Ordinal)
                 .ThenBy(candidate => candidate.ObjectId, StringComparer.Ordinal)
@@ -78,6 +87,24 @@ namespace Molca.Editor
             return new LocalizationValueMigrationInventory(
                 ordered,
                 ComputeFingerprint(ordered));
+        }
+
+        /// <summary>Tells every candidate which prefab instances override it.</summary>
+        /// <remarks>
+        /// One project-wide scan for the whole inventory, and only when there is something to scan for.
+        /// The index reads serialized files rather than loading assets, but reading every prefab and
+        /// scene is still real work to do for an inventory that turned out to be empty.
+        /// </remarks>
+        private static void AttachInstanceOverrides(
+            IReadOnlyList<LocalizationValueMigrationCandidate> candidates)
+        {
+            if (candidates.Count == 0)
+                return;
+
+            var detector = LocalizedValueInstanceOverrideDetector.Build();
+            foreach (var candidate in candidates)
+                candidate.SetInstanceOverrides(
+                    detector.Resolve(candidate.Target, candidate.PropertyPath));
         }
 
         /// <summary>Builds and remembers a stale-safe migration preview.</summary>
@@ -90,20 +117,39 @@ namespace Molca.Editor
                 inventory.Candidates);
             foreach (var candidate in inventory.Candidates)
             {
-                if (candidate.IsWritable)
-                    plan.AddChange(
-                        $"{candidate.AssetPath} · {candidate.ObjectType}.{candidate.PropertyPath} " +
-                        $"({candidate.SourceKind}, {candidate.RowCount} inline row(s))");
-                else
+                if (!candidate.IsWritable)
+                {
                     plan.AddWarning(
                         $"Read-only legacy value requires migration in its owning package: " +
                         $"{candidate.AssetPath} · {candidate.PropertyPath}.");
+                    continue;
+                }
+
+                // Refused rather than migrated-and-reported. An un-migrated value still renders what it
+                // always did; a migrated one whose instance override was dropped renders the wrong string
+                // immediately, and nothing in the console says so.
+                if (candidate.IsBlockedByInstanceOverride)
+                {
+                    foreach (var blocked in candidate.InstanceOverrides.Where(o => !o.CanBeCarried))
+                        plan.AddWarning(
+                            $"Skipped — a prefab instance overrides this value and the override cannot " +
+                            $"be carried: {candidate.AssetPath} · {candidate.PropertyPath} → " +
+                            $"{blocked.ContainingAssetPath}: {blocked.Refusal}");
+                    continue;
+                }
+
+                var carried = candidate.InstanceOverrides.Count;
+                plan.AddChange(
+                    $"{candidate.AssetPath} · {candidate.ObjectType}.{candidate.PropertyPath} " +
+                    $"({candidate.SourceKind}, {candidate.RowCount} inline row(s))" +
+                    (carried == 0 ? string.Empty : $", carrying {carried} instance override(s)"));
             }
 
             if (plan.Changes.Count == 0)
                 plan.AddError(inventory.Candidates.Count == 0
                     ? "No legacy localization values were found in the selected scope."
-                    : "The selected scope contains no writable legacy localization values.");
+                    : "The selected scope contains no legacy localization values that can be migrated "
+                      + "without dropping a prefab-instance override.");
             Remember(plan);
             return plan;
         }
@@ -150,7 +196,7 @@ namespace Molca.Editor
                 candidate => candidate.StableId,
                 StringComparer.Ordinal);
             var selected = plan.Candidates
-                .Where(candidate => candidate.IsWritable)
+                .Where(candidate => candidate.IsWritable && !candidate.IsBlockedByInstanceOverride)
                 .Select(candidate => currentById.TryGetValue(candidate.StableId, out var found)
                     ? found
                     : null)
@@ -189,6 +235,12 @@ namespace Molca.Editor
 
                 Undo.CollapseUndoOperations(undoGroup);
                 AssetDatabase.SaveAssets();
+
+                // A second phase, after every source has been written: an override is repointed at
+                // schema-v2 fields that only carry a value once the source has been migrated into them.
+                CarryInstanceOverrides(selected);
+                AssetDatabase.SaveAssets();
+
                 var postInventory = Inventory(plan.PathFilter);
                 var remainingIds = postInventory.Candidates
                     .Select(candidate => candidate.StableId)
@@ -214,6 +266,49 @@ namespace Molca.Editor
                 return LocalizationValueMigrationResult.Failure(
                     $"Migration rolled back: {exception.Message}");
             }
+        }
+
+        /// <summary>Rewrites every carried override from the legacy fields onto their schema-v2 twins.</summary>
+        /// <remarks>
+        /// Throws on failure so the surrounding <c>try</c> rolls the whole migration back. Half a
+        /// migration — sources on the new schema, instances still overriding the old one — is precisely
+        /// the state this work exists to make impossible.
+        /// </remarks>
+        private static void CarryInstanceOverrides(
+            IReadOnlyList<LocalizationValueMigrationCandidate> migrated)
+        {
+            var rewrites = new List<PrefabInstanceRewrite>();
+
+            foreach (var candidate in migrated)
+            {
+                foreach (var entry in candidate.InstanceOverrides.Where(o => o.CanBeCarried))
+                {
+                    var set = entry.Translated
+                        .Select(t => (candidate.Target, t.PropertyPath, t.Value))
+                        .ToList();
+
+                    // The legacy modifications name fields that still exist but are now empty, so they
+                    // cannot be recognized by a null target the way a removed component's are. Matching
+                    // on this candidate's own target and its own recorded paths keeps the removal from
+                    // reaching any other value on the same object.
+                    var legacyPaths = new HashSet<string>(entry.LegacyPropertyPaths, StringComparer.Ordinal);
+                    rewrites.Add(new PrefabInstanceRewrite(
+                        entry.ContainingAssetPath,
+                        entry.InstanceFileId,
+                        set,
+                        modification => ReferenceEquals(modification.target, candidate.Target)
+                                        && legacyPaths.Contains(modification.propertyPath)));
+                }
+            }
+
+            if (rewrites.Count == 0)
+                return;
+
+            PrefabInstanceOverrideWriter.Apply(rewrites, out _, out var failures);
+            if (failures.Count > 0)
+                throw new InvalidOperationException(
+                    $"{failures.Count} prefab-instance override(s) could not be carried onto the new " +
+                    $"schema: {string.Join("; ", failures)}");
         }
 
         private static void ScanTargets(
@@ -344,6 +439,22 @@ namespace Molca.Editor
         public int RowCount { get; }
         public bool IsWritable { get; }
         public string StableId => $"{AssetPath}|{ObjectId}|{PropertyPath}";
+
+        /// <summary>Prefab instances that override this value.</summary>
+        /// <remarks>
+        /// Empty for the overwhelming majority of candidates. A non-empty list is the difference between
+        /// a migration that carries what the author authored and one that quietly replaces it with the
+        /// source's value.
+        /// </remarks>
+        public IReadOnlyList<LocalizedValueInstanceOverride> InstanceOverrides { get; private set; } =
+            Array.Empty<LocalizedValueInstanceOverride>();
+
+        /// <summary>Whether an override on this value stops it being migrated.</summary>
+        public bool IsBlockedByInstanceOverride =>
+            InstanceOverrides.Any(instanceOverride => !instanceOverride.CanBeCarried);
+
+        internal void SetInstanceOverrides(IReadOnlyList<LocalizedValueInstanceOverride> overrides) =>
+            InstanceOverrides = overrides ?? Array.Empty<LocalizedValueInstanceOverride>();
     }
 
     /// <summary>Immutable migration inventory and its source fingerprint.</summary>

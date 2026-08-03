@@ -158,6 +158,7 @@ namespace Molca.Editor.Networking.Hub
         {
             var toolbar = new VisualElement();
             toolbar.AddToClassList("molca-network__toolbar");
+            toolbar.AddToClassList("molca-workspace-toolbar");
 
             _catalogLabel = new Label();
             _catalogLabel.AddToClassList("molca-network__catalog");

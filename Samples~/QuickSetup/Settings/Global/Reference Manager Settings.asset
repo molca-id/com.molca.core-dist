@@ -1,0 +1,46 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6374ae1917fbeee46a577bfbf898dc91, type: 3}
+  m_Name: Reference Manager Settings
+  m_EditorClassIdentifier: Molca.ReferenceSystem::Molca.ReferenceSystem.ReferenceManagerSettings
+  enableDebugLogging: 1
+  autoValidateOnScan: 1
+  showValidationResults: 1
+  comprehensiveSceneScanning: 1
+  validateRefIdsOnSceneSave: 1
+  fixRefIdsOnSceneSave: 1
+  assetKnownIds: []
+  sceneKnownIds:
+  - sceneAssetPath: Assets/_Molca/Scenes/Test1_Core.unity
+    types:
+    - type: SequenceController
+      ids:
+      - ref_sequencecontroller_8_1fac
+    - type: Step
+      ids:
+      - ref_step_03dc5511ad634b1fab7e6eb
+      - ref_step_52ef0b32a8ed40ad8058fb3
+      - ref_step_acd222a2bf3f44a899ec3af
+      - ref_step_73d9ef0e39a44c12bb0ec08
+      - ref_step_03e680b5d020464d800d572
+      - ref_step_2b85534e282e4bbb91072a8
+      - ref_step_b72076b51f05460ea043b31
+      - ref_step_a7bb366dde2d408191fc5fb
+      - ref_step_76af1e7dd2e14b20a3ac926
+      - ref_step_c583c634c96f4e5abd962ab
+      - ref_step_f92e0aabb305496c8164051
+      - ref_step_6e696041745240a198a3073
+      - ref_step_99a8ebb8bf99405086b9dee
+      - ref_step_1136c3c9736b4249b979f51
+      - ref_step_4f621dc9f35f465db0dd294
+  prefabScanPaths: []
+  knownIds: []

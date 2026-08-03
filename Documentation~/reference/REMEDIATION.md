@@ -31,8 +31,9 @@ Remediation            4 applied · 8 need review    [ Check All ] [ Fix Safe Is
     ▸ Review other fixes (1)
 ```
 
-The **"Needs your decision"** list is expanded by default and is the point of the feature. A pass
-that repairs 4 of 12 findings and shows only a tick is worse than no pass at all.
+The **"Needs your decision"** list is the point of the feature. Singular groups in small sections open directly;
+repeated groups start collapsed with exact finding/asset counts and retain their context on expansion. A
+pass that repairs 4 of 12 findings and shows only a tick is worse than no pass at all.
 
 Opening the workspace runs nothing. Auditing is read-only, but a read-only scan can open scenes, so
 it happens when you click.
@@ -78,6 +79,7 @@ explicitly.
 | Domain | Safe pass repairs | Notable refusals |
 |---|---|---|
 | **Bootstrap** | null entries in `GlobalSettings.modules` and `BootstrapExtensions` | duplicate module types; a missing project-settings asset (that means a broken install) |
+| **Upgrade** | â€” | retired source and UnityEvent callbacks are reported at their exact locations; token choices are never guessed |
 | **Networking** | the default environment, when exactly one is authored | anything with 0 or >1 environments; suspected secrets are never touched or echoed |
 | **Content Packages** | duplicate labels, duplicate dependencies, blank labels | missing dependencies, cycles, versioning, identity |
 | **Colour Theme** | — | everything except regenerating derived output; alias removal is separately gated |
@@ -85,7 +87,7 @@ explicitly.
 | **Scenes** (Doctor) | GPU instancing, GI contribution, missing LOD groups | polygon budget and subsystem placement are judgment calls |
 | **Sequence** | empty step Ref Ids (per controller) | an unresolved reference is never cleared to make validation pass |
 
-Opt-in, in **Review other fixes**: the network catalog schema migration, colour-theme output
+Opt-in, in **Review other fixes**: legacy networking/catalog schema migration, colour-theme output
 regeneration, texture import size, self-dependency removal, creating a `GlobalSettings` asset,
 creating a setting module a subsystem declares it requires, and assigning a sole `RuntimeManager`
 prefab.

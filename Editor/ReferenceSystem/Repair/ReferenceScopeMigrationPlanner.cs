@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Molca.Editor.Migration;
 using Molca.ReferenceSystem;
 
 namespace Molca.Editor.ReferenceSystem
@@ -31,6 +32,23 @@ namespace Molca.Editor.ReferenceSystem
         /// can be justified from the data alone.
         /// </summary>
         CrossAssetNeedsChoice = 5,
+
+        /// <summary>
+        /// A prefab instance overrides this site's stored id, so a scope chosen for the source would be
+        /// inherited by an instance pointing somewhere else.
+        /// </summary>
+        /// <remarks>
+        /// Two distinct problems, one refusal. First, the scope is derived from where the <i>source's</i>
+        /// id resolves; an instance overriding <c>refId</c> may target something in another scene
+        /// entirely, and would inherit a narrowed scope under which its reference cannot resolve.
+        /// Second, v2 renames the field — <c>refId</c> becomes <c>targetId</c> — so once the rewrite
+        /// lands, the override names a field nothing reads and the instance silently falls back to the
+        /// source's target.
+        /// <para/>
+        /// Neither is visible in the audit, because an override is serialized as a
+        /// <c>propertyPath</c>/<c>value</c> modification rather than as a field on any object.
+        /// </remarks>
+        OverriddenByPrefabInstance = 6,
     }
 
     /// <summary>One legacy reference site and the v2 scope proposed for it.</summary>
@@ -142,6 +160,14 @@ namespace Molca.Editor.ReferenceSystem
     /// </remarks>
     public static class ReferenceScopeMigrationPlanner
     {
+        /// <summary>The v1 identity fields an instance can override.</summary>
+        /// <remarks>
+        /// Spelled without the underscore because that is how <c>SceneObjectReference</c> serializes
+        /// them. v2's counterparts (<c>targetId</c>, <c>expectedRefType</c>) are named differently on
+        /// purpose, which is exactly why an override of the v1 names does not survive the rewrite.
+        /// </remarks>
+        private static readonly string[] LegacyIdentityFields = { "refId", "refType" };
+
         /// <summary>Builds the migration proposal for a snapshot.</summary>
         /// <param name="snapshot">The audit to plan from.</param>
         /// <returns>The plan; never null.</returns>
@@ -163,12 +189,24 @@ namespace Molca.Editor.ReferenceSystem
                 list.Add(provider);
             }
 
-            var migrations = snapshot.Sites.Select(site => PlanSite(site, byId)).ToList();
+            // One project-wide scan for every site, and only when there is at least one to ask about.
+            var overrides = snapshot.Sites.Count == 0
+                ? null
+                : PrefabInstanceOverrideIndex.Scan(IsLegacyIdentityPath, LegacyIdentityFields);
+
+            var migrations = snapshot.Sites.Select(site => PlanSite(site, byId, overrides)).ToList();
             return new ReferenceScopeMigrationPlan(snapshot.Revision, migrations);
         }
 
+        /// <summary>Whether a serialized path reaches one of a v1 reference's identity fields.</summary>
+        private static bool IsLegacyIdentityPath(string propertyPath) =>
+            LegacyIdentityFields.Any(field =>
+                propertyPath.EndsWith("." + field, StringComparison.Ordinal)
+                || string.Equals(propertyPath, field, StringComparison.Ordinal));
+
         private static ReferenceScopeMigration PlanSite(
-            ReferenceSiteRecord site, Dictionary<string, List<ReferenceProviderRecord>> byId)
+            ReferenceSiteRecord site, Dictionary<string, List<ReferenceProviderRecord>> byId,
+            PrefabInstanceOverrideSnapshot overrides)
         {
             string storedTarget = site.IsAssigned ? $"{site.StoredRefType}:{site.StoredRefId}" : string.Empty;
             string ownerPath = site.OwnerLocator.AssetPath;
@@ -189,6 +227,20 @@ namespace Molca.Editor.ReferenceSystem
             {
                 return Blocked(site, storedTarget, ReferenceScopeMigrationBlocker.NoProvider,
                     "no provider carries this id, so the correct scope cannot be determined");
+            }
+
+            // Checked before any scope is proposed, because the answer invalidates the proposal rather
+            // than qualifying it: a scope derived from the source's id is not a scope the overriding
+            // instance can inherit.
+            var overriding = OverridingInstances(site, overrides);
+            if (overriding.Count > 0)
+            {
+                return Blocked(site, storedTarget, ReferenceScopeMigrationBlocker.OverriddenByPrefabInstance,
+                    $"{overriding.Count} prefab instance(s) override this reference's id "
+                    + $"({string.Join(", ", overriding.Take(3))}"
+                    + (overriding.Count > 3 ? ", …" : "")
+                    + "); a scope chosen for this asset's id would be inherited by an instance pointing "
+                    + "elsewhere, and v2 renames the field so the override would stop being read");
             }
 
             // Prefer the provider whose RefType also matches; falling straight to the id-only set
@@ -246,6 +298,26 @@ namespace Molca.Editor.ReferenceSystem
             return Blocked(site, storedTarget, ReferenceScopeMigrationBlocker.CrossAssetNeedsChoice,
                 $"the target lives in '{Short(providerPath)}' rather than alongside the site; "
                 + "Scene or Global must be chosen deliberately");
+        }
+
+        /// <summary>The assets holding prefab instances that override this site's stored id.</summary>
+        private static IReadOnlyList<string> OverridingInstances(
+            ReferenceSiteRecord site, PrefabInstanceOverrideSnapshot overrides)
+        {
+            if (overrides == null || string.IsNullOrEmpty(site.OwnerLocator.AssetGuid))
+                return Array.Empty<string>();
+
+            // Scoped to this one reference field: a component may hold several, and an override of one
+            // says nothing about the scope the others can take.
+            string prefix = site.PropertyPath + ".";
+
+            return overrides
+                .ForObject(site.OwnerLocator.AssetGuid, site.OwnerLocator.LocalFileId)
+                .Where(entry => entry.PropertyPath.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(entry => entry.ContainingAssetPath)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToList();
         }
 
         private static ReferenceScopeMigration Blocked(

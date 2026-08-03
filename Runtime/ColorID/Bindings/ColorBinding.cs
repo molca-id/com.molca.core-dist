@@ -72,6 +72,15 @@ namespace Molca.ColorID
             _materialProperty = materialProperty;
         }
 
+        /// <summary>Repoints this binding at a different canonical token.</summary>
+        /// <param name="token">The token to read from now on.</param>
+        /// <remarks>
+        /// Changes only which token is read; the target, channel and alpha policy are authoring and stay
+        /// put. Does not apply anything — <see cref="ColorThemeBinding.SetToken(int, string)"/> owns the
+        /// reapply, so a caller repointing several bindings applies once rather than once per change.
+        /// </remarks>
+        internal void Retarget(ColorTokenReference token) => _token = token;
+
         /// <summary>Builds the adapter context for this binding.</summary>
         /// <param name="allowEditModeMaterialWrite">Whether edit-mode material writes are allowed.</param>
         internal ColorBindingContext CreateContext(bool allowEditModeMaterialWrite) =>

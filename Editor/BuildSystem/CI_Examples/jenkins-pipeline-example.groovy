@@ -19,7 +19,7 @@ pipeline {
     
     environment {
         // Update these paths for your environment
-        UNITY_PATH = "C:\\Program Files\\Unity\\Hub\\Editor\\2022.3.x\\Editor\\Unity.exe"
+        UNITY_PATH = "C:\\Program Files\\Unity\\Hub\\Editor\\6000.0.x\\Editor\\Unity.exe"
         PROJECT_PATH = "${WORKSPACE}"
         BUILD_LOG = "${WORKSPACE}\\build.log"
     }

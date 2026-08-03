@@ -126,14 +126,8 @@ namespace Molca.ColorID.Editor
     /// <summary>What kind of reference a usage site is.</summary>
     public enum ColorThemeUsageKind
     {
-        /// <summary>A legacy <see cref="ColorID"/> component.</summary>
-        LegacyColorIdComponent,
-
-        /// <summary>A legacy <see cref="ColorIDReference"/> field on some component.</summary>
-        LegacyColorIdReference,
-
         /// <summary>A V2 <see cref="ColorTokenReference"/> field.</summary>
-        CanonicalTokenReference,
+        CanonicalTokenReference = 0,
 
         /// <summary>A V2 <see cref="ColorThemeBinding"/> binding.</summary>
         ThemeBinding,
@@ -156,20 +150,16 @@ namespace Molca.ColorID.Editor
         /// </summary>
         public string CanonicalTokenId { get; }
 
-        /// <summary>The raw legacy key for a legacy site, or <c>null</c>.</summary>
-        public string LegacyKey { get; }
-
         /// <summary>Whether the owning asset is package-owned and therefore read-only.</summary>
         public bool IsPackageOwned { get; }
 
         /// <summary>Creates a usage site.</summary>
         public ColorThemeUsageSite(ColorThemeUsageKind kind, string assetPath, string canonicalTokenId,
-            string legacyKey, bool isPackageOwned)
+            bool isPackageOwned)
         {
             Kind = kind;
             AssetPath = assetPath;
             CanonicalTokenId = canonicalTokenId;
-            LegacyKey = legacyKey;
             IsPackageOwned = isPackageOwned;
         }
 

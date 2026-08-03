@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Text;
 using Molca.ColorID;
 using Molca.ColorID.Editor;
+using Molca.ColorID.Editor.Upgrade;
 using Molca.UI.Tokens;
 using UnityEditor;
 using UnityEngine;
@@ -183,13 +184,13 @@ namespace Molca.Editor.UI.Tokens
                 return new MolcaUiTokenCatalogMigrationPlan(null, null, entries, synonyms, errors);
             }
 
-            var themeSet = ColorThemeAuditService.FindThemeSettings()?.ThemeSet;
-            if (themeSet == null)
+            var readiness = ColorThemeUpgradeReadiness.Evaluate();
+            if (!readiness.IsReady)
             {
-                errors.Add("This project has no ColorThemeSettings module with a theme set, so there is no "
-                           + "alias map to migrate against. Install V2 first.");
+                errors.Add(readiness.Message);
                 return new MolcaUiTokenCatalogMigrationPlan(catalog, null, entries, synonyms, errors);
             }
+            var themeSet = readiness.ThemeSet;
 
             string path = AssetDatabase.GetAssetPath(catalog);
             string refusal = ColorThemeAssetWriteAccess.DescribeRefusal(path);

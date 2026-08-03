@@ -41,7 +41,7 @@ BuildManager.Build("development");  // or "staging" / "production"
 
 ### Windows
 ```batch
-"C:\Program Files\Unity\Hub\Editor\2022.3.x\Editor\Unity.exe" ^
+"C:\Program Files\Unity\Hub\Editor\6000.0.x\Editor\Unity.exe" ^
   -quit -batchmode -nographics ^
   -projectPath "C:\Your\Project\Path" ^
   -buildTarget Win64 ^

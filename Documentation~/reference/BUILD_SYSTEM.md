@@ -81,6 +81,6 @@ findings; duplicate providers, ambiguous fallbacks and wrong target types stay e
 ## See also
 
 - [The Molca Hub](HUB.md)
-- [Onboarding Wizard](ONBOARDING.md)
+- [Onboarding](ONBOARDING.md)
 - [Extending Molca Doctor with Custom Checks](DOCTOR_CHECKS.md)
 - [Scene Reference System](REFERENCE_SYSTEM.md)

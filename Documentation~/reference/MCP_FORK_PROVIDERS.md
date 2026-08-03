@@ -49,14 +49,13 @@ A provider is an editor-only `ScriptableObject` subclass of `Molca.Editor.Mcp.Mc
 
 ### Reserved namespaces
 
-To prevent collisions between the shared SDK package and the fork layers that depend on it, the
+To prevent collisions between Core's application layer and the fork layers that depend on it, the
 following namespaces (and their `molca_<token>_…` tool-name prefixes) are reserved. A provider must
 not claim one unless it ships in the layer that owns it:
 
 | Namespace | Token prefix | Owner |
 |---|---|---|
 | `molca` | `molca_…` | Core (`com.molca.core`) — do not extend; add your own. |
-| `molca.sdk` | `molca_sdk_…` | Shared SDK (`com.molca.sdk`). **Reserved** — no provider exists yet (no agent-facing authoring surface). Claim it only when the shared SDK layer gains a tool. |
 | `molca.vr` | `molca_vr_…` | VR fork (`molca-sdk-vr`). |
 | `molca.dt` | `molca_dt_…` | Digital-twin fork (`molca-sdk-dt`). |
 
@@ -65,8 +64,8 @@ Project (non-fork) tools should use a project-specific token, not any of the abo
 ## Where it goes
 
 Place the provider under your SDK layer's **editor** assembly, e.g.
-`Assets/_MolcaSDK/<Layer>/Editor/`. That assembly must reference `Molca.Editor` (the
-`MolcaSDK.Editor` assembly already does). Then add the authored asset to the **MCP Settings**
+`Assets/_MolcaSDK/<Layer>/Editor/`. That fork-owned editor assembly must reference `Molca.Editor`.
+Then add the authored asset to the **MCP Settings**
 provider list (Project Settings → Molca → MCP). The registry discovers it on the next domain reload;
 its status dot and tools appear with no Core changes.
 
@@ -130,14 +129,14 @@ using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
-namespace MolcaSDK.VR.Editor.Mcp
+namespace Molca.VR.Editor.Mcp
 {
     /// <summary>
     /// Example SDK-fork MCP provider owning the <c>molca.vr</c> namespace. Proves the extension
     /// contract: a fork ships tools with zero Core changes. No GetTools() — the Create*Tool()
     /// factory below is discovered by convention.
     /// </summary>
-    [CreateAssetMenu(fileName = "VR MCP Provider", menuName = "MolcaSDK/VR/MCP Provider")]
+    [CreateAssetMenu(fileName = "VR MCP Provider", menuName = "Molca/VR/MCP Provider")]
     public partial class VRMcpToolProvider : McpToolProvider
     {
         public override string Namespace => "molca.vr";
@@ -178,7 +177,7 @@ above. Add `VRMcpToolProvider.Teleport.cs` beside it:
 using Molca.Editor.Mcp;
 using Newtonsoft.Json.Linq;
 
-namespace MolcaSDK.VR.Editor.Mcp
+namespace Molca.VR.Editor.Mcp
 {
     public partial class VRMcpToolProvider
     {

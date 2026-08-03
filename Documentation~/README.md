@@ -7,20 +7,20 @@ General-purpose Unity application framework.
 Add via Unity Package Manager using a Git URL:
 
 ```
-https://github.com/molca-id/com.molca.core-dist.git#1.16.2
+https://github.com/molca-id/com.molca.core-dist.git#2.0.0
 ```
 
 Or SSH:
 
 ```
-ssh://git@github.com/molca-id/com.molca.core-dist.git#1.16.2
+ssh://git@github.com/molca-id/com.molca.core-dist.git#2.0.0
 ```
 
-Replace `1.16.2` with the version tag you want.
+Replace `2.0.0` with the version tag you want.
 
 ## Requirements
 
-- Unity 2022.3+
+- Unity 6000.0+
 - Addressables 2.0+
 - Localization 1.4+
 - Input System 1.7+
@@ -30,7 +30,8 @@ Replace `1.16.2` with the version tag you want.
 The [`reference/`](reference/) folder holds evergreen guides describing how the framework works *now*.
 Each guide carries YAML front-matter (`title`/`category`/`order`); the categories, in rail order, are:
 
-- **Getting Started** — [`OVERVIEW.md`](reference/OVERVIEW.md), [`GETTING_STARTED.md`](reference/GETTING_STARTED.md).
+- **Getting Started** — [`OVERVIEW.md`](reference/OVERVIEW.md), [`GETTING_STARTED.md`](reference/GETTING_STARTED.md),
+  and [`UPGRADING_TO_2_0.md`](reference/UPGRADING_TO_2_0.md) for direct upgrades from Core 1.x.
 - **Runtime & Core** — [`RUNTIME_MANAGER.md`](reference/RUNTIME_MANAGER.md),
   [`SUBSYSTEMS.md`](reference/SUBSYSTEMS.md), [`DEPENDENCY_INJECTION.md`](reference/DEPENDENCY_INJECTION.md),
   [`ASYNC_CONTRACT.md`](reference/ASYNC_CONTRACT.md), [`EVENTS.md`](reference/EVENTS.md),
@@ -63,7 +64,8 @@ Each guide carries YAML front-matter (`title`/`category`/`order`); the categorie
   memory, prompt caching, and the text tool protocol).
 - **Diagnostics** — [`DOCTOR_CHECKS.md`](reference/DOCTOR_CHECKS.md),
   [`TELEMETRY.md`](reference/TELEMETRY.md), [`UTILITIES.md`](reference/UTILITIES.md).
-- **SDK** — the shared SDK layer ships its own `reference/` guides in `com.molca.sdk` (auto-discovered).
+- **Application layer** — the `reference/sdk/` guides retain stable document ids while describing the
+  former SDK surface now built into Core under `Molca.App`.
 
 All of these are browsable in-editor from **Molca → Hub → Docs**, rendered natively. Coverage is enforced
 by the `docs-coverage` Doctor check (one reference guide per `Runtime/*` system). To add a guide, drop a

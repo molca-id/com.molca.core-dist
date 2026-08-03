@@ -17,41 +17,44 @@ namespace Molca.ColorID.Editor
     /// <b>Registration:</b> <c>[MenuItem]</c>. Also called by Quick Setup and the onboarding wizard once
     /// those adopt V2.
     /// <para/>
-    /// <b>This is the switch.</b> <see cref="ColorSchemeManager"/> chooses its generation purely from
-    /// configuration: with a <see cref="ColorThemeSettings"/> module carrying a theme set it runs V2, and
-    /// without one it runs the legacy <see cref="ColorModule"/> array. Installing the module therefore
-    /// moves every shipped <see cref="ColorID"/> component onto the token resolution path in one step,
-    /// via the theme set's legacy alias map.
+    /// <b>This supplies the required runtime configuration.</b> <see cref="ColorSchemeManager"/> resolves
+    /// canonical tokens only when a <see cref="ColorThemeSettings"/> module carries a theme set. Projects
+    /// upgrading from 1.x install this configuration before the unified upgrade repair rewrites content.
     /// <para/>
-    /// <b>What is deliberately left alone.</b> The existing <see cref="ColorModule"/> palettes stay in the
-    /// module list and the Runtime Manager prefab keeps its <c>Available Schemes</c> references. Both are
-    /// inert in V2 — <see cref="ColorSchemeManager"/> never reads them once the theme settings module is
-    /// present — and leaving them makes the switch a one-line revert instead of a data migration. Removing
-    /// them belongs to the deprecation phase, once the alias map has been proven against real content.
+    /// Existing legacy pairs remain readable by editor-only migrators through the theme set's alias map;
+    /// no v1 runtime type is required.
     /// </remarks>
     public static class ColorThemeInstaller
     {
-        /// <summary>Where the generated settings module asset is written.</summary>
-        public const string SettingsAssetPath =
-            "Assets/_MolcaSDK/Settings/Global/Color Theme Settings.asset";
+        /// <summary>File name of the generated settings module asset.</summary>
+        public const string SettingsAssetFileName = "Color Theme Settings.asset";
 
         /// <summary>Creates the theme settings module and registers it with the project's GlobalSettings.</summary>
         [MenuItem("Molca/ColorID/Install Color Theme Settings (V1 → V2)", priority = 42)]
         public static void Install()
         {
-            var themeSet = AssetDatabase.LoadAssetAtPath<ColorThemeSet>(ColorThemeSetBootstrap.AssetPath);
+            var themeSetPath = ColorThemeSetBootstrap.ResolveAssetPath(out var setAmbiguity);
+            if (themeSetPath == null)
+            {
+                Debug.LogError($"[ColorTheme] Install aborted: {setAmbiguity}");
+                return;
+            }
+
+            var themeSet = AssetDatabase.LoadAssetAtPath<ColorThemeSet>(themeSetPath);
             if (themeSet == null)
             {
                 // Generating it here rather than failing: an installer that tells the author to go run
                 // another menu item first is just a worse installer.
                 ColorThemeSetBootstrap.CreateOrUpdate();
-                themeSet = AssetDatabase.LoadAssetAtPath<ColorThemeSet>(ColorThemeSetBootstrap.AssetPath);
+                themeSetPath = ColorThemeSetBootstrap.ResolveAssetPath(out _);
+                themeSet = themeSetPath == null
+                    ? null
+                    : AssetDatabase.LoadAssetAtPath<ColorThemeSet>(themeSetPath);
             }
 
             if (themeSet == null)
             {
-                Debug.LogError("[ColorTheme] Install aborted: no theme set could be created at "
-                               + $"'{ColorThemeSetBootstrap.AssetPath}'.");
+                Debug.LogError("[ColorTheme] Install aborted: no theme set could be found or created.");
                 return;
             }
 
@@ -74,6 +77,8 @@ namespace Molca.ColorID.Editor
             }
 
             var settings = LoadOrCreateSettings(themeSet);
+            if (settings == null) return; // Ambiguous project layout; the locator already said which.
+
             bool added = AddToModules(globalSettings, settings);
 
             AssetDatabase.SaveAssets();
@@ -85,10 +90,7 @@ namespace Molca.ColorID.Editor
                       + $"  Default variant: {settings.DefaultVariantId}\n"
                       + $"  Variants: {string.Join(", ", themeSet.GetVariantIds())}\n"
                       + $"  Legacy aliases: {themeSet.LegacyAliases.Count}\n"
-                      + "  ColorSchemeManager now resolves through the theme set; the ColorModule "
-                      + "palettes remain in the module list but are inert. Run the ColorID audit "
-                      + "(Doctor → color-theme-audit) to see which authored (swatch, colorId) pairs "
-                      + "the alias map does not cover.");
+                      + "  ColorSchemeManager now resolves through this theme set.");
         }
 
         /// <summary>Reports whether V2 is installed, without changing anything.</summary>
@@ -103,21 +105,19 @@ namespace Molca.ColorID.Editor
             }
 
             var installed = FindModule<ColorThemeSettings>(globalSettings);
-            int palettes = CountModules<ColorModule>(globalSettings);
 
             if (installed == null)
             {
-                Debug.Log($"[ColorTheme] '{globalSettings.name}' is on the legacy V1 path: no "
-                          + $"ColorThemeSettings module, {palettes} ColorModule palette(s).");
+                Debug.LogError($"[ColorTheme] '{globalSettings.name}' has no ColorThemeSettings module. "
+                               + "Install a colour theme before releasing with Core 2.0.");
                 return;
             }
 
             Debug.Log($"[ColorTheme] '{globalSettings.name}' is on the V2 path.\n"
-                      + $"  Theme set: {(installed.ThemeSet != null ? installed.ThemeSet.StableSetId : "<none — falls back to V1>")}\n"
+                      + $"  Theme set: {(installed.ThemeSet != null ? installed.ThemeSet.StableSetId : "<none — runtime theme unavailable>")}\n"
                       + $"  Default variant: {installed.DefaultVariantId ?? "<none>"}\n"
                       + $"  Runtime switching: {installed.AllowRuntimeSwitching}\n"
-                      + $"  Persistence: {installed.PersistencePolicy}\n"
-                      + $"  Inert ColorModule palettes still listed: {palettes}");
+                      + $"  Persistence: {installed.PersistencePolicy}");
         }
 
         /// <summary>
@@ -136,13 +136,24 @@ namespace Molca.ColorID.Editor
         /// </remarks>
         private static ColorThemeSettings LoadOrCreateSettings(ColorThemeSet themeSet)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(SettingsAssetPath));
+            // Located by type, so the branded asset a consumer imported with the Starter Project Content
+            // sample is configured rather than shadowed by a fresh blank one at a path only this
+            // repository uses.
+            var settingsPath = ColorThemeAssetLocator.ResolveOrDefault<ColorThemeSettings>(
+                SettingsAssetFileName, out var ambiguity);
+            if (settingsPath == null)
+            {
+                Debug.LogError($"[ColorTheme] {ambiguity}");
+                return null;
+            }
 
-            var settings = AssetDatabase.LoadAssetAtPath<ColorThemeSettings>(SettingsAssetPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath));
+
+            var settings = AssetDatabase.LoadAssetAtPath<ColorThemeSettings>(settingsPath);
             if (settings == null)
             {
                 settings = ScriptableObject.CreateInstance<ColorThemeSettings>();
-                AssetDatabase.CreateAsset(settings, SettingsAssetPath);
+                AssetDatabase.CreateAsset(settings, settingsPath);
             }
 
             var serialized = new SerializedObject(settings);
@@ -212,17 +223,6 @@ namespace Molca.ColorID.Editor
             return null;
         }
 
-        private static int CountModules<T>(GlobalSettings globalSettings) where T : SettingModule
-        {
-            if (globalSettings.modules == null) return 0;
-
-            int count = 0;
-            foreach (var module in globalSettings.modules)
-            {
-                if (module is T) count++;
-            }
-            return count;
-        }
     }
 }
 #endif

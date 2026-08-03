@@ -63,6 +63,9 @@ namespace Molca.Editor.Networking.Remediation
             var report = NetworkCatalogValidator.Validate(resolved);
 
             var targets = report.Findings
+                // Schema migration belongs to the earlier Upgrade domain so it is applied before this
+                // domain validates content and appears only once in the unified remediation workspace.
+                .Where(finding => finding.Code != NetworkCatalogValidator.CodeSchemaMigrationRequired)
                 .Select(finding => new MolcaFixTarget(
                     finding.Code,
                     DescribePath(resolved, finding),

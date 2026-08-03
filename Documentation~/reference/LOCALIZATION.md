@@ -102,6 +102,23 @@ Rebinding refreshes immediately. Unity's `StringChanged` callback applies the de
 and generation guards prevent an older asynchronous request from overwriting a newer binding.
 Disable/enable cycles unregister and restore both manager and string subscriptions.
 
+### Labels filled by code
+
+A label whose text arrives at runtime is authored with an empty `LocalizedString`. Tick **Runtime
+Assigned** on it. The flag is a declaration, and it is read from both sides:
+
+- The localization audit stops reporting `localization-reference-empty` for that label — an empty slot
+  somebody has claimed is intent, not an omission.
+- It reports `localization-runtime-assigned-authored` if the label is *also* given an authored
+  reference, because the authored value renders until code replaces it.
+- At runtime the component asserts the promise: a Runtime Assigned label that reaches the end of an
+  enabled lifetime without a `SetLocalizedString` call logs a warning naming the object. Nothing is
+  checked on a timer, so a label waiting on a fetch is never accused mid-wait — only one that stayed
+  blank the whole time it was visible.
+
+Leaving the flag clear keeps the old behaviour: an empty reference is reported as a warning, which
+never blocks a build.
+
 ## Inline and catalog values
 
 `LocalizedValue` has three explicit source kinds:

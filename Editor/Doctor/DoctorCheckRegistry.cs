@@ -45,8 +45,6 @@ namespace Molca.Editor.Doctor
             "inject-unresolvable",
             "unresolvable-scene-reference",
             "build-scenes-valid",
-            "color-id-reference-invalid",
-            "color-id-reference-early-access",
             "dynamic-localization-locale-invalid",
             "dynamic-localization-init-contract",
             "version-settings-valid",

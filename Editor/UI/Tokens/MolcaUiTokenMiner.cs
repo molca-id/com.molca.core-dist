@@ -5,16 +5,15 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.UI;
 using Molca.ColorID;
-using Molca.ColorID.Editor;
 using Molca.Localization;
 using Molca.UI.Tokens;
-using ColorIDComponent = Molca.ColorID.ColorID;
 
 namespace Molca.Editor.UI.Tokens
 {
     /// <summary>
     /// Seeds a <see cref="MolcaUiTokenCatalog"/> by mining the styling that real UI prefabs already use —
-    /// distinct <c>ColorID</c> swatch/step pairs (<c>color/*</c>), <see cref="LocalizedTextStyleInfo"/>
+    /// distinct canonical <c>ColorThemeBinding</c> tokens (<c>color/*</c>),
+    /// <see cref="LocalizedTextStyleInfo"/>
     /// presets (<c>text/*</c>), 9-sliced background sprites with an inferred PPU reference
     /// (<c>surface/*</c>), and the prefabs themselves as reusable controls (<c>control/*</c>). So the token
     /// vocabulary reflects actual usage instead of a guessed taxonomy.
@@ -49,11 +48,6 @@ namespace Molca.Editor.UI.Tokens
             // First match wins per id, so iterate prefabs in a stable, path-sorted order for determinism.
             var byId = new Dictionary<string, MolcaUiToken>();
 
-            // When the project is on V2, mined colours come out already canonical: the legacy pair found
-            // on a prefab is translated through the theme set's alias map, and the catalog id is derived
-            // from the canonical token. Two legacy pairs that map to one token therefore collapse into one
-            // catalog entry instead of seeding a fresh catalog with a vocabulary that is already obsolete.
-            var themeSet = ColorThemeAuditService.FindThemeSettings()?.ThemeSet;
             var paths = AssetDatabase.FindAssets("t:Prefab", new[] { folderPath })
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .Distinct()
@@ -68,35 +62,7 @@ namespace Molca.Editor.UI.Tokens
                 // control/<prefab-name> — the prefab itself is a reusable control.
                 AddToken(byId, MolcaUiToken.NewControl($"control/{Kebab(prefab.name)}", prefab));
 
-                // color/* — every legacy ColorID in the prefab tree, canonicalized when possible.
-                foreach (var colorId in prefab.GetComponentsInChildren<ColorIDComponent>(true))
-                {
-                    if (string.IsNullOrEmpty(colorId.SwatchName) || string.IsNullOrEmpty(colorId.ColorId)) continue;
-
-                    string canonical = themeSet?.ResolveLegacyToken(
-                        new LegacyColorKey(colorId.SwatchName, colorId.ColorId));
-
-                    if (!string.IsNullOrEmpty(canonical))
-                    {
-                        AddToken(byId, MolcaUiToken.NewColorToken(CatalogIdFor(canonical), canonical));
-                    }
-                    else
-                    {
-                        // A pair the alias map does not cover. Mining it as a legacy pair is deliberate and
-                        // is not "new authoring": the alternative is dropping a colour the prefab really
-                        // uses, which would make a mined catalog quietly incomplete. Migration reports it as
-                        // unaliased so it gets a canonical token — the miner records what exists.
-#pragma warning disable CS0618
-                        AddToken(byId, MolcaUiToken.NewColor(
-                            $"color/{Kebab(colorId.SwatchName)}-{Kebab(colorId.ColorId)}",
-                            colorId.SwatchName, colorId.ColorId));
-#pragma warning restore CS0618
-                    }
-                }
-
-                // color/* — every V2 binding in the prefab tree. Content already migrated to canonical
-                // tokens would otherwise be invisible to the miner, so a mined catalog would under-report
-                // the vocabulary in use precisely as a project finished migrating to it.
+                // color/*: every canonical binding in the prefab tree.
                 foreach (var binding in prefab.GetComponentsInChildren<ColorThemeBinding>(true))
                 {
                     foreach (var bound in binding.Bindings)

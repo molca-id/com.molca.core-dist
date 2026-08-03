@@ -21,7 +21,7 @@ on:
           - production
 
 env:
-  UNITY_VERSION: 2022.3.x  # Change to your Unity version
+  UNITY_VERSION: 6000.0.x  # Change to your Unity version
 
 jobs:
   build-windows:

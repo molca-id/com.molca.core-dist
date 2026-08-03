@@ -18,7 +18,7 @@ namespace Molca.ColorID.Editor
     /// <b>Drawing this never writes.</b> The only serialized write happens inside the
     /// <see cref="EditorGUI.EndChangeCheck"/> block, in response to a user picking an entry. An
     /// unresolvable value is shown as a marked <c>(unresolved)</c> entry and preserved verbatim until the
-    /// author explicitly repairs it. The V1 <see cref="ColorIDReference"/> drawer repointed an unresolved
+    /// author explicitly repairs it. The V1 <c>ColorIDReference</c> drawer repointed an unresolved
     /// pair at the first available colour just by rendering, so opening an inspector silently destroyed
     /// the authored value and hid that it was ever broken.
     /// <para/>

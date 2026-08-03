@@ -4,13 +4,12 @@ using UnityEngine.UI;
 using Molca.ColorID.Editor;
 using Molca.Localization;
 using Molca.UI.Tokens;
-using ColorIDComponent = Molca.ColorID.ColorID;
 
 namespace Molca.Editor.UI.Tokens
 {
     /// <summary>
     /// Applies a <see cref="MolcaUiToken"/> to a GameObject at edit time by writing the concrete framework
-    /// components it names — a color token drives a <see cref="ColorID"/>, a text token a
+    /// components it names — a color token drives a <c>ColorThemeBinding</c>, a text token a
     /// <see cref="LocalizedText"/> style preset, a surface token an <see cref="Image"/>'s sprite/type/PPU.
     /// The materializer (Sprint 59) and the <see cref="MolcaStyleApplier"/> inspector both route through
     /// here, so token application is defined in exactly one place.
@@ -57,50 +56,23 @@ namespace Molca.Editor.UI.Tokens
         }
 
         /// <summary>
-        /// Applies a colour token, taking the V2 path when the catalog entry names a canonical token.
+        /// Applies a canonical colour token by writing a <c>ColorThemeBinding</c>.
         /// </summary>
         /// <remarks>
-        /// Two paths, chosen by what the catalog entry actually carries rather than by a project-wide
-        /// setting — a half-migrated catalog is a normal state during the compatibility window, and each
-        /// entry has to work on its own terms.
-        /// <list type="bullet">
-        /// <item><description>
-        /// <b>Canonical</b> (<see cref="MolcaUiToken.ColorToken"/> assigned): writes a
-        /// <c>ColorThemeBinding</c>. The object then participates in variant switching, contrast
-        /// validation and the reference audit.
-        /// </description></item>
-        /// <item><description>
-        /// <b>Legacy</b> (only the V1 pair): writes a <c>ColorID</c>, exactly as before. Still resolves
-        /// under V2 through the theme set's alias map.
-        /// </description></item>
-        /// </list>
-        /// An entry carrying neither is an error rather than a silent no-op: a Color-category token with
-        /// no colour is an incomplete catalog, and applying nothing while reporting success is how a
-        /// missing style survives review.
+        /// Catalog entries that still carry only a 1.x pair are rejected with an upgrade instruction;
+        /// runtime authoring never recreates a retired component.
         /// </remarks>
         private static bool ApplyColor(MolcaUiToken token, GameObject target, out string error)
         {
-            if (token.HasCanonicalColorToken)
-                return ColorThemeBindingAuthoring.ApplyToken(target, token.ColorToken, out error,
-                    "Apply Color Token") > 0;
-
-            if (!token.HasLegacyColorPair)
+            if (!token.HasCanonicalColorToken)
             {
-                error = $"Colour token '{token.Id}' names neither a canonical colour token nor a legacy "
-                        + "swatch and colour ID.";
+                error = $"Colour token '{token.Id}' still carries a retired swatch/colour pair. Run the "
+                        + "1.x to 2.x upgrade repair before applying it.";
                 return false;
             }
 
-            error = null;
-            var colorId = target.GetComponent<ColorIDComponent>();
-            if (colorId == null) colorId = Undo.AddComponent<ColorIDComponent>(target);
-            else Undo.RecordObject(colorId, "Apply Color Token");
-
-            colorId.SetColor(token.SwatchName, token.ColorId);
-            // Auto-detect the graphic(s) on this object and apply the swatch+step to them.
-            colorId.Refresh();
-            EditorUtility.SetDirty(colorId);
-            return true;
+            return ColorThemeBindingAuthoring.ApplyToken(target, token.ColorToken, out error,
+                "Apply Color Token") > 0;
         }
 
         private static bool ApplyText(MolcaUiToken token, GameObject target, out string error)

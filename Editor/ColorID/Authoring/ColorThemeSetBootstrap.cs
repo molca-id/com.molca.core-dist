@@ -25,13 +25,33 @@ namespace Molca.ColorID.Editor
     /// </remarks>
     public static class ColorThemeSetBootstrap
     {
-        /// <summary>Where the generated vocabulary asset is written.</summary>
-        public const string AssetPath = "Assets/_MolcaSDK/Settings/Global/Themes/Molca Color Theme Set.asset";
+        /// <summary>File name of the generated vocabulary asset.</summary>
+        public const string AssetFileName = "Molca Color Theme Set.asset";
+
+        /// <summary>
+        /// The project's vocabulary asset, wherever it lives — or where one would be created.
+        /// </summary>
+        /// <remarks>
+        /// Located by type rather than by a fixed path. A consumer who imports the Starter Project Content
+        /// sample receives this asset under <c>Assets/Samples/…</c>, which a hardcoded
+        /// <c>Assets/_MolcaSDK/…</c> constant would never find — Core would create a second, blank one and
+        /// configure that instead. Returns <c>null</c> when the project holds several, since this writes to
+        /// whichever it picks.
+        /// </remarks>
+        public static string ResolveAssetPath(out string ambiguity) =>
+            ColorThemeAssetLocator.ResolveOrDefault<ColorThemeSet>(AssetFileName, out ambiguity);
 
         /// <summary>Creates or regenerates the vocabulary asset.</summary>
         [MenuItem("Molca/ColorID/Create or Update Colour Vocabulary Asset", priority = 40)]
         public static void CreateOrUpdate()
         {
+            var assetPath = ResolveAssetPath(out var ambiguity);
+            if (assetPath == null)
+            {
+                Debug.LogError($"[ColorTheme] {ambiguity}");
+                return;
+            }
+
             var built = ColorThemeVocabulary.Build();
 
             var errors = new List<string>();
@@ -43,18 +63,25 @@ namespace Molca.ColorID.Editor
                 return;
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(AssetPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(assetPath));
 
-            var existing = AssetDatabase.LoadAssetAtPath<ColorThemeSet>(AssetPath);
+            var existing = AssetDatabase.LoadAssetAtPath<ColorThemeSet>(assetPath);
             if (existing == null)
             {
-                AssetDatabase.CreateAsset(built, AssetPath);
+                AssetDatabase.CreateAsset(built, assetPath);
             }
             else
             {
                 // Copy into the existing asset rather than replacing the file, so every reference to it —
                 // ColorThemeSettings, a generated manifest, a serialized inspector — survives.
+                //
+                // CopySerialized copies m_Name as well, and `built` is an in-memory CreateInstance with
+                // none, so the name has to be put back or every regeneration silently blanks it. The blank
+                // does not break resolution, which is why it went unnoticed, but it leaves the asset
+                // unnamed in the Inspector and unfindable by name.
+                string existingName = existing.name;
                 EditorUtility.CopySerialized(built, existing);
+                existing.name = existingName;
                 Object.DestroyImmediate(built);
                 existing.InvalidateIndexes();
                 EditorUtility.SetDirty(existing);
@@ -63,8 +90,8 @@ namespace Molca.ColorID.Editor
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
-            var asset = AssetDatabase.LoadAssetAtPath<ColorThemeSet>(AssetPath);
-            Debug.Log($"[ColorTheme] Wrote '{AssetPath}': {asset.TokenDefinitions.Count} tokens, "
+            var asset = AssetDatabase.LoadAssetAtPath<ColorThemeSet>(assetPath);
+            Debug.Log($"[ColorTheme] Wrote '{assetPath}': {asset.TokenDefinitions.Count} tokens, "
                       + $"{asset.Variants.Count} variants, {asset.LegacyAliases.Count} legacy aliases, "
                       + $"{asset.AccessibilityRequirements.Count} contrast requirements.\n"
                       + "Next: add a ColorThemeSettings module to GlobalSettings and point it at this "

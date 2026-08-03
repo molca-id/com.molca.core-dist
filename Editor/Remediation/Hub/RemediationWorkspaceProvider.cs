@@ -27,7 +27,7 @@ namespace Molca.Editor.Remediation.Hub
                 WorkspaceId, "Remediation", order: 20,
                 createContent: () => new RemediationWorkspaceView(),
                 isAvailable: () => MolcaRemediationDomains.All.Count > 0,
-                icon: "doctor",
+                icon: "remediation",
                 group: MolcaHubWorkspaceGroups.Quality),
         };
     }

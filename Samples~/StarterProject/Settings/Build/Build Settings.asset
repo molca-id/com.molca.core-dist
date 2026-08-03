@@ -1,0 +1,102 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6abf40ffa884de3469c3ccc62671af9c, type: 3}
+  m_Name: Build Settings
+  m_EditorClassIdentifier: 
+  profiles:
+  - name: Development
+    target: 19
+    outputPath: Builds
+    developmentBuild: 1
+    allowDebugging: 1
+    il2cpp: 0
+    compress: 0
+    autoRunPlayer: 1
+    showBuiltPlayer: 1
+    cleanBuildCache: 0
+    connectWithProfiler: 0
+    deepProfiling: 0
+    strictMode: 0
+    detailedBuildReport: 0
+    restoreOriginalTarget: 1
+    runtimeManager: {fileID: 0}
+    globalSettings: {fileID: 0}
+    applicationIdentifierOverride: 
+    buildAddressablesFirst: 0
+    buildAppBundle: 0
+    androidArchitectures: 2
+    useCustomSigning: 0
+    androidKeystorePath: 
+    androidKeyaliasName: 
+    androidKeystorePassEnv: MOLCA_ANDROID_KEYSTORE_PASS
+    androidKeyaliasPassEnv: MOLCA_ANDROID_KEYALIAS_PASS
+    iosTeamId: 
+    iosAutomaticSigning: 1
+    defineSymbols: 
+  - name: Staging
+    target: 19
+    outputPath: Builds
+    developmentBuild: 0
+    allowDebugging: 0
+    il2cpp: 0
+    compress: 0
+    autoRunPlayer: 1
+    showBuiltPlayer: 1
+    cleanBuildCache: 0
+    connectWithProfiler: 0
+    deepProfiling: 0
+    strictMode: 0
+    detailedBuildReport: 0
+    restoreOriginalTarget: 1
+    runtimeManager: {fileID: 0}
+    globalSettings: {fileID: 0}
+    applicationIdentifierOverride: 
+    buildAddressablesFirst: 0
+    buildAppBundle: 0
+    androidArchitectures: 2
+    useCustomSigning: 0
+    androidKeystorePath: 
+    androidKeyaliasName: 
+    androidKeystorePassEnv: MOLCA_ANDROID_KEYSTORE_PASS
+    androidKeyaliasPassEnv: MOLCA_ANDROID_KEYALIAS_PASS
+    iosTeamId: 
+    iosAutomaticSigning: 1
+    defineSymbols: 
+  - name: Production
+    target: 13
+    outputPath: Builds
+    developmentBuild: 0
+    allowDebugging: 0
+    il2cpp: 1
+    compress: 0
+    autoRunPlayer: 0
+    showBuiltPlayer: 1
+    cleanBuildCache: 0
+    connectWithProfiler: 0
+    deepProfiling: 0
+    strictMode: 0
+    detailedBuildReport: 0
+    restoreOriginalTarget: 1
+    runtimeManager: {fileID: 0}
+    globalSettings: {fileID: 0}
+    applicationIdentifierOverride: 
+    buildAddressablesFirst: 1
+    buildAppBundle: 0
+    androidArchitectures: 2
+    useCustomSigning: 0
+    androidKeystorePath: 
+    androidKeyaliasName: 
+    androidKeystorePassEnv: MOLCA_ANDROID_KEYSTORE_PASS
+    androidKeyaliasPassEnv: MOLCA_ANDROID_KEYALIAS_PASS
+    iosTeamId: 
+    iosAutomaticSigning: 1
+    defineSymbols: 

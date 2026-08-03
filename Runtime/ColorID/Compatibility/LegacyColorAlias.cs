@@ -5,7 +5,7 @@ namespace Molca.ColorID
 {
     /// <summary>
     /// A legacy V1 lookup key: the <c>(swatch, colorId)</c> pair that 194 shipped
-    /// <see cref="ColorID"/> components and every <see cref="ColorIDReference"/> still serialize.
+    /// <c>ColorID</c> components and <c>ColorIDReference</c> fields serialized in 1.x content.
     /// </summary>
     /// <remarks>
     /// Comparison and hashing are case-insensitive and culture-invariant. V1 lookups were
@@ -52,7 +52,7 @@ namespace Molca.ColorID
             unchecked { return swatchHash * 397 ^ colorHash; }
         }
 
-        /// <summary>The dotted composite spelling used by <see cref="ColorModule"/> cache keys.</summary>
+        /// <summary>The dotted composite spelling used by 1.x <c>ColorModule</c> cache keys.</summary>
         public override string ToString() => $"{SwatchName}.{ColorId}";
     }
 

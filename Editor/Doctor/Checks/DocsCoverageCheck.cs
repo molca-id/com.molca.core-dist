@@ -30,7 +30,7 @@ namespace Molca.Editor.Doctor
 
         internal const string CoreRuntimeDir = "Packages/com.molca.core/Runtime";
         internal const string CoreReferenceDir = "Packages/com.molca.core/Documentation~/reference";
-        internal const string SdkScriptsDir = "Packages/com.molca.sdk/Runtime/Scripts";
+        internal const string SdkScriptsDir = "Packages/com.molca.core/Runtime/UI/App/Scripts";
 
         /// <summary>Core <c>Runtime/</c> subdirectory → the guide id (file stem) that documents it.</summary>
         internal static readonly IReadOnlyDictionary<string, string> CoreRuntimeGuides =

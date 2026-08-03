@@ -1,0 +1,22 @@
+{
+    "name": "Molca.App.Editor",
+    "rootNamespace": "",
+    "references": [
+        "GUID:37ed9f72538e07d4393f7a9cfcd14d9d",
+        "GUID:4a35d4bb921fb1a49bf521dfe14d0f18",
+        "GUID:b5e1702dd8b94484f91986b1c440d5ef",
+        "GUID:69448af7b92c7f342b298e06a37122aa",
+        "GUID:6055be8ebefd69e48b49212b09b47b2f"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,10 +1,14 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Molca.Editor.Doctor;
+using Molca.Editor.Networking.Authoring;
 using Molca.Editor.Networking.Migration;
 using Molca.Editor.Networking.Validation;
 using Molca.Editor.Remediation;
 using Newtonsoft.Json.Linq;
+using UnityEditor;
 
 namespace Molca.Editor.Networking.Remediation
 {
@@ -17,7 +21,26 @@ namespace Molca.Editor.Networking.Remediation
         public override MolcaFixOutcome Apply(
             MolcaFixTarget target, bool dryRun, JObject args, CancellationToken cancellationToken)
         {
-            if (!(target?.DomainContext is NetworkFixDomainContext domain) || domain.Catalog == null)
+            var domain = target?.DomainContext as NetworkFixDomainContext;
+
+            // The upgrade report owns a different context type. Only schema migration is shared across
+            // those domains, so resolve that catalog-level target without making every network fix accept
+            // a foreign context.
+            if ((domain == null || domain.Catalog == null) &&
+                string.Equals(target?.FindingCode, NetworkCatalogValidator.CodeSchemaMigrationRequired,
+                    System.StringComparison.Ordinal))
+            {
+                var catalog = NetworkCatalogLocator.FindCatalog();
+                if (catalog != null)
+                {
+                    domain = new NetworkFixDomainContext(
+                        NetworkCatalogValidator.Validate(catalog).Findings.FirstOrDefault(
+                            finding => finding.Code == NetworkCatalogValidator.CodeSchemaMigrationRequired),
+                        catalog);
+                }
+            }
+
+            if (domain?.Catalog == null)
                 return MolcaFixOutcome.NotApplied(
                     "No network catalog is available for this finding, so there is nothing to repair.");
 
@@ -31,6 +54,122 @@ namespace Molca.Editor.Networking.Remediation
         /// <returns>The outcome.</returns>
         protected abstract MolcaFixOutcome Apply(
             NetworkFixDomainContext domain, bool dryRun, CancellationToken cancellationToken);
+    }
+
+    /// <summary>Authors routed catalog state for legacy networking without rewriting legacy assets.</summary>
+    internal sealed class LegacyNetworkUpgradeFix : MolcaFixBase
+    {
+        /// <inheritdoc/>
+        public override string Id => "upgrade.migrate-legacy-networking";
+
+        /// <inheritdoc/>
+        public override string Description =>
+            "Creates the catalog entities required to route legacy network assets, preserving the originals.";
+
+        /// <inheritdoc/>
+        public override string HandledFindingCode => NetworkUpgradeDetector.LegacyMigrationCode;
+
+        /// <inheritdoc/>
+        public override FixReversibility Reversibility => FixReversibility.FileSnapshot;
+
+        /// <inheritdoc/>
+        public override MolcaFixOutcome Apply(
+            MolcaFixTarget target, bool dryRun, JObject args, CancellationToken cancellationToken)
+        {
+            var plan = LegacyMigrationExecutor.DryRun();
+            if (plan == null || !plan.Report.HasWork || !plan.HasWork)
+                return MolcaFixOutcome.NotApplied("No legacy networking migration steps remain.");
+
+            if (dryRun)
+            {
+                return new MolcaFixOutcome(
+                    true,
+                    $"Would apply {plan.Steps.Count} legacy networking migration step(s).",
+                    "legacy assets",
+                    "routed catalog entries");
+            }
+
+            var catalogBefore = plan.Report.ExistingCatalog;
+            bool catalogExisted = catalogBefore != null;
+            var assetsBefore = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (catalogBefore != null)
+            {
+                AddAssetPath(assetsBefore, catalogBefore);
+                foreach (var collection in catalogBefore.EndpointCollections ??
+                         Array.Empty<Molca.Networking.Configuration.NetworkEndpointCollection>())
+                    AddAssetPath(assetsBefore, collection);
+            }
+
+            var pathsToSnapshot = new List<string>();
+            if (catalogBefore != null)
+            {
+                pathsToSnapshot.Add(AssetDatabase.GetAssetPath(catalogBefore));
+                var legacyCollection = catalogBefore.EndpointCollections?.FirstOrDefault(
+                    collection => collection != null &&
+                                  collection.CollectionId == LegacyMigrationPlan.LegacyCollectionId);
+                if (legacyCollection != null)
+                    pathsToSnapshot.Add(AssetDatabase.GetAssetPath(legacyCollection));
+            }
+            else
+            {
+                var settings = MolcaProjectSettings.Instance;
+                if (settings?.GlobalSettings != null)
+                    pathsToSnapshot.Add(AssetDatabase.GetAssetPath(settings.GlobalSettings));
+            }
+
+            var snapshots = new MolcaFileSnapshotGroup(
+                pathsToSnapshot, Id, "Migrate legacy networking");
+            if (!snapshots.IsReady)
+                return MolcaFixOutcome.NotApplied(
+                    "Could not snapshot every affected network asset, so migration was not started.");
+
+            var result = LegacyMigrationExecutor.Apply(
+                plan, () => cancellationToken.IsCancellationRequested);
+
+            if (result.Catalog != null)
+            {
+                RecordIfCreated(result.Catalog, assetsBefore, snapshots, "network catalog");
+                foreach (var collection in result.Catalog.EndpointCollections ??
+                         Array.Empty<Molca.Networking.Configuration.NetworkEndpointCollection>())
+                    RecordIfCreated(collection, assetsBefore, snapshots, "endpoint collection");
+            }
+
+            bool changed = result.Applied.Count > 0 || (!catalogExisted && result.Catalog != null);
+            if (!changed)
+            {
+                snapshots.Discard();
+                return MolcaFixOutcome.NotApplied("The migration reported no catalog changes.");
+            }
+
+            string message = result.Summarize();
+            if (result.Failures.Count > 0)
+                message += " " + string.Join("; ", result.Failures);
+
+            return new MolcaFixOutcome(
+                true,
+                message,
+                "legacy assets",
+                $"{result.Applied.Count} routed catalog change(s)",
+                snapshots.EntryId);
+        }
+
+        private static void AddAssetPath(HashSet<string> paths, UnityEngine.Object asset)
+        {
+            string path = asset != null ? AssetDatabase.GetAssetPath(asset) : null;
+            if (!string.IsNullOrEmpty(path)) paths.Add(path);
+        }
+
+        private void RecordIfCreated(
+            UnityEngine.Object asset,
+            HashSet<string> assetsBefore,
+            MolcaFileSnapshotGroup snapshots,
+            string label)
+        {
+            string path = asset != null ? AssetDatabase.GetAssetPath(asset) : null;
+            if (string.IsNullOrEmpty(path) || assetsBefore.Contains(path)) return;
+            snapshots.RecordCreated(path, Id, $"Legacy migration created {label} '{path}'");
+            assetsBefore.Add(path);
+        }
     }
 
     /// <summary>
@@ -83,13 +222,22 @@ namespace Molca.Editor.Networking.Remediation
                     before,
                     "schema current");
 
+            string path = AssetDatabase.GetAssetPath(catalog);
+            var snapshots = new MolcaFileSnapshotGroup(
+                new[] { path }, Id, $"Network catalog schema migration in '{path}'");
+            if (!snapshots.IsReady)
+                return MolcaFixOutcome.NotApplied(
+                    "Could not snapshot the network catalog, so migration was not started.");
+
             var report = NetworkCatalogSchemaMigrator.Migrate(catalog);
+            if (!report.Applied) snapshots.Discard();
             return report.Applied
                 ? new MolcaFixOutcome(
                     true,
                     $"Migrated '{catalog.name}' from schema v{report.FromVersion} to v{report.ToVersion}.",
                     before,
-                    $"schema v{report.ToVersion}")
+                    $"schema v{report.ToVersion}",
+                    snapshots.EntryId)
                 : MolcaFixOutcome.NotApplied(
                     report.IsBlocked ? report.BlockedReason : "The migrator reported no change.");
         }
