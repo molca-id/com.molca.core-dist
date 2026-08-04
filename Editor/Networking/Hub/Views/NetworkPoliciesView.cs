@@ -5,6 +5,7 @@ using Molca.Editor.Networking.Authoring;
 using Molca.Editor.Networking.Validation;
 using Molca.Networking.Configuration;
 using Molca.Networking.Routing;
+using UnityEditor;
 using UnityEngine.UIElements;
 
 namespace Molca.Editor.Networking.Hub.Views
@@ -130,59 +131,227 @@ namespace Molca.Editor.Networking.Hub.Views
             _split.Detail.Add(BuildFindings(profile));
         }
 
+        /// <summary>
+        /// The authored values of one profile, every one of them editable.
+        /// </summary>
+        /// <remarks>
+        /// Grouped the way the editing service groups its setters, so one card section is one Undo step.
+        /// Fields inside a group pass their siblings through unchanged, which is why a group setter takes
+        /// every member rather than just the one that moved.
+        /// </remarks>
         private VisualElement BuildAuthored(NetworkPolicyProfile profile)
         {
-            var card = NetworkHubUi.Card(profile.DisplayName, profile.Id);
+            string id = profile.Id;
+            var editing = _session.Editing;
+            var card = NetworkHubUi.Card(profile.DisplayName, id);
+
+            card.Body.Add(NetworkHubFields.EditText(
+                "Display name",
+                profile.DisplayName,
+                value => _session.Apply(editing.SetPolicyDisplayName(id, value))));
+
+            card.Body.Add(NetworkHubUi.Field("Stable ID", id,
+                "Named by every environment, service, and endpoint that overrides its policy."));
 
             card.Body.Add(NetworkHubUi.Heading("Timeouts"));
-            card.Body.Add(NetworkHubUi.Field("Overall", $"{profile.OverallTimeoutSeconds}s",
-                "Covers queueing, credential acquisition, retry backoff, and wire time."));
-            card.Body.Add(NetworkHubUi.Field("Per attempt", $"{profile.AttemptTimeoutSeconds}s",
-                "Clamped down to whatever is left of the overall budget."));
+            card.Body.Add(NetworkHubFields.EditFloat(
+                "Overall",
+                profile.OverallTimeoutSeconds,
+                value => _session.Apply(
+                    editing.SetPolicyTimeouts(id, value, profile.AttemptTimeoutSeconds)),
+                0f,
+                "Seconds covering queueing, credential acquisition, retry backoff, and wire time."));
+            card.Body.Add(NetworkHubFields.EditFloat(
+                "Per attempt",
+                profile.AttemptTimeoutSeconds,
+                value => _session.Apply(
+                    editing.SetPolicyTimeouts(id, profile.OverallTimeoutSeconds, value)),
+                0f,
+                "Seconds for one transport attempt. Clamped down to whatever is left of the overall budget."));
 
             card.Body.Add(NetworkHubUi.Heading("Retry"));
-            card.Body.Add(NetworkHubUi.Field("Enabled", Yes(profile.RetryEnabled)));
-            card.Body.Add(NetworkHubUi.Field("Max retries", profile.MaxRetries.ToString()));
-            card.Body.Add(NetworkHubUi.Field("Backoff", $"{profile.RetryBaseDelaySeconds}s → {profile.RetryMaxDelaySeconds}s"));
-            card.Body.Add(NetworkHubUi.Field("Full jitter", Yes(profile.RetryJitter),
+            card.Body.Add(NetworkHubFields.EditToggle(
+                "Enabled",
+                profile.RetryEnabled,
+                value => _session.Apply(
+                    editing.SetPolicyRetry(id, value, profile.MaxRetries, profile.RetryBaseDelaySeconds))));
+            card.Body.Add(NetworkHubFields.EditInt(
+                "Max retries",
+                profile.MaxRetries,
+                value => _session.Apply(
+                    editing.SetPolicyRetry(id, profile.RetryEnabled, value, profile.RetryBaseDelaySeconds)),
+                0, 10,
+                "Attempts after the first, 0–10."));
+            card.Body.Add(NetworkHubFields.EditFloat(
+                "Base delay",
+                profile.RetryBaseDelaySeconds,
+                value => _session.Apply(
+                    editing.SetPolicyRetry(id, profile.RetryEnabled, profile.MaxRetries, value)),
+                0f,
+                "First backoff delay in seconds; it doubles per attempt."));
+            card.Body.Add(NetworkHubFields.EditFloat(
+                "Max delay",
+                profile.RetryMaxDelaySeconds,
+                value => _session.Apply(editing.SetPolicyRetryShaping(
+                    id, value, profile.RetryJitter, profile.RetryRequiresIdempotence,
+                    profile.HonorRetryAfter)),
+                0f,
+                "Ceiling the doubling backoff cannot exceed."));
+            card.Body.Add(NetworkHubFields.EditToggle(
+                "Full jitter",
+                profile.RetryJitter,
+                value => _session.Apply(editing.SetPolicyRetryShaping(
+                    id, profile.RetryMaxDelaySeconds, value, profile.RetryRequiresIdempotence,
+                    profile.HonorRetryAfter)),
                 "Spreads retries so clients that failed together do not retry in lockstep."));
-            card.Body.Add(NetworkHubUi.Field("Requires idempotence", Yes(profile.RetryRequiresIdempotence),
-                "A mutating call is not retried merely because it failed."));
-            card.Body.Add(NetworkHubUi.Field("Honors Retry-After", Yes(profile.HonorRetryAfter)));
+            card.Body.Add(NetworkHubFields.EditToggle(
+                "Requires idempotence",
+                profile.RetryRequiresIdempotence,
+                value => _session.Apply(editing.SetPolicyRetryShaping(
+                    id, profile.RetryMaxDelaySeconds, profile.RetryJitter, value, profile.HonorRetryAfter)),
+                "When on, a mutating call is not retried merely because it failed."));
+            card.Body.Add(NetworkHubFields.EditToggle(
+                "Honors Retry-After",
+                profile.HonorRetryAfter,
+                value => _session.Apply(editing.SetPolicyRetryShaping(
+                    id, profile.RetryMaxDelaySeconds, profile.RetryJitter,
+                    profile.RetryRequiresIdempotence, value)),
+                "A server's Retry-After header overrides the computed backoff."));
 
             card.Body.Add(NetworkHubUi.Heading("Concurrency"));
-            card.Body.Add(NetworkHubUi.Field("Max concurrent", Unbounded(profile.MaxConcurrentRequests)));
-            card.Body.Add(NetworkHubUi.Field("Max queue depth", Unbounded(profile.MaxQueueDepth)));
-            card.Body.Add(NetworkHubUi.Field("Circuit threshold", Unbounded(profile.CircuitFailureThreshold),
+            card.Body.Add(NetworkHubFields.EditInt(
+                "Max concurrent",
+                profile.MaxConcurrentRequests,
+                value => _session.Apply(editing.SetPolicyConcurrency(id, value)),
+                0, 64,
+                "Simultaneous requests per route, 0–64. 0 means unbounded."));
+            card.Body.Add(NetworkHubFields.EditInt(
+                "Max queue depth",
+                profile.MaxQueueDepth,
+                value => _session.Apply(editing.SetPolicyQueueDepth(id, value)),
+                0, 4096,
+                "Requests allowed to wait for a slot, 0–4096. 0 means unbounded."));
+            card.Body.Add(NetworkHubFields.EditInt(
+                "Circuit threshold",
+                profile.CircuitFailureThreshold,
+                value => _session.Apply(
+                    editing.SetPolicyCircuitBreaker(id, value, profile.CircuitResetSeconds)),
+                0, 100,
                 "Consecutive failures before the route fails fast. 0 disables the breaker."));
-            card.Body.Add(NetworkHubUi.Field("Circuit reset", $"{profile.CircuitResetSeconds}s"));
+            card.Body.Add(NetworkHubFields.EditFloat(
+                "Circuit reset",
+                profile.CircuitResetSeconds,
+                value => _session.Apply(
+                    editing.SetPolicyCircuitBreaker(id, profile.CircuitFailureThreshold, value)),
+                0f,
+                "Seconds the breaker stays open before probing again."));
 
+            // The four transport-safety fields resolve tighten-only: a lower layer may harden one but never
+            // weaken it, so a value authored here is a ceiling rather than a guarantee.
             card.Body.Add(NetworkHubUi.Heading("Transport safety"));
-            card.Body.Add(NetworkHubUi.Field("Redirect mode", profile.RedirectMode.ToString()));
-            card.Body.Add(NetworkHubUi.Field("Max redirects", profile.MaxRedirects.ToString()));
-            card.Body.Add(NetworkHubUi.Field("Requires encryption", Yes(profile.RequireSecureTransport)));
-            card.Body.Add(NetworkHubUi.Field("Validates TLS", Yes(profile.ValidateTlsCertificate),
+            card.Body.Add(NetworkHubFields.EditEnum(
+                "Redirect mode",
+                profile.RedirectMode,
+                value => _session.Apply(editing.SetPolicyTransportSafety(
+                    id, value, profile.MaxRedirects, profile.RequireSecureTransport,
+                    profile.ValidateTlsCertificate)),
+                "Security-restricted: a lower layer may tighten this but never weaken it."));
+            card.Body.Add(NetworkHubFields.EditInt(
+                "Max redirects",
+                profile.MaxRedirects,
+                value => _session.Apply(editing.SetPolicyTransportSafety(
+                    id, profile.RedirectMode, value, profile.RequireSecureTransport,
+                    profile.ValidateTlsCertificate)),
+                0, 10,
+                "Security-restricted: the smallest authored value wins."));
+            card.Body.Add(NetworkHubFields.EditToggle(
+                "Requires encryption",
+                profile.RequireSecureTransport,
+                value => _session.Apply(editing.SetPolicyTransportSafety(
+                    id, profile.RedirectMode, profile.MaxRedirects, value,
+                    profile.ValidateTlsCertificate)),
+                "Security-restricted: any layer requiring encryption wins."));
+            card.Body.Add(NetworkHubFields.EditToggle(
+                "Validates TLS",
+                profile.ValidateTlsCertificate,
+                value => _session.Apply(editing.SetPolicyTransportSafety(
+                    id, profile.RedirectMode, profile.MaxRedirects, profile.RequireSecureTransport,
+                    value)),
                 profile.ValidateTlsCertificate
-                    ? null
+                    ? "Security-restricted: turning this off has no effect where production safety applies."
                     : "A production environment overrides this back on. Certificate validation cannot be " +
                       "relaxed where production safety is enforced."));
 
             card.Body.Add(NetworkHubUi.Heading("Cache and diagnostics"));
-            card.Body.Add(NetworkHubUi.Field("Cache mode", profile.CacheMode.ToString()));
-            card.Body.Add(NetworkHubUi.Field("Cache TTL", $"{profile.CacheTtlSeconds}s"));
-            card.Body.Add(NetworkHubUi.Field("Logs requests", Yes(profile.LogRequests)));
-            card.Body.Add(NetworkHubUi.Field("Captures bodies", Yes(profile.CaptureBodies),
+            card.Body.Add(NetworkHubFields.EditEnum(
+                "Cache mode",
+                profile.CacheMode,
+                value => _session.Apply(editing.SetPolicyCache(id, value, profile.CacheTtlSeconds))));
+            card.Body.Add(NetworkHubFields.EditFloat(
+                "Cache TTL",
+                profile.CacheTtlSeconds,
+                value => _session.Apply(editing.SetPolicyCache(id, profile.CacheMode, value)),
+                0f,
+                "Seconds a cached response stays fresh."));
+            card.Body.Add(NetworkHubFields.EditToggle(
+                "Logs requests",
+                profile.LogRequests,
+                value => _session.Apply(
+                    editing.SetPolicyDiagnostics(id, value, profile.CaptureBodies))));
+            card.Body.Add(NetworkHubFields.EditToggle(
+                "Captures bodies",
+                profile.CaptureBodies,
+                value => _session.Apply(
+                    editing.SetPolicyDiagnostics(id, profile.LogRequests, value)),
                 "Bodies are redacted, but capturing them still retains more than not capturing them."));
 
             card.Body.Add(NetworkHubUi.Heading("Limits"));
-            card.Body.Add(NetworkHubUi.Field("Max request bytes", Unbounded(profile.MaxRequestBytes)));
-            card.Body.Add(NetworkHubUi.Field("Max response bytes", Unbounded(profile.MaxResponseBytes)));
+            card.Body.Add(NetworkHubFields.EditByteSize(
+                "Max request bytes",
+                profile.MaxRequestBytes,
+                value => _session.Apply(editing.SetPolicyLimits(id, value, profile.MaxResponseBytes)),
+                "Largest request body allowed. 0 means unbounded."));
+            card.Body.Add(NetworkHubFields.EditByteSize(
+                "Max response bytes",
+                profile.MaxResponseBytes,
+                value => _session.Apply(editing.SetPolicyLimits(id, profile.MaxRequestBytes, value)),
+                "Largest response body accepted. 0 means unbounded."));
+
+            bool isDefault = string.Equals(
+                id, _session.Catalog.DefaultPolicyProfileId, StringComparison.Ordinal);
+
+            card.Body.Add(NetworkHubUi.Actions(
+                isDefault ? null : MolcaButtons.Mini("Make catalog default", () => MakeDefault(id)),
+                MolcaButtons.Mini("Delete…", () => Delete(id))));
 
             card.Body.Add(NetworkHubUi.Note(
-                "Values are authored on the asset. Select 'Effective policy' to see which layer wins for a " +
-                "given route."));
+                "These are the values authored on this profile. Select 'Effective policy' to see which " +
+                "layer wins for a given route."));
 
             return card;
+        }
+
+        private void MakeDefault(string policyProfileId) =>
+            _session.Apply(_session.Editing.SetDefaultPolicyProfile(policyProfileId));
+
+        private void Delete(string policyProfileId)
+        {
+            if (!EditorUtility.DisplayDialog(
+                    "Delete policy profile?",
+                    $"'{policyProfileId}' will be removed, and every environment, service, and endpoint " +
+                    "that overrides its policy with it will fall back to the inherited value.\n\n" +
+                    "This is one Undo step.",
+                    "Delete", "Cancel"))
+            {
+                return;
+            }
+
+            var result = _session.Editing.DeletePolicyProfile(policyProfileId);
+
+            if (result.Success)
+                _session.SetSelection(NetworkHubViews.Policies, string.Empty);
+
+            _session.Apply(result);
         }
 
         /// <summary>
@@ -344,16 +513,9 @@ namespace Molca.Editor.Networking.Hub.Views
             var result = _session.Editing.CreatePolicyProfile(id);
 
             if (result.Success)
-            {
-                UnityEngine.Debug.Log($"[Network] {result.Message}");
                 _session.SetSelection(NetworkHubViews.Policies, result.ResultId);
-            }
-            else
-            {
-                UnityEngine.Debug.LogWarning($"[Network] {result.Message}");
-            }
 
-            _session.Reload();
+            _session.Apply(result);
         }
 
         private static string Yes(bool value) => value ? "Yes" : "No";

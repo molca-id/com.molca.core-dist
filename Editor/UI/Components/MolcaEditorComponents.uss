@@ -13,7 +13,12 @@
 
 /* ---- Section card ---- */
 
+/* flex-shrink: 0 is load-bearing. A card is a natural-height stack of rows, and neither the card body nor
+ * a typical row carries a min-height — so in a height-bounded parent the default flex-shrink of 1 lets the
+ * card be compressed, and the compression lands on the rows, which overlap their own text. A card that
+ * cannot fit should overflow into its scroll view, never squeeze. */
 .molca-card {
+    flex-shrink: 0;
     border-width: 1px;
     border-color: var(--molca-border-soft);
     border-radius: 3px;
@@ -74,13 +79,26 @@
     opacity: 0.4;
 }
 
+/*
+ * The card-header help button carries no `molca-button` class of its own, so it was wearing Unity's
+ * default button fill while every neighbouring action wore `--molca-control`. It needs the token fill
+ * before it can carry token interaction states (declared with the other button states below): a
+ * translucent hover wash over an opaque default fill *replaces* that fill rather than layering on it,
+ * which reads as the button vanishing under the pointer.
+ */
 .molca-help-button {
     width: 20px;
     height: 20px;
     padding: 0;
+    border-width: 1px;
+    border-color: var(--molca-card);
     border-radius: 10px;
+    background-color: var(--molca-control);
+    color: var(--molca-text);
     -unity-text-align: middle-center;
     font-size: 10px;
+    transition-property: background-color, border-color, color;
+    transition-duration: 0.08s;
 }
 
 /* ---- Status dot ---- */
@@ -136,38 +154,43 @@
     min-width: 0;
 }
 
-/* ---- Rail ---- */
-
-.molca-rail {
-    width: 188px;
-    flex-shrink: 0;
-    background-color: var(--molca-panel);
-    border-right-width: 1px;
-    border-right-color: var(--molca-border);
-    padding-top: 8px;
-    padding-bottom: 8px;
+/* UIElements fields carry their own label slot; these rows supply the label, so it is collapsed. */
+.molca-field-control > .unity-base-field__label {
+    display: none;
 }
 
-.molca-rail-item {
-    min-height: 29px;
-    padding-top: 7px;
-    padding-bottom: 7px;
-    padding-left: 12px;
-    padding-right: 12px;
-    border-width: 0;
-    border-left-width: 2px;
-    border-left-color: rgba(0, 0, 0, 0);
-    border-radius: 0;
-    background-color: rgba(0, 0, 0, 0);
-    color: var(--molca-text);
-    -unity-text-align: middle-left;
+.molca-field-textarea > .unity-base-text-field__input {
+    min-height: 48px;
+    white-space: normal;
+}
+
+.molca-field-list-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+.molca-field-list-entry {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-right: 4px;
+}
+
+.molca-field-heading {
     font-size: 11px;
+    -unity-font-style: bold;
+    color: var(--molca-heading);
+    margin-top: 8px;
+    margin-bottom: 2px;
 }
 
-.molca-rail-item--selected {
-    background-color: var(--molca-row-selected);
-    border-left-color: var(--molca-accent);
-    color: white;
+.molca-field-actions {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 6px;
 }
 
 /* ---- Search field (placeholder overlay) ---- */
@@ -211,6 +234,8 @@
     background-color: var(--molca-control);
     color: var(--molca-text);
     font-size: 10px;
+    transition-property: background-color, border-color, color;
+    transition-duration: 0.08s;
 }
 
 .molca-mini-button {
@@ -233,6 +258,70 @@
     -unity-text-align: middle-center;
     padding-top: 7px;
     padding-bottom: 7px;
+}
+
+/*
+ * Button interaction states.
+ *
+ * Declared after every base and modifier rule above, and that order is load-bearing. A pseudo-class
+ * counts toward specificity exactly like a class, so `.molca-button:hover` (two classes) already
+ * outranks `.molca-button--primary` (one). Two consequences, both paid for once here:
+ *   1. Every fill variant needs its own state pair, or the base hover repaints it — a primary action
+ *      would turn control-grey under the pointer.
+ *   2. A variant's pair must come after the base's, because the two tie on specificity and Unity then
+ *      resolves by source order.
+ * The same arithmetic is why these rules are needed at all: Unity's built-in `Button:hover` outranks a
+ * single-class Molca rule, so before this block a Molca-filled button reverted to the editor's default
+ * grey hover — feedback that pointed at the wrong colour rather than no feedback.
+ *
+ * Vocabulary: hover lifts the fill, pressed sinks it, focus rings the border for keyboard traversal,
+ * disabled flattens to `--molca-control-disabled` with muted text. Pressed is `:hover:active`, not bare
+ * `:active`, so dragging off a held button releases the pressed look the way Unity's own controls do.
+ * Hover changes fill only, never text colour — otherwise the base rule would also recolour the white
+ * label on a primary button.
+ */
+
+.molca-button:hover {
+    background-color: var(--molca-control-hover);
+}
+
+.molca-button:hover:active {
+    background-color: var(--molca-control-pressed);
+}
+
+.molca-button:focus {
+    border-color: var(--molca-focus-ring);
+}
+
+.molca-button:disabled {
+    background-color: var(--molca-control-disabled);
+    color: var(--molca-muted);
+}
+
+.molca-button--primary:hover {
+    background-color: var(--molca-primary-hover);
+}
+
+.molca-button--primary:hover:active {
+    background-color: var(--molca-primary-pressed);
+}
+
+.molca-button--primary:disabled {
+    background-color: var(--molca-control-disabled);
+    color: var(--molca-muted);
+}
+
+.molca-help-button:hover {
+    background-color: var(--molca-control-hover);
+    color: var(--molca-heading);
+}
+
+.molca-help-button:hover:active {
+    background-color: var(--molca-control-pressed);
+}
+
+.molca-help-button:focus {
+    border-color: var(--molca-focus-ring);
 }
 
 /* ---- Link row ---- */
@@ -259,6 +348,15 @@
 
 .molca-link-button:hover {
     color: var(--molca-accent);
+}
+
+/* A borderless link has no fill to sink, so pressed is carried by the text colour instead. */
+.molca-link-button:hover:active {
+    color: var(--molca-heading);
+}
+
+.molca-link-button:disabled {
+    color: var(--molca-muted);
 }
 
 /* ---- Divider ---- */
@@ -345,15 +443,45 @@
     margin-bottom: 0;
 }
 
+/* A TwoPaneSplitView, which lays its panes out from its own orientation — so no flex-direction here, or
+ * the panes and the drag handle would end up on different axes. */
 .molca-workspace-split {
-    flex-direction: row;
     flex-grow: 1;
     min-height: 0;
 }
 
+/* Rail above the content instead of beside it, for a dock too short to show the rail beside the content:
+ * the split becomes a column and the content pane takes the rest of the height. The rail itself needs no
+ * special mode — it is a TreeView, so it scrolls. */
 .molca-workspace-split__content {
     flex-grow: 1;
     min-width: 0;
+}
+
+/*
+ * A workspace whose body starts with a navigation rail.
+ *
+ * The rail has to reach the panel edge. Inset by the root's padding it reads as a floating box sitting in
+ * the workspace rather than as the window's own navigation, and it stops matching Settings and Docs, whose
+ * roots carry no horizontal padding at all. So a railed workspace moves that padding outward: the root
+ * gives it up, and the header and the content pane take it back.
+ */
+.molca-workspace--railed {
+    padding-left: 0;
+    padding-right: 0;
+    padding-bottom: 0;
+}
+
+.molca-workspace--railed > .molca-workspace-header,
+.molca-workspace--railed > .molca-theme-preview {
+    padding-left: 12px;
+    padding-right: 12px;
+}
+
+.molca-workspace--railed .molca-workspace-split__content {
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-bottom: 12px;
 }
 
 .molca-list {
@@ -397,6 +525,11 @@
 .molca-list-row__toggle:hover {
     color: var(--molca-heading);
     background-color: var(--molca-control);
+}
+
+.molca-list-group__toggle:hover:active,
+.molca-list-row__toggle:hover:active {
+    background-color: var(--molca-control-pressed);
 }
 
 .molca-list-group__heading {
@@ -662,6 +795,129 @@
     color: var(--molca-heading);
     border-bottom-color: var(--molca-accent);
     -unity-font-style: bold;
+}
+
+/* Declared after `--active` so the pressed fill applies to the current subtab too. */
+.molca-workspace-subtab:hover:active {
+    background-color: var(--molca-control-pressed);
+}
+
+/* ---- Themes workspace ----
+ * The Themes workspace keeps a swatch vocabulary of its own (ColorThemeWorkspaceView): a colour swatch, the
+ * per-variant strip that rides on a list row, the live preview strip, and the value editor rows inside an
+ * expanded token. Colours that represent *theme data* are set inline from the resolved token — only the
+ * chrome around them resolves from `--molca-*`. */
+
+.molca-theme-swatch {
+    flex-shrink: 0;
+    margin-right: 2px;
+    border-width: 1px;
+    /* Deliberately not a --molca-* token. A swatch shows theme data, so its frame has to stay visible
+     * against both editor skins *and* against whatever colour the token happens to be; a skin-tracking
+     * border disappears exactly when the token matches the skin. Mid-grey is the one value that never does.
+     * Without a frame at all, a fully transparent token is an invisible gap. */
+    border-color: rgb(128, 128, 128); /* doctor:ignore — intentional fixed value, see above */
+}
+
+.molca-theme-swatch--missing {
+    border-color: var(--molca-status-warn);
+}
+
+.molca-theme-strip {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.molca-theme-column--active {
+    color: var(--molca-heading);
+    -unity-font-style: bold;
+}
+
+.molca-theme-variant-picker {
+    width: 130px;
+    margin-right: 4px;
+}
+
+/* The preview strip is pinned below the workspace body and keeps its height: it is the feedback surface for
+ * every edit above it, so a short window scrolls the body rather than crushing the preview. */
+.molca-theme-preview {
+    flex-shrink: 0;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top-width: 1px;
+    border-top-color: var(--molca-border);
+}
+
+.molca-theme-preview__caption {
+    color: var(--molca-muted);
+    font-size: 10px;
+    margin-bottom: 4px;
+}
+
+.molca-theme-preview__body {
+    flex-direction: row;
+    align-items: flex-start;
+}
+
+.molca-theme-preview__panel {
+    flex-direction: row;
+    align-items: center;
+    min-height: 40px;
+    padding: 6px 10px;
+    border-width: 1px;
+    border-radius: 3px;
+    /* No background-color or border-color here: both are painted inline from the resolved tokens, and a
+     * fallback would make an unresolved theme look like a resolved one. */
+}
+
+.molca-theme-preview__text {
+    flex-grow: 1;
+    min-width: 0;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.molca-theme-preview__chip {
+    flex-shrink: 0;
+    margin-left: 8px;
+    padding: 3px 8px;
+    border-radius: 2px;
+    font-size: 10px;
+    -unity-text-align: middle-center;
+}
+
+.molca-theme-preview__legend {
+    color: var(--molca-muted);
+    font-size: 10px;
+    margin-top: 3px;
+    white-space: normal;
+}
+
+.molca-theme-preview__wall {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    flex-shrink: 0;
+    width: 168px;
+    margin-left: 12px;
+}
+
+.molca-theme-editor {
+    align-items: center;
+    min-height: 24px;
+    margin-bottom: 3px;
+}
+
+.molca-theme-editor__hex {
+    width: 92px;
+    flex-shrink: 0;
+    margin-left: 6px;
+    color: var(--molca-muted);
+    font-size: 10px;
+    white-space: nowrap;
 }
 
 .molca-light .molca-list-row__line:hover {

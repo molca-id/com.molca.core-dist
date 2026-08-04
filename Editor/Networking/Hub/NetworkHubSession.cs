@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Molca.Networking.Configuration;
 using Molca.Editor.Networking.Authoring;
 using Molca.Editor.Networking.Migration;
@@ -212,6 +213,73 @@ namespace Molca.Editor.Networking.Hub
         /// <summary>Asks the workspace to navigate somewhere.</summary>
         /// <param name="target">Where to go.</param>
         public void Navigate(NetworkHubNavigationTarget target) => NavigationRequested?.Invoke(target);
+
+        /// <summary>
+        /// Reports an authoring outcome and reloads so every view reflects the write.
+        /// </summary>
+        /// <param name="result">The outcome returned by the editing service.</param>
+        /// <remarks>
+        /// Reloads on failure too, which is the point: a refused edit leaves the control showing a value
+        /// the catalog does not hold, and the reload snaps it back to the stored one. Without that, a
+        /// rejected origin would sit in the field looking saved.
+        /// </remarks>
+        public void Apply(NetworkAuthoringResult result)
+        {
+            if (result.Success)
+                UnityEngine.Debug.Log($"[Network] {result.Message}");
+            else
+                UnityEngine.Debug.LogWarning($"[Network] {result.Message}");
+
+            Reload();
+        }
+
+        /// <summary>The catalog's environment IDs, for a reference dropdown.</summary>
+        public List<string> EnvironmentIds() => IdsOf(Catalog?.Environments, e => e?.Id);
+
+        /// <summary>The catalog's service IDs, for a reference dropdown.</summary>
+        public List<string> ServiceIds() => IdsOf(Catalog?.Services, s => s?.Id);
+
+        /// <summary>The catalog's policy profile IDs, for a reference dropdown.</summary>
+        public List<string> PolicyProfileIds() => IdsOf(Catalog?.PolicyProfiles, p => p?.Id);
+
+        /// <summary>The catalog's credential profile IDs, for a reference dropdown.</summary>
+        public List<string> CredentialProfileIds() => IdsOf(Catalog?.CredentialProfiles, c => c?.Id);
+
+        /// <summary>Every endpoint ID in the catalog, for a reference dropdown.</summary>
+        /// <remarks>
+        /// Flat across collections because endpoint IDs are unique catalog-wide, which is what lets a
+        /// health-check reference or a deep link name one by ID alone.
+        /// </remarks>
+        public List<string> EndpointIds()
+        {
+            var ids = new List<string>();
+            if (Catalog == null) return ids;
+
+            foreach (var collection in Catalog.EndpointCollections)
+            {
+                if (collection == null) continue;
+
+                foreach (var endpoint in collection.Endpoints)
+                {
+                    if (endpoint != null && !string.IsNullOrEmpty(endpoint.Id))
+                        ids.Add(endpoint.Id);
+                }
+            }
+            return ids;
+        }
+
+        private static List<string> IdsOf<T>(IReadOnlyList<T> source, Func<T, string> idOf)
+        {
+            var ids = new List<string>();
+            if (source == null) return ids;
+
+            foreach (var item in source)
+            {
+                string id = idOf(item);
+                if (!string.IsNullOrEmpty(id)) ids.Add(id);
+            }
+            return ids;
+        }
 
         /// <summary>
         /// Settles the preview environment on one that exists.

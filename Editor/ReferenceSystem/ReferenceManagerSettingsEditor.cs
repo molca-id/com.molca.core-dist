@@ -175,14 +175,14 @@ namespace Molca.Editor
         {
             EditorGUILayout.LabelField("Scan Configuration", EditorStyles.boldLabel);
 
-            DrawProperty("comprehensiveSceneScanning");
             DrawProperty("prefabScanPaths");
 
             EditorGUILayout.HelpBox(
                 "Prefab Scan Paths gates prefab coverage: an empty list means prefabs are not scanned, and "
-                + "the audit reports that as a coverage gap rather than as success. Comprehensive Scene "
-                + "Scanning lets a project-wide audit open closed scenes; it is skipped when any open scene "
-                + "has unsaved changes, since a read-only audit will neither discard nor save your work.",
+                + "the audit reports that as a coverage gap rather than as success. Scene coverage is not "
+                + "configured here — a Full audit always opens the project's closed scenes, and is skipped "
+                + "when any open scene has unsaved changes, since a read-only audit will neither discard "
+                + "nor save your work.",
                 MessageType.Info);
 
             EditorGUILayout.Space();

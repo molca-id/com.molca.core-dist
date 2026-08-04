@@ -312,10 +312,19 @@
     border-top-color: var(--hub-border);
 }
 
+/*
+ * One line, always. The rail is a fixed-height strip pinned to the bottom of the shell, so wrapping
+ * gave it a second row of chips it had no height to show: the two rows drew over each other and the
+ * lower one was clipped by the window edge. Chips compress instead — each already caps at 200px and
+ * ellipsizes its status label — and the row clips rather than reflowing.
+ */
 .molca-hub-activity-rail__chips {
     flex-direction: row;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
 }
 
 /* Developer-license pill, right-anchored to the far end of the rail (margin-left: auto). */
@@ -371,6 +380,11 @@
     flex-direction: row;
     align-items: center;
     height: 20px;
+    /* flex-shrink alone does nothing while min-width resolves to the content size; the pair is what
+       lets a crowded rail compress its chips instead of pushing them off the end. The status label
+       inside absorbs the loss by ellipsizing, so the dot and name stay readable. */
+    flex-shrink: 1;
+    min-width: 0;
     max-width: 200px;
     margin-right: 6px;
     padding-left: 8px;
@@ -931,12 +945,26 @@
     margin-bottom: 7px;
 }
 
+/*
+ * The Hub's compact action button — the most-used button in the window (Copy, Connect, Restart, Reveal,
+ * the allowlist pagers, …).
+ *
+ * Unlike the shared `.molca-mini-button`, which MolcaButtons always pairs with `.molca-button`, this
+ * class is applied on its own. So it carried no fill of its own and rendered in Unity's default button
+ * grey beside Molca-filled actions. The chrome is stated here — same values as `.molca-hub-button` and
+ * the shared `.molca-button` — because the interaction states at the end of this sheet need a resting
+ * value to move away from: a hover token against Unity's default fill is a colour swap, not a lift.
+ */
 .molca-hub-mini-button {
     height: 20px;
     padding-left: 8px;
     padding-right: 8px;
     font-size: 10px;
+    border-width: 1px;
+    border-color: var(--hub-card);
     border-radius: 2px;
+    background-color: var(--hub-control);
+    color: var(--hub-text);
 }
 
 /* ----- Build & Version section (Sprint 26.6) ----- */
@@ -1709,6 +1737,13 @@
     padding: 6px;
 }
 
+/* Tool-list search: the shared search field inset to the card body's own padding, not the rail's. */
+.molca-hub-mcp-search {
+    margin-left: 0;
+    margin-right: 0;
+    margin-bottom: 4px;
+}
+
 .molca-hub-mcp-allowlist {
     margin-top: 6px;
     background-color: var(--hub-input);
@@ -1739,6 +1774,13 @@
     align-items: center;
     margin-bottom: 3px;
     padding-right: 10px;
+}
+
+.molca-hub-mcp-allowlist__empty {
+    width: 100%;
+    font-size: 11px;
+    padding-top: 2px;
+    padding-left: 2px;
 }
 
 .molca-hub-allow-name {
@@ -2271,4 +2313,217 @@
 
 .molca-hub-about-toggle {
     font-size: 11px;
+}
+
+/* =========================================================================================
+ * Interaction states — hover / pressed / focus / disabled
+ *
+ * Why one block, at the end, instead of a pair of rules under each component above: a pseudo-class
+ * counts toward specificity exactly like a class, so `.molca-hub-bv-action:hover` (two classes) already
+ * outranks `.molca-hub-bv-action--primary` (one). Every state rule therefore has to be declared after
+ * every base *and* modifier rule it must beat, and modifier states have to follow base states because
+ * the two tie and Unity resolves a tie by source order. Collecting them here is what makes that order
+ * hold no matter where the component itself is defined in the sheet — and makes the set auditable: one
+ * place that answers "does every clickable in the Hub respond to the pointer?".
+ *
+ * This is also why the states are needed at all. Unity's built-in `Button:hover` outranks a
+ * single-class Molca rule, so before this block, hovering a Hub button that had set its own fill handed
+ * the surface back to the editor's default grey — the blue "Build All" pill and the accented segments
+ * included. The feedback was not missing so much as pointing at the wrong colour.
+ *
+ * The vocabulary (defined in Editor/UI/MolcaEditorTokens.uss, tracks both skins):
+ *   hover     lifts the fill        `--hub-control-hover` / `--hub-primary-hover` / `--hub-hover-wash`
+ *   pressed   sinks it              `--hub-control-pressed` / `--hub-primary-pressed` / `--hub-pressed-wash`
+ *   focus     rings the border      `--hub-focus-ring`
+ *   disabled  flattens it           `--hub-control-disabled` + `--hub-muted` text
+ *
+ * Two rules of thumb when adding a clickable to this sheet:
+ *   - Pressed is `:hover:active`, never bare `:active`, so dragging the pointer off a held button
+ *     releases the pressed look — the behaviour of Unity's own controls.
+ *   - A `*-wash` token only works where the resting background is transparent. A translucent fill
+ *     *replaces* an opaque one rather than layering over it, so a wash on a filled button reads as the
+ *     button briefly disappearing.
+ * ========================================================================================= */
+
+/* Fill transitions, stated once for every button family below. Declared on the base (no pseudo-class)
+   so the surface eases both into and out of a state; a transition inside a `:hover` rule only animates
+   the way in. Deliberately not animating border-color: the focus ring should land immediately. */
+.molca-hub-mini-button,
+.molca-hub-bv-segment,
+.molca-hub-bv-rail-button,
+.molca-hub-bv-action,
+.molca-hub-action-full,
+.molca-hub-bv-footer__button,
+.molca-hub-bv-primary-pill,
+.molca-hub-rt-chip,
+.molca-hub-rt-chip-item,
+.molca-hub-rt-context__ping,
+.molca-hub-bv-profile-row,
+.molca-hub-integration-add,
+.molca-hub-link-button,
+.molca-hub-activity-chip__dismiss {
+    transition-property: background-color, color;
+    transition-duration: 0.08s;
+}
+
+/* ---- Control-filled buttons ---- */
+
+.molca-hub-mini-button:hover,
+.molca-hub-bv-segment:hover,
+.molca-hub-bv-rail-button:hover,
+.molca-hub-bv-action:hover,
+.molca-hub-action-full:hover,
+.molca-hub-bv-footer__button:hover,
+.molca-hub-rt-chip:hover {
+    background-color: var(--hub-control-hover);
+}
+
+.molca-hub-mini-button:hover:active,
+.molca-hub-bv-segment:hover:active,
+.molca-hub-bv-rail-button:hover:active,
+.molca-hub-bv-action:hover:active,
+.molca-hub-action-full:hover:active,
+.molca-hub-bv-footer__button:hover:active,
+.molca-hub-rt-chip:hover:active {
+    background-color: var(--hub-control-pressed);
+}
+
+.molca-hub-mini-button:focus,
+.molca-hub-bv-segment:focus,
+.molca-hub-bv-rail-button:focus,
+.molca-hub-bv-action:focus,
+.molca-hub-action-full:focus,
+.molca-hub-bv-footer__button:focus,
+.molca-hub-bv-primary-pill:focus,
+.molca-hub-rt-chip:focus,
+.molca-hub-rt-chip-item:focus {
+    border-color: var(--hub-focus-ring);
+}
+
+/* Disabled covers the enabled-state churn the Hub does constantly: Connect/Disconnect while a project
+   request is in flight, Build while a build runs, the allowlist pagers at either end of the list. */
+.molca-hub-mini-button:disabled,
+.molca-hub-bv-segment:disabled,
+.molca-hub-bv-rail-button:disabled,
+.molca-hub-bv-action:disabled,
+.molca-hub-action-full:disabled,
+.molca-hub-bv-footer__button:disabled,
+.molca-hub-bv-primary-pill:disabled,
+.molca-hub-rt-chip:disabled {
+    background-color: var(--hub-control-disabled);
+    color: var(--hub-muted);
+}
+
+/* ---- Primary-filled buttons ----
+   After the control rules above: these tie on specificity, and the primary fill has to win. */
+
+.molca-hub-bv-primary-pill:hover,
+.molca-hub-bv-segment--active:hover,
+.molca-hub-bv-action--primary:hover,
+.molca-hub-action-full--primary:hover,
+.molca-hub-rt-chip-item--selected:hover {
+    background-color: var(--hub-primary-hover);
+}
+
+.molca-hub-bv-primary-pill:hover:active,
+.molca-hub-bv-segment--active:hover:active,
+.molca-hub-bv-action--primary:hover:active,
+.molca-hub-action-full--primary:hover:active,
+.molca-hub-rt-chip-item--selected:hover:active {
+    background-color: var(--hub-primary-pressed);
+}
+
+.molca-hub-bv-action--primary:disabled,
+.molca-hub-action-full--primary:disabled {
+    background-color: var(--hub-control-disabled);
+    color: var(--hub-muted);
+}
+
+/* ---- Module chips (resting fill is `--hub-input`) ----
+   Hover is carried by the border and label rather than the fill, matching the Doctor and Reference
+   chip walls: the lime accent marks the chip under the pointer without lighting up the whole strip.
+   The label sets its own colour, so it has to be recoloured through a descendant selector. */
+
+.molca-hub-rt-chip-item:hover {
+    border-color: var(--hub-accent);
+}
+
+.molca-hub-rt-chip-item:hover .molca-hub-rt-chip-item__name {
+    color: var(--hub-heading);
+}
+
+.molca-hub-rt-chip-item:hover:active .molca-hub-rt-chip-item__name {
+    color: var(--hub-accent);
+}
+
+/* The selected chip keeps its primary fill and white label; the accent border would fight the fill, and
+   the hover label colour above would dull the white one it already earned by being selected. */
+.molca-hub-rt-chip-item--selected:hover {
+    border-color: var(--hub-primary);
+}
+
+.molca-hub-rt-chip-item--selected:hover .molca-hub-rt-chip-item__name,
+.molca-hub-rt-chip-item--selected:hover:active .molca-hub-rt-chip-item__name {
+    color: white;
+}
+
+/* ---- Transparent surfaces (washes) ---- */
+
+.molca-hub-bv-profile-row:hover {
+    background-color: var(--hub-hover-wash);
+}
+
+/* The ping icon button sits in the runtime breadcrumb with no fill and a muted glyph. */
+.molca-hub-rt-context__ping:hover {
+    background-color: var(--hub-hover-wash);
+    color: var(--hub-heading);
+}
+
+/* The "add integration" placeholder is an outline with no fill, so its border does the talking. */
+.molca-hub-integration-add:hover {
+    background-color: var(--hub-hover-wash);
+    border-color: var(--hub-accent);
+    color: var(--hub-heading);
+}
+
+.molca-hub-rt-context__ping:hover:active,
+.molca-hub-bv-profile-row:hover:active,
+.molca-hub-integration-add:hover:active,
+.molca-hub-activity-chip__dismiss:hover:active {
+    background-color: var(--hub-pressed-wash);
+}
+
+/* A selected profile row must not look deselected under the pointer. Hover and pressed both outrank
+   `--selected`, so the selection fill is restated here: the row under the pointer holds its selection
+   instead of reverting to a wash over the rail. */
+.molca-hub-bv-profile-row--selected:hover,
+.molca-hub-bv-profile-row--selected:hover:active {
+    background-color: var(--hub-row-selected);
+}
+
+/* ---- Workspace tabs ----
+   `:hover` already exists next to the component. Only the pressed state is added, plus the guard that
+   keeps the active tab from flashing the pressed fill — it is joined to the workspace surface below it
+   and that seam should not move when the tab is clicked again. */
+
+.molca-hub-workspace-tab:hover:active {
+    background-color: var(--hub-control-pressed);
+}
+
+.molca-hub-workspace-tab--active:hover:active {
+    background-color: var(--hub-bg);
+}
+
+/* ---- Links ---- */
+
+.molca-hub-link-button:hover {
+    color: var(--hub-accent);
+}
+
+.molca-hub-link-button:hover:active {
+    color: var(--hub-heading);
+}
+
+.molca-hub-link-button:disabled {
+    color: var(--hub-muted);
 }

@@ -148,6 +148,21 @@
     opacity: 1;
 }
 
+/*
+ * Hover, declared after `--active` so it reaches the on chips too (a pseudo-class outranks the plain
+ * modifier, and the two tie, so order decides). Accent border, the same mark the Doctor's chip wall
+ * uses — and *only* the border: on this strip the on/off difference is carried entirely by text colour
+ * and opacity, so a hover that also brightened those would make a hovered off chip look switched on.
+ * Pressed adds a wash, which works here because the resting fill is transparent.
+ */
+.molca-references__chip:hover {
+    border-color: var(--molca-accent);
+}
+
+.molca-references__chip:hover:active {
+    background-color: var(--molca-pressed-wash);
+}
+
 .molca-references__filter-summary {
     font-size: 11px;
     color: var(--molca-muted);
@@ -218,38 +233,32 @@
     flex-grow: 1;
 }
 
-/* ---- Table rows ---- */
+/* ---- Table cells ---- */
 
 /*
- * The header mirrors the row's box model exactly — same cell width classes, same right margins, and a
- * spacer standing in for the 8px status dot plus its 6px gutter — so a heading always sits over its
- * column at any pane width.
+ * Column geometry is the MultiColumnTreeView's job now: it owns the header, the widths, the resize
+ * handles and the sort indicators. What used to live here was a parallel implementation of all of that —
+ * a shared array of width classes applied to both a hand-built header row and every data row, purely so
+ * the two could not drift apart. These rules style cell *content* only, and must not reintroduce a
+ * flex-basis: a cell that sizes itself from its own text is exactly the misalignment the control fixes.
  */
-.molca-references__table-header {
+.molca-references__cell {
+    flex-grow: 1;
+    flex-shrink: 1;
+    font-size: 11px;
+    color: var(--molca-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -unity-text-align: middle-left;
+}
+
+/* The name column carries the severity dot, so colour and text always travel together. */
+.molca-references__name-cell {
     flex-direction: row;
     align-items: center;
-    height: 20px;
-    border-bottom-width: 1px;
-    border-bottom-color: var(--molca-border-soft);
-    margin-bottom: 2px;
-}
-
-.molca-references__header-dot-spacer {
-    width: 8px;
-    flex-shrink: 0;
-    margin-right: 6px;
-}
-
-.molca-references__header-cell {
-    color: var(--molca-muted);
-    -unity-font-style: bold;
-    font-size: 10px;
-}
-
-.molca-references__row {
-    flex-direction: row;
-    align-items: center;
-    height: 22px;
+    flex-grow: 1;
+    overflow: hidden;
 }
 
 .molca-references__row-dot {
@@ -257,65 +266,26 @@
     margin-right: 6px;
 }
 
-/*
- * Every cell declares an explicit `flex-basis`, and that is the whole reason these are columns.
- *
- * The default `flex-basis: auto` makes a flex item's base size its *content* size, so a column of text
- * cells sizes itself from whatever text each row happens to hold: two rows of the same table land their
- * values at different x, and the header — short words like "Source" — lands them somewhere else again.
- * A fixed basis (0 for the proportional columns, a width for the fixed ones) makes a column's width a
- * function of the pane, never of its contents.
- *
- * `flex-basis` beats `width` for a flex item, so the fixed columns state their size as the basis rather
- * than as a width that would be ignored.
- */
-.molca-references__cell {
-    flex-grow: 0;
-    flex-shrink: 1;
-    flex-basis: 0;
-    font-size: 11px;
+.molca-references__cell--name {
     color: var(--molca-text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    -unity-text-align: middle-left;
-    margin-right: 8px;
 }
 
-.molca-references__cell--code {
-    flex-basis: 54px;
-    flex-shrink: 0;
-    color: var(--molca-muted);
+/* A group heading names a Ref Type, not a row that can be acted on, so it reads as structure. */
+.molca-references__cell--group {
     -unity-font-style: bold;
+    color: var(--molca-heading);
 }
 
-.molca-references__cell--title {
-    flex-grow: 1.4;
-    min-width: 60px;
-}
-
-.molca-references__cell--owner {
-    flex-grow: 1.2;
-    min-width: 40px;
+/*
+ * Monospaced because this column holds RefType:RefId pairs and a generated id is a guid. In the
+ * proportional brand face two nearly-identical ids look identical, which is precisely the comparison a
+ * duplicate report asks the reader to make. RobotoMono is a Unity editor built-in
+ * (Editor/Data/Resources/Fonts), so this costs the package no asset.
+ */
+.molca-references__cell--identity {
+    -unity-font-definition: resource("Fonts/RobotoMono-Regular");
+    font-size: 10px;
     color: var(--molca-muted);
-}
-
-.molca-references__cell--target {
-    flex-grow: 1;
-    min-width: 40px;
-    color: var(--molca-muted);
-}
-
-.molca-references__cell--state {
-    flex-basis: 130px;
-    flex-shrink: 0;
-    color: var(--molca-muted);
-}
-
-.molca-references__cell--repair {
-    flex-basis: 100px;
-    flex-shrink: 0;
-    color: var(--molca-link);
 }
 
 .molca-references__empty {
@@ -398,6 +368,63 @@
     font-size: 11px;
     color: var(--molca-text);
     white-space: normal;
+}
+
+/* ---- Authoring controls ---- */
+
+/*
+ * Identity editors sit in the detail panel next to the row they change, at the panel's own width. They
+ * are deliberately plain fields rather than inline-editable table cells: typing a Ref Id into a grid
+ * would read as a field edit, and it is a refactor over every reference that names the old one.
+ */
+.molca-references__authoring-field {
+    margin-top: 4px;
+    margin-bottom: 2px;
+}
+
+.molca-references__graph {
+    margin-top: 6px;
+}
+
+/* ---- Load set editor ---- */
+
+.molca-references__loadsets {
+    margin-top: 4px;
+}
+
+.molca-references__loadset {
+    border-left-width: 2px;
+    border-left-color: var(--molca-border);
+    padding-left: 6px;
+    margin-bottom: 8px;
+}
+
+.molca-references__loadset-group {
+    margin-top: 4px;
+    margin-left: 8px;
+}
+
+.molca-references__loadset-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.molca-references__loadset-field {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 80px;
+}
+
+/* ---- Policy ---- */
+
+/*
+ * A header-toggled panel rather than a card appended under every selected row. Policy is the same ten
+ * rows whatever is selected, and rebuilding it beneath each finding pushed that finding's own detail off
+ * the top of the panel.
+ */
+.molca-references__policy-panel {
+    margin-bottom: 6px;
 }
 
 .molca-references__policy-row {

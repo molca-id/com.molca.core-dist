@@ -98,6 +98,37 @@ namespace Molca.ContentPackage.Editor
             new Regex(@"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$", RegexOptions.Compiled);
 
         /// <summary>
+        /// Whether a string is a usable package id, and why not when it is not.
+        /// </summary>
+        /// <param name="packageId">The candidate id.</param>
+        /// <param name="error">The reason it is unusable, or null.</param>
+        /// <returns>True when the id is well-formed.</returns>
+        /// <remarks>
+        /// The same rule <c>package_id_invalid</c> reports, exposed so an authoring control can refuse a
+        /// bad id at the prompt instead of accepting it and letting the finding appear afterwards. It is
+        /// exposed rather than re-typed because two spellings of this pattern would disagree eventually,
+        /// and the one the server enforces is this one.
+        /// </remarks>
+        public static bool IsValidPackageId(string packageId, out string error)
+        {
+            if (string.IsNullOrWhiteSpace(packageId))
+            {
+                error = "A package id cannot be empty.";
+                return false;
+            }
+
+            if (!PackageIdPattern.IsMatch(packageId))
+            {
+                error = "Lowercase letters, digits, dot, dash and underscore only, up to 64 characters, " +
+                        "starting with a letter or digit. The server rejects anything else.";
+                return false;
+            }
+
+            error = null;
+            return true;
+        }
+
+        /// <summary>
         /// Validates the package definitions alone. Cheap and build-independent.
         /// </summary>
         /// <param name="configs">The package configurations from settings.</param>

@@ -412,28 +412,41 @@ namespace Molca.Editor.ReferenceSystem.Repair
                 $"Could not generate a Ref Id for type '{type}' that no provider already holds.");
         }
 
-        private static Dictionary<string, string> CurrentSiteValues(ReferenceSiteRecord site) =>
+        /// <summary>The serialized values a site currently holds, as a mutation precondition.</summary>
+        /// <param name="site">The site to read.</param>
+        /// <remarks>
+        /// Internal rather than private so <see cref="ReferenceAuthoringPlanner"/> writes the same field set.
+        /// Two planners with their own idea of which fields make up a reference would eventually disagree,
+        /// and the disagreement would look like a failing precondition rather than like a defect.
+        /// </remarks>
+        internal static Dictionary<string, string> CurrentSiteValues(ReferenceSiteRecord site) =>
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["refId"] = site.StoredRefId,
                 ["refType"] = site.StoredRefType,
             };
 
-        private static Dictionary<string, string> ProviderSiteValues(ReferenceProviderRecord provider) =>
+        /// <summary>The serialized values a site would hold after being pointed at a provider.</summary>
+        /// <param name="provider">The target provider.</param>
+        internal static Dictionary<string, string> ProviderSiteValues(ReferenceProviderRecord provider) =>
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["refId"] = provider.RefId,
                 ["refType"] = provider.RefType,
             };
 
-        private static Dictionary<string, string> EmptySiteValues() =>
+        /// <summary>The serialized values of an unset reference.</summary>
+        internal static Dictionary<string, string> EmptySiteValues() =>
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["refId"] = string.Empty,
                 ["refType"] = string.Empty,
             };
 
-        private static IReadOnlyList<ReferenceFinding> FindingsForSite(
+        /// <summary>Findings anchored to one site.</summary>
+        /// <param name="snapshot">The audit to search.</param>
+        /// <param name="siteKey">The site key to match.</param>
+        internal static IReadOnlyList<ReferenceFinding> FindingsForSite(
             ReferenceAuditSnapshot snapshot, string siteKey) =>
             snapshot.Findings
                 .Where(f => string.Equals(f.SourceSiteKey, siteKey, StringComparison.Ordinal))
@@ -448,7 +461,8 @@ namespace Molca.Editor.ReferenceSystem.Repair
         /// <summary>
         /// Deterministic mutation order: same snapshot, same plan, same preview, same plan id.
         /// </summary>
-        private static IReadOnlyList<ReferenceRepairMutation> Order(
+        /// <param name="mutations">The mutations to order.</param>
+        internal static IReadOnlyList<ReferenceRepairMutation> Order(
             IEnumerable<ReferenceRepairMutation> mutations) =>
             mutations
                 .OrderBy(m => m.Kind)

@@ -47,8 +47,10 @@ Scoped references (v2) add:
 `Packages/com.molca.core/Runtime/ReferenceSystem/`). It exposes:
 
 - **Ref Id** — read-only in the Inspector; auto-generated on `OnValidate` (a GUID-based id such as
-  `ref_referenceable_a1b2…`). You can assign a stable, human-readable id in code or via tooling —
-  the convention is **kebab-case**, e.g. `"main-valve"`, `"control-panel"`.
+  `ref_referenceable_a1b2…`). To give it the stable, human-readable form the convention asks for —
+  **kebab-case**, e.g. `"main-valve"`, `"control-panel"` — use **Rename…** in
+  [the References workspace](#authoring-the-wiring), which moves every reference that names it in the
+  same plan. The field stays read-only precisely because renaming it here would not.
 - **Ref Type** — a category string used for grouped lookups; defaults to `"Referenceable"`.
 - **Display Name** — optional; falls back to the GameObject name.
 
@@ -309,10 +311,16 @@ developer and for CI:
 }
 ```
 
+Or author them from **Molca Hub → References → Coverage → Scene load sets → Edit load sets**, which
+picks scenes as assets rather than as hand-typed paths — a path typed by hand silently stops matching
+once a scene moves, and a load set naming a scene that no longer exists validates nothing while
+looking configured. It writes the same committed file.
+
 With nothing authored, one set is **inferred** from the enabled build scenes: the first is the entry
 scene and the rest are treated as deferred. Deferred, not concurrent — assuming every enabled scene
 loads together is the assumption that made cross-scene validation useless, because it can never report
-anything as unavailable. The Hub's Coverage view says when the set is inferred.
+anything as unavailable. The Hub's Coverage view says when the set is inferred, and seeds the editor
+from the guess so turning it into an authored set is not a retyping exercise.
 
 When several sets mention the same owner scene, the **worst** availability wins. A reference that works
 in one configuration and cannot resolve in another is broken in that second one.
@@ -378,9 +386,11 @@ category is **Incomplete**, never **Clean** — a scan that could not look every
 anything. Common gaps:
 
 - **Prefab assets** — skipped entirely when *Prefab Scan Paths* is empty.
-- **Scenes (declared)** — closed scenes are only opened when *Comprehensive Scene Scanning* is on
-  *and* the caller allows it. The audit refuses to open scenes when any open scene has unsaved
-  changes, since it will neither discard nor save your work.
+- **Scenes (closed)** — a scan that only covers what is already loaded (*Refresh affected*, and every
+  background or incremental caller) records the project's closed scenes as skipped. Run a *Full audit*
+  to include them; that is the only switch, and there is no setting that can quietly turn it off.
+  The audit refuses to open scenes when any open scene has unsaved changes, since it will neither
+  discard nor save your work.
 
 ### The derived index
 
@@ -431,17 +441,22 @@ Repair is a separate, deliberate operation — see below.
 
 ## The References workspace
 
-**Molca Hub → References** (group *Quality*, next to Doctor) is where reference health is read and
-acted on. It projects the same snapshot as everything else; it has no scanning or resolution logic of
-its own.
+**Molca Hub → References** (group *Quality*, next to Doctor) is where reference health is read, and
+where the wiring is authored. It projects the same snapshot as everything else; it has no scanning or
+resolution logic of its own, and every change it makes goes through the same previewed plan a repair
+does.
 
 ### Header
 
-State, counts, coverage percentage, the last audit time, the current mode, and two actions:
+State, counts, coverage percentage, the last audit time, the current mode, the repair summary, and
+four actions:
 
 - **Refresh affected** — re-audit what is already loaded. Opens no scene.
 - **Full audit** — audit the configured project, opening closed scenes to read them and restoring
   your setup afterwards.
+- **Preview safe repairs** — the unambiguous batch. Narrows itself to the current selection when
+  there is one, and its label says which of the two it currently is.
+- **Policy** — toggles the severity editor.
 
 The header says **Clean** only when three things hold at once: no findings, complete required
 coverage, and a snapshot the project has not moved past. Anything else names which one is missing —
@@ -456,29 +471,34 @@ actions are the request for one.
 |---|---|
 | **Issues** | Findings, most severe first. The default. |
 | **References** | Every reference site and what it resolves to. |
-| **Providers** | Every target, with how many references resolve to it and how many merely store its Ref Id. When those two numbers differ, something claims the id and does not get it. |
-| **Graph** | The neighbourhood of the selected row — one hop, bounded. A solid arrow is what the runtime resolves; a dashed one is a match that does not win. Not a project-wide graph. |
+| **Targets** | The wiring, as a tree: *Ref Type → target → the references that reach it*. References that reach nothing, and references that are unset, collect under their own headings — an unresolved reference has no target to sit under, and that is the finding. Each target reports how many references resolve to it and, when the two differ, how many merely store its Ref Id. |
 | **Runtime** | Live registrations in Play Mode, compared against the audit: *expected but not registered* (a disabled object, an unloaded scene, a lifecycle mistake) versus *registered but outside the audit scope*. |
 | **Coverage** | What was scanned, skipped and failed, and why that decides whether `Clean` is available. |
 
-Filters cover severity, free text, source kind, reference type, folder, requiredness, legacy
-fallback, read-only assets and repair availability. A filtered table reports what it is hiding rather
-than just showing fewer rows. Filters, the selected row and a scan in progress all survive switching
-Hub tabs.
+All three table views render through one sortable, resizable, multi-select table. Filters cover
+severity, free text, source kind, reference type, folder, requiredness, legacy fallback, read-only
+assets and repair availability. A filtered table reports what it is hiding rather than just showing
+fewer rows, and in Targets a target survives the filter when *any* reference that names it matches —
+then shows all of them, because how many things share a target is the next thing you need to know.
+Filters, the selection, the expanded groups and a scan in progress all survive switching Hub tabs.
 
 ### Detail panel
 
-The selected row's full locator and property path, its stored target and expected type, its
-candidates, **why it has the severity it has**, and the repairs available for it — plus *Select
-owner*, *Ping target*, *Open scene*, *Open prefab*, *Reveal asset* and *Copy diagnostic*.
+The selected row's full locator and property path, its stored target and expected type, **why it has
+the severity it has**, an identity editor for whatever target it concerns (see below), its
+candidates, a collapsed one-hop **Neighbourhood** graph, and *Select owner*, *Ping target*, *Open
+scene*, *Open prefab*, *Reveal asset* and *Copy diagnostic*.
+
+Selecting several rows replaces the panel with the batch actions for them.
 
 Opening a closed scene is explicit and confirmed, and additive so your current setup survives. The
 audit itself never disturbs your open scenes.
 
 ### Severity policy
 
-The workspace owns severity authoring (the `ReferenceManagerSettings` Inspector does not — it reports
-health in one line and links here). Two limits are worth knowing:
+The workspace owns severity authoring, behind the header's **Policy** control (the
+`ReferenceManagerSettings` Inspector does not — it reports health in one line and links here). Two
+limits are worth knowing:
 
 - `REF002`, `REF003` and `REF004` are **fixed at error**. They describe references that already fail
   at runtime, and lowering one would let a build pass over a project that is broken.
@@ -486,11 +506,45 @@ health in one line and links here). Two limits are worth knowing:
   them decide whether a build fails would make the same commit pass on one machine and fail on
   another. The build gate always uses the production policy.
 
+### Authoring the wiring
+
+A Ref Id is a name other objects have written down. Changing it in a component field leaves every one
+of those objects pointing at a name nothing answers to — silently, and with no record afterwards of
+what the old name was. Only a surface holding the whole audit knows the inbound set, which is why
+`refId` stays read-only on the component and identity changes are planned here.
+
+Every action below builds a `ReferenceRepairPlan` through `ReferenceAuthoringPlanner` and shows it in
+full — naming each reference it would move — before anything is written. None of them is ever
+`Automatic`, so **Preview safe repairs can never pick one up**.
+
+| Action | Where | What it plans |
+|---|---|---|
+| **Rename…** | Identity card | The target's Ref Id, plus every reference that names it. **Suggest readable id** proposes the kebab-case form the naming convention asks for, in place of a generated `ref_<guid>`. |
+| **Change type…** | Identity card | The target's Ref Type, plus every reference that stores the old one. Carried references get both fields, which also clears any legacy fallback they were resolving through. |
+| **Change scope…** | Identity card, when the component declares a `scopeMode` | The target's scope. Names every unscoped (v1) reference that will stop reaching it, because a v1 field cannot express a scoped identity. |
+| **Merge…** | Ref Type group row | Folds one Ref Type into another across every target that carries it. Refused wholesale if any Ref Id would then be duplicated. |
+| **Point here…** | Candidate list | Re-points this reference at that candidate. Offered on a healthy reference too — "actually, point this at the other valve" is an ordinary authoring act. |
+| **Point N references at '…'** | Any selection | Re-points the selection at whatever is selected in the hierarchy. References whose declared type cannot accept it are dropped from the batch and named in the plan. |
+| **Clear N references…** | Multi-row selection | Unsets them. Batched only because forty confirmations for one deliberate act is worse; still never part of a safe batch. |
+| **Make selection referenceable** | Empty selection | Adds a `ReferenceableComponent` to each selected GameObject that has none, with a kebab-case id from its name. The one action with no plan, for the same reason assigning a missing id is automatic: nothing can reference an object that is not yet a target. |
+
+Two refusals matter more than any of the successes, and both are the duplicate rule restated:
+
+- Renaming or retyping **onto** an identity another target already holds is refused. That is
+  authoring a `REF002`.
+- Renaming a target whose identity is **already** duplicated is refused. With two claimants, nothing
+  records which references meant which target, so carrying "the" inbound set would re-point some of
+  them by coin flip — the exact failure the blanket `oldId → newId` rewrite used to cause.
+
+A refusal states its reason in the plan preview; there is no silent no-op.
+
 ### From the Inspector
 
 Every reference field has an **Open in References** action that opens the workspace focused on that
 exact reference — useful on a healthy reference too, since "what else points at this target" is a
-question a working reference raises as often as a broken one.
+question a working reference raises as often as a broken one. The return trip is **Point … at**:
+select the intended object in the hierarchy and re-point from the workspace, without going back to
+the Inspector picker — which cannot see the other references sharing that target.
 
 ### Activity rail
 
@@ -506,11 +560,18 @@ A repair is a **transaction built from a specific audit**: plan, review, apply, 
 was intended.
 
 ```text
-Audit  →  ReferenceRepairPlanner  →  plan preview  →  your approval  →  ReferenceRepairExecutor  →  measured report
+Audit  →  ReferenceRepairPlanner    ┐
+          ReferenceAuthoringPlanner ┴→  plan preview  →  your approval  →  ReferenceRepairExecutor  →  measured report
 ```
 
-From **Molca Hub → References**: **Preview safe repairs** for the whole batch, or per row **Point
-here…** (redirect to a chosen candidate) and **Clear reference…**. Over MCP:
+Two planners, one write path. `ReferenceRepairPlanner` derives fixes from findings;
+`ReferenceAuthoringPlanner` derives the changes an author asks for (see *Authoring the wiring*
+above). Both emit the same `ReferenceRepairPlan` into the same executor, so an authoring edit gets the
+same revision precondition, per-mutation verify, Undo group and measured after-report as a repair.
+There is deliberately no third path that just writes.
+
+From **Molca Hub → References**: **Preview safe repairs** for the whole batch — or, with rows
+selected, for those objects only — plus the per-row and batch authoring actions. Over MCP:
 `molca_references_plan_fix` then `molca_references_apply_fix` with the returned `planId`.
 
 ### What is repaired automatically
@@ -534,7 +595,8 @@ Only where the outcome is unambiguous:
 | Editing a read-only (package) asset | The write either fails or is lost on the next package resolve. |
 
 Those land under `choices` in the plan output, each with its candidates and the question you need to
-answer. Fix them from the Inspector of the referencing object, where the intended target is visible.
+answer. Answer them from the workspace's detail panel, where the candidates and everything else
+sharing the target are both visible.
 
 ### Transaction guarantees
 

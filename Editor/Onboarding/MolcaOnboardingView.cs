@@ -25,7 +25,9 @@ namespace Molca.Editor.Onboarding
     /// <see cref="MolcaOnboardingChecklist"/>. The view holds no opinion about what a configured project
     /// looks like, and adding one here would put a second answer next to the starter's.</para>
     /// <para>Evaluation happens when the view is attached and when Refresh is pressed — never on a
-    /// schedule.</para>
+    /// schedule. Because of that the header states the time it last evaluated: rows do not update themselves
+    /// when the project changes underneath them, and a status with no timestamp cannot be told apart from a
+    /// stale one.</para>
     /// </remarks>
     public sealed class MolcaOnboardingView : VisualElement
     {
@@ -67,7 +69,11 @@ namespace Molca.Editor.Onboarding
         private void Render(MolcaOnboardingSnapshot snapshot)
         {
             _list.Clear();
-            _header.SetSummary(snapshot.Summarize());
+
+            // Nothing re-evaluates when the project changes, so every row is only as true as its evaluation.
+            // Stamping it is what lets a reader distinguish a live status from one left over from before they
+            // fixed the thing it names. Wall-clock, not "n minutes ago": the latter would itself go stale.
+            _header.SetSummary($"{snapshot.Summarize()} · checked {snapshot.EvaluatedAt:HH:mm:ss}");
 
             if (snapshot.Entries.Count == 0)
             {

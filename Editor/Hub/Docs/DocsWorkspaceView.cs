@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Molca.Editor.UI.Components;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -39,28 +40,22 @@ namespace Molca.Editor.Hub.Docs
         private string _currentProductKey;
 
         private readonly DropdownField _productField;
-        private readonly TreeView _tree;
+        private readonly MolcaNavRail _rail;
         private readonly Label _title;
         private readonly Label _description;
         private readonly VisualElement _content;
-        private readonly TextField _search;
-        private readonly Label _searchPlaceholder;
 
-        // Navigation model + id maps, rebuilt on every (re)build/filter so selection and expansion can be
-        // addressed by stable node id ("doccat:<name>" for categories, "doc:<id>" for doc leaves).
-        private readonly List<DocNode> _roots = new List<DocNode>();
-        private readonly Dictionary<int, DocNode> _itemIdToNode = new Dictionary<int, DocNode>();
-        private readonly Dictionary<string, int> _nodeIdToItemId = new Dictionary<string, int>();
-        private HashSet<string> _expanded;
-        private bool _suppressSelection;
-        private int _nextItemId;
+        // Node ids are stable and namespaced ("doccat:<name>" for categories, "doc:<id>" for doc leaves).
+        // The rail addresses rows by those ids; this map is how a selected id gets back to its entry, since
+        // the shared node model carries navigation data only.
+        private readonly Dictionary<string, MolcaDocEntry> _entriesByNodeId =
+            new Dictionary<string, MolcaDocEntry>(StringComparer.Ordinal);
 
         internal DocsWorkspaceView()
         {
             AddToClassList("molca-hub-docs-workspace");
             style.flexGrow = 1;
 
-            _expanded = ReadExpanded();
             _products = MolcaDocsRegistry.GetProducts();
             _currentProductKey = ResolveInitialProductKey();
 
@@ -68,10 +63,10 @@ namespace Molca.Editor.Hub.Docs
             split.style.flexGrow = 1;
             Add(split);
 
-            // ---- left: (product switcher) + search + navigation tree (reuses the settings-rail styling) ----
-            var rail = new VisualElement();
-            rail.AddToClassList("molca-hub-rail");
-            split.Add(rail);
+            // ---- left: (product switcher) + the shared navigation rail ----
+            _rail = new MolcaNavRail("Search docs", ReadExpanded, SaveExpanded);
+            _rail.NodeSelected += ShowDoc;
+            split.Add(_rail);
 
             // A product switcher only earns its space once more than one documentation set is present.
             if (_products.Count > 1)
@@ -84,28 +79,8 @@ namespace Molca.Editor.Hub.Docs
                 _productField.tooltip = "Documentation set";
                 _productField.index = Mathf.Max(0, CurrentProductIndex());
                 _productField.RegisterValueChangedCallback(_ => SwitchProduct(_productField.index));
-                rail.Add(_productField);
+                _rail.AddHeader(_productField);
             }
-
-            _search = new TextField { name = "docs-search" };
-            _search.AddToClassList("molca-hub-search");
-            _searchPlaceholder = new Label("Search docs") { pickingMode = PickingMode.Ignore };
-            _searchPlaceholder.AddToClassList("molca-hub-search-placeholder");
-            _search.Add(_searchPlaceholder);
-            _search.RegisterValueChangedCallback(evt => ApplyFilter(evt.newValue));
-            rail.Add(_search);
-
-            _tree = new TreeView
-            {
-                fixedItemHeight = 24,
-                selectionType = SelectionType.Single,
-                makeItem = MakeRow,
-                bindItem = BindRow
-            };
-            _tree.AddToClassList("molca-hub-rail-tree");
-            _tree.style.flexGrow = 1;
-            _tree.selectionChanged += OnSelectionChanged;
-            rail.Add(_tree);
 
             // ---- right: doc header + scrollable rendered body ----
             var scroll = new ScrollView();
@@ -134,7 +109,6 @@ namespace Molca.Editor.Hub.Docs
             detail.Add(_content);
 
             BuildNodes(_currentProductKey);
-            RebuildTree(null);
             RestoreSelection();
         }
 
@@ -230,11 +204,9 @@ namespace Molca.Editor.Hub.Docs
             MolcaEditorPrefs.SetString(ProductKey, key);
 
             // Reset the filter so the freshly shown product is fully browsable.
-            _search?.SetValueWithoutNotify(string.Empty);
-            if (_searchPlaceholder != null) _searchPlaceholder.style.display = DisplayStyle.Flex;
+            _rail.ClearSearch();
 
             BuildNodes(key);
-            RebuildTree(null);
             RestoreSelection();
         }
 
@@ -243,124 +215,57 @@ namespace Molca.Editor.Hub.Docs
         /// <summary>Builds the category→doc hierarchy for the given product.</summary>
         private void BuildNodes(string productKey)
         {
-            _roots.Clear();
-            var product = FindProduct(productKey);
-            if (product == null) return;
+            _entriesByNodeId.Clear();
 
-            foreach (var category in product.Categories)
+            var roots = new List<MolcaNavRailNode>();
+            var product = FindProduct(productKey);
+
+            if (product != null)
             {
-                var categoryNode = new DocNode("doccat:" + category.Name, category.Name, null, category.Name);
-                foreach (var doc in category.Docs)
-                    categoryNode.Children.Add(new DocNode("doc:" + doc.Id, doc.Title, doc, category.Name));
-                _roots.Add(categoryNode);
+                foreach (var category in product.Categories)
+                {
+                    var children = new List<MolcaNavRailNode>();
+                    foreach (var doc in category.Docs)
+                    {
+                        string nodeId = "doc:" + doc.Id;
+                        _entriesByNodeId[nodeId] = doc;
+
+                        // The rail renders no content of its own here — the detail pane is this view's, and
+                        // NodeSelected drives it — so a leaf only has to be a leaf. An empty factory is what
+                        // says "selecting this means something" without claiming to build the panel.
+                        children.Add(new MolcaNavRailNode(
+                            nodeId, doc.Title, () => null, category.Name));
+                    }
+
+                    roots.Add(new MolcaNavRailNode("doccat:" + category.Name, category.Name, children));
+                }
             }
+
+            _rail.SetRoots(roots);
         }
 
         // ---- Row make / bind ----------------------------------------------------------------------
 
-        private VisualElement MakeRow()
-        {
-            var row = new VisualElement();
-            row.AddToClassList("molca-hub-rail-node");
-            var label = new Label { name = "label" };
-            label.AddToClassList("molca-hub-rail-node__label");
-            row.Add(label);
-            return row;
-        }
-
-        private void BindRow(VisualElement element, int index)
-        {
-            var node = _tree.GetItemDataForIndex<DocNode>(index);
-            element.userData = node;
-            var label = element.Q<Label>("label");
-            if (label != null) label.text = node.Label;
-            element.EnableInClassList("molca-hub-rail-node--category", !node.IsLeaf);
-            WireFoldout(element, node);
-        }
-
         // Bridges the TreeView's auto-created foldout toggle to id-keyed expansion persistence (mirrors
         // MolcaHubWindow.WireRailFoldout). The toggle is recycled across binds, so the callback is registered
         // once. NOTE: never write the toggle's userData — TreeView stores the item id there and casts it.
-        private void WireFoldout(VisualElement element, DocNode node)
-        {
-            if (node.IsLeaf) return;
-            var itemRow = element.parent?.parent;
-            var toggle = itemRow?.Q<Toggle>(className: "unity-tree-view__item-toggle") ?? itemRow?.Q<Toggle>();
-            if (toggle == null || toggle.ClassListContains("molca-foldout-wired")) return;
-
-            toggle.AddToClassList("molca-foldout-wired");
-            toggle.RegisterValueChangedCallback(evt =>
-            {
-                var t = evt.currentTarget as VisualElement;
-                var contentRow = t?.parent?.Q(className: "molca-hub-rail-node");
-                if (contentRow?.userData is DocNode n)
-                {
-                    if (evt.newValue) _expanded.Add(n.Id);
-                    else _expanded.Remove(n.Id);
-                    SaveExpanded();
-                }
-            });
-        }
-
         // ---- Selection ----------------------------------------------------------------------------
 
-        private void OnSelectionChanged(IEnumerable<object> selected)
+        private void ShowDoc(MolcaNavRailNode node)
         {
-            if (_suppressSelection) return;
-
-            DocNode node = null;
-            foreach (var obj in selected) { node = obj as DocNode; break; }
-            if (node == null) return;
-
-            if (node.IsLeaf)
-            {
-                ShowDoc(node);
-            }
-            else if (_nodeIdToItemId.TryGetValue(node.Id, out var itemId))
-            {
-                // Selecting a category row toggles its expansion.
-                if (_tree.IsExpanded(itemId)) { _tree.CollapseItem(itemId); _expanded.Remove(node.Id); }
-                else { _tree.ExpandItem(itemId); _expanded.Add(node.Id); }
-                SaveExpanded();
-            }
-        }
-
-        private void ShowDoc(DocNode node)
-        {
-            if (_content == null || node?.Entry == null) return;
+            if (_content == null || node == null) return;
+            if (!_entriesByNodeId.TryGetValue(node.Id, out var entry) || entry == null) return;
 
             _title.text = node.Label;
             _description.text = node.Description ?? string.Empty;
 
             _content.Clear();
-            _content.Add(new MolcaDocViewer(node.Entry, NavigateTo));
-            MolcaEditorPrefs.SetString(SelectedKey, node.Entry.Id);
+            _content.Add(new MolcaDocViewer(entry, NavigateTo));
+            MolcaEditorPrefs.SetString(SelectedKey, entry.Id);
         }
 
-        /// <summary>Selects a node by its stable id, rebuilding unfiltered first if it is hidden by a filter.</summary>
-        private void SelectNodeById(string nodeId)
-        {
-            if (string.IsNullOrEmpty(nodeId) || _tree == null) return;
-
-            if (!_nodeIdToItemId.TryGetValue(nodeId, out var itemId))
-            {
-                // The node may be hidden by an active filter — clear it and rebuild so cross-navigation works.
-                _search?.SetValueWithoutNotify(string.Empty);
-                if (_searchPlaceholder != null) _searchPlaceholder.style.display = DisplayStyle.Flex;
-                RebuildTree(null);
-                if (!_nodeIdToItemId.TryGetValue(nodeId, out itemId)) return;
-            }
-
-            if (!_itemIdToNode.TryGetValue(itemId, out var node)) return;
-
-            // Highlight the row without notifying, then drive content directly: selecting a row inside a
-            // collapsed branch does not reliably fire selectionChanged, so we do not depend on it.
-            _suppressSelection = true;
-            try { _tree.SetSelectionByIdWithoutNotify(new[] { itemId }); }
-            finally { _suppressSelection = false; }
-
-            if (node.IsLeaf) ShowDoc(node);
-        }
+        /// <summary>Selects a node by its stable id; the rail clears an active filter if it hides the row.</summary>
+        private void SelectNodeById(string nodeId) => _rail.SelectNodeById(nodeId);
 
         /// <summary>Selects the pending deep-link target, else the persisted doc, else the first doc in the product.</summary>
         private void RestoreSelection()
@@ -369,13 +274,13 @@ namespace Molca.Editor.Hub.Docs
             PendingDocId = null;
 
             string nodeId = null;
-            if (!string.IsNullOrEmpty(pending) && _nodeIdToItemId.ContainsKey("doc:" + pending))
+            if (!string.IsNullOrEmpty(pending) && _entriesByNodeId.ContainsKey("doc:" + pending))
                 nodeId = "doc:" + pending;
 
             if (nodeId == null)
             {
                 var saved = MolcaEditorPrefs.GetString(SelectedKey, string.Empty);
-                if (!string.IsNullOrEmpty(saved) && _nodeIdToItemId.ContainsKey("doc:" + saved))
+                if (!string.IsNullOrEmpty(saved) && _entriesByNodeId.ContainsKey("doc:" + saved))
                     nodeId = "doc:" + saved;
             }
 
@@ -385,114 +290,21 @@ namespace Molca.Editor.Hub.Docs
 
         private string FirstDocId()
         {
-            foreach (var root in _roots)
-                foreach (var child in root.Children)
-                    if (child.IsLeaf)
-                        return child.Id;
+            var product = FindProduct(_currentProductKey);
+            if (product == null) return null;
+
+            foreach (var category in product.Categories)
+                foreach (var doc in category.Docs)
+                    return "doc:" + doc.Id;
+
             return null;
         }
 
         // ---- Tree build / filter ------------------------------------------------------------------
 
         /// <summary>Rebuilds the TreeView from <see cref="_roots"/>, applying an optional label filter.</summary>
-        private void RebuildTree(string filter)
-        {
-            if (_tree == null) return;
-
-            _itemIdToNode.Clear();
-            _nodeIdToItemId.Clear();
-            _nextItemId = 0;
-
-            var roots = new List<TreeViewItemData<DocNode>>();
-            foreach (var node in _roots)
-            {
-                var data = BuildItemData(node, filter);
-                if (data.HasValue) roots.Add(data.Value);
-            }
-
-            _suppressSelection = true;
-            try
-            {
-                _tree.SetRootItems(roots);
-                _tree.Rebuild();
-                ApplyExpansion(filter);
-            }
-            finally
-            {
-                _suppressSelection = false;
-            }
-        }
-
         // Builds the filtered subtree for a node, or null when it (and all descendants) are filtered out. A
         // category whose own name matches reveals all its docs.
-        private TreeViewItemData<DocNode>? BuildItemData(DocNode node, string filter)
-        {
-            bool self = string.IsNullOrEmpty(filter)
-                        || node.Label.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0;
-
-            string childFilter = self ? null : filter;
-            List<TreeViewItemData<DocNode>> children = null;
-            foreach (var child in node.Children)
-            {
-                var data = BuildItemData(child, childFilter);
-                if (!data.HasValue) continue;
-                children ??= new List<TreeViewItemData<DocNode>>();
-                children.Add(data.Value);
-            }
-
-            if (node.IsLeaf)
-            {
-                if (!self) return null;
-            }
-            else if (!self && children == null)
-            {
-                return null;
-            }
-
-            int id = _nextItemId++;
-            _itemIdToNode[id] = node;
-            _nodeIdToItemId[node.Id] = id;
-            return new TreeViewItemData<DocNode>(id, node, children);
-        }
-
-        private void ApplyExpansion(string filter)
-        {
-            // While filtering, expand everything so surviving matches are visible; otherwise honor the
-            // persisted expansion set, defaulting to all-categories-expanded on first run (empty set).
-            if (!string.IsNullOrEmpty(filter))
-            {
-                _tree.ExpandAll();
-                return;
-            }
-
-            _tree.CollapseAll();
-            foreach (var pair in _itemIdToNode)
-            {
-                var node = pair.Value;
-                if (node.IsLeaf) continue;
-                if (_expanded.Count == 0 || _expanded.Contains(node.Id))
-                    _tree.ExpandItem(pair.Key);
-            }
-        }
-
-        private void ApplyFilter(string rawFilter)
-        {
-            var filter = (rawFilter ?? string.Empty).Trim();
-            if (_searchPlaceholder != null)
-                _searchPlaceholder.style.display = string.IsNullOrEmpty(filter) ? DisplayStyle.Flex : DisplayStyle.None;
-
-            RebuildTree(string.IsNullOrEmpty(filter) ? null : filter);
-
-            // Re-assert the persisted selection (without rebuilding content) if it survived the filter.
-            var active = MolcaEditorPrefs.GetString(SelectedKey, string.Empty);
-            if (!string.IsNullOrEmpty(active) && _nodeIdToItemId.TryGetValue("doc:" + active, out var itemId))
-            {
-                _suppressSelection = true;
-                try { _tree.SetSelectionByIdWithoutNotify(new[] { itemId }); }
-                finally { _suppressSelection = false; }
-            }
-        }
-
         // ---- Persistence --------------------------------------------------------------------------
 
         private static HashSet<string> ReadExpanded()
@@ -505,25 +317,7 @@ namespace Molca.Editor.Hub.Docs
             return set;
         }
 
-        private void SaveExpanded() => MolcaEditorPrefs.SetString(ExpandedKey, string.Join("\n", _expanded));
-
-        /// <summary>One node in the docs navigation tree: a category parent or a doc leaf.</summary>
-        private sealed class DocNode
-        {
-            internal string Id { get; }
-            internal string Label { get; }
-            internal string Description { get; }
-            internal MolcaDocEntry Entry { get; }
-            internal List<DocNode> Children { get; } = new List<DocNode>();
-            internal bool IsLeaf => Entry != null;
-
-            internal DocNode(string id, string label, MolcaDocEntry entry, string description)
-            {
-                Id = id;
-                Label = label;
-                Entry = entry;
-                Description = description;
-            }
-        }
+        private static void SaveExpanded(IEnumerable<string> expanded) =>
+            MolcaEditorPrefs.SetString(ExpandedKey, string.Join("\n", expanded));
     }
 }

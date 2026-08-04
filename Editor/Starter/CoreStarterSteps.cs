@@ -176,6 +176,8 @@ namespace Molca.Editor.Starter
     /// <remarks>
     /// Assigns only; it never generates a prefab. Which object bootstraps the application is an authoring
     /// decision, and with zero or several candidates the step reports what it found rather than choosing.
+    /// For the same reason an existing assignment is never overwritten: owning several RuntimeManager
+    /// prefabs is not a fault, so the count is only ever reported as the reason this step cannot pick one.
     /// </remarks>
     internal sealed class RuntimeManagerStarterStep : IMolcaStarterStep
     {
@@ -203,16 +205,27 @@ namespace Molca.Editor.Starter
             if (projectSettings == null)
                 return MolcaStarterOutcome.NoChange("No MolcaProjectSettings asset is available.");
 
+            // Checked before the scan, and not only for cost: which prefab bootstraps the application is the
+            // author's decision, so once it is made, re-running must never re-point it — not even to a sole
+            // candidate. It is also what keeps the messages below true, since they assert nothing is assigned.
+            if (projectSettings.RuntimeManager != null)
+                return MolcaStarterOutcome.NoChange(
+                    "A RuntimeManager prefab is already assigned: "
+                    + $"'{AssetDatabase.GetAssetPath(projectSettings.RuntimeManager)}'.");
+
             var candidates = Remediation.Provisioning.BootstrapProvisioning.FindRuntimeManagerPrefabs();
             if (candidates.Count == 0)
                 return MolcaStarterOutcome.NoChange(
-                    "No RuntimeManager prefab exists yet. Create one with the subsystems this project "
-                    + "needs, then re-run — which subsystems it carries is the decision that shapes the app.");
+                    "No RuntimeManager prefab is assigned, and none exists to assign. Create one with the "
+                    + "subsystems this project needs, then re-run — which subsystems it carries is the "
+                    + "decision that shapes the app.");
 
             if (candidates.Count > 1)
                 return MolcaStarterOutcome.NoChange(
-                    $"{candidates.Count} RuntimeManager prefabs exist; assign the intended one in the "
-                    + "project settings.");
+                    "No RuntimeManager prefab is assigned. Owning several is fine, but it means this step "
+                    + $"cannot pick for you: assign whichever of the {candidates.Count} that exist "
+                    + $"({string.Join(", ", candidates.Select(AssetDatabase.GetAssetPath))}) bootstraps this "
+                    + "project, in the project settings.");
 
             var only = candidates[0];
             var path = AssetDatabase.GetAssetPath(only);

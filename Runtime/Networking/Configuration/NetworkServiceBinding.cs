@@ -81,6 +81,26 @@ namespace Molca.Networking.Configuration
         /// <summary>Socket.IO handshake path, defaulting to <c>/socket.io/</c>.</summary>
         public string SocketIoPath => string.IsNullOrEmpty(_socketIoPath) ? "/socket.io/" : _socketIoPath;
 
+        /// <summary>
+        /// The SSE origin exactly as authored, with no fallback to <see cref="HttpOrigin"/>.
+        /// </summary>
+        /// <remarks>
+        /// For authoring surfaces only; a request resolves through <see cref="SseOrigin"/>. An editable
+        /// field bound to the resolving accessor would show the HTTP origin as though someone had authored
+        /// it here, and committing that field would turn a deliberate inheritance into a duplicated value
+        /// that no longer follows the HTTP origin when it changes.
+        /// </remarks>
+        public string AuthoredSseOrigin => _sseOrigin;
+
+        /// <summary>
+        /// The Socket.IO handshake path exactly as authored. Empty means the client default applies.
+        /// </summary>
+        /// <remarks>
+        /// The authoring counterpart to <see cref="SocketIoPath"/>, which substitutes the default. See
+        /// <see cref="AuthoredSseOrigin"/> for why an editable field must not bind to the resolving one.
+        /// </remarks>
+        public string AuthoredSocketIoPath => _socketIoPath;
+
         /// <summary>Non-secret region or tenant label.</summary>
         public string RegionLabel => _regionLabel;
 

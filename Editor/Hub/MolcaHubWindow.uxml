@@ -7,10 +7,9 @@
     <ui:VisualElement name="workspace-toolbar" class="molca-hub-workspace-toolbar" />
 
     <ui:TwoPaneSplitView name="hub-body" class="molca-hub-body" fixed-pane-index="0" fixed-pane-initial-dimension="188" orientation="Horizontal">
-        <ui:VisualElement name="rail-panel" class="molca-hub-rail">
-            <ui:TextField name="settings-search" class="molca-hub-search" />
-            <ui:VisualElement name="settings-rail" class="molca-hub-rail-list" />
-        </ui:VisualElement>
+        <!-- The rail itself is a MolcaNavRail added in code; this is only the split's fixed pane, so it
+             carries no rail styling of its own — the component brings it. -->
+        <ui:VisualElement name="rail-panel" />
 
         <ui:ScrollView name="detail-scroll" class="molca-hub-detail-scroll">
             <ui:VisualElement name="detail-root" class="molca-hub-detail">

@@ -41,6 +41,12 @@
     /* ---- Accents / interactive ---- */
     --molca-primary: rgb(59, 103, 150);
     --molca-row-selected: rgb(59, 94, 128);
+    /* Selection fill for a row inside the content body, as opposed to one in a navigation rail. A rail
+       item is the full width of a narrow strip and carries the whole "you are here" claim, so it wants
+       the solid fill; a 44px content row is wide enough that the same fill dominates the card it sits in
+       and swamps the hover state. Content rows take this wash and put the solid colour in a border
+       instead. */
+    --molca-row-selected-soft: rgba(59, 94, 128, 0.32);
     --molca-link: rgb(91, 155, 213);
     --molca-accent: rgb(198, 242, 58);
 
@@ -51,6 +57,34 @@
     /* Foreground for text sitting on a selected row (`--molca-row-selected`). White reads on the dark
        selection; the light skin needs near-black so the row label does not wash out. */
     --molca-on-row-selected: rgb(245, 245, 245);
+
+    /* ---- Interaction states ----
+       One vocabulary for hover / pressed / focus / disabled, so every clickable surface answers the
+       pointer the same way instead of each sheet inventing a shade. The rule in both skins is: hover
+       *lifts* the fill, pressed *sinks* it below the resting value. Pairs exist per fill because a
+       hover has to be expressed relative to the surface it replaces — a control button and a primary
+       button cannot share one hover colour. */
+    --molca-control-hover: rgb(92, 92, 92);
+    --molca-control-pressed: rgb(64, 64, 64);
+    --molca-primary-hover: rgb(72, 121, 174);
+    --molca-primary-pressed: rgb(46, 84, 124);
+
+    /* Washes for clickables with no fill of their own (rail rows, icon buttons, tabs, bordered
+       placeholders). Translucent, so they composite over whatever surface they happen to sit on — which
+       is the whole point: those elements are transparent precisely because their background varies.
+       Note the light skin flips the hover wash from white to black; a white wash on a light surface is
+       invisible, which is how "hover does nothing" reads on the light skin. */
+    --molca-hover-wash: rgba(255, 255, 255, 0.07);
+    --molca-pressed-wash: rgba(0, 0, 0, 0.16);
+
+    /* Keyboard focus is a border-only treatment: Unity keeps focus on a button after a click, so a fill
+       or glow would leave the last-clicked button looking permanently armed. */
+    --molca-focus-ring: rgb(103, 152, 208);
+
+    /* Disabled fill. Flatter and quieter than `--molca-control` — the point is that it reads as "not a
+       button right now" without relying on opacity, which compounds when a whole card body is also
+       dimmed (`.molca-card__body--disabled`) and can fade a control past legibility. */
+    --molca-control-disabled: rgb(58, 58, 58);
 
     /* ---- Status ---- */
     --molca-status-green: rgb(87, 200, 74);
@@ -76,6 +110,14 @@
     --hub-accent: var(--molca-accent);
     --hub-control: var(--molca-control);
     --hub-on-row-selected: var(--molca-on-row-selected);
+    --hub-control-hover: var(--molca-control-hover);
+    --hub-control-pressed: var(--molca-control-pressed);
+    --hub-control-disabled: var(--molca-control-disabled);
+    --hub-primary-hover: var(--molca-primary-hover);
+    --hub-primary-pressed: var(--molca-primary-pressed);
+    --hub-hover-wash: var(--molca-hover-wash);
+    --hub-pressed-wash: var(--molca-pressed-wash);
+    --hub-focus-ring: var(--molca-focus-ring);
     --hub-status-green: var(--molca-status-green);
     --hub-status-grey: var(--molca-status-grey);
     --hub-status-warn: var(--molca-status-warn);
@@ -101,7 +143,20 @@
     --molca-muted: rgb(102, 102, 102);
     --molca-label: rgb(56, 56, 56);
     --molca-row-selected: rgb(140, 170, 205);
+    --molca-row-selected-soft: rgba(140, 170, 205, 0.45);
     --molca-link: rgb(38, 96, 158);
     --molca-control: rgb(225, 225, 225);
     --molca-on-row-selected: rgb(20, 20, 20);
+
+    /* Interaction states, light skin. Same rule as the dark skin — hover lifts, pressed sinks — read
+       against a light control fill instead of a dark one. The hover wash inverts to black because the
+       surfaces it lands on are now light. */
+    --molca-control-hover: rgb(236, 236, 236);
+    --molca-control-pressed: rgb(204, 204, 204);
+    --molca-primary-hover: rgb(76, 126, 178);
+    --molca-primary-pressed: rgb(43, 79, 118);
+    --molca-hover-wash: rgba(0, 0, 0, 0.06);
+    --molca-pressed-wash: rgba(0, 0, 0, 0.13);
+    --molca-focus-ring: rgb(46, 104, 168);
+    --molca-control-disabled: rgb(214, 214, 214);
 }

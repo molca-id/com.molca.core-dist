@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -8,6 +9,10 @@ using UnityEditor;
 using UnityEditor.AddressableAssets;
 using UnityEditor.AddressableAssets.Settings;
 using UnityEngine;
+// Aliased: this file's namespace is Molca.Editor.Mcp.Providers, so the unqualified names would not
+// resolve against Molca.ContentPackage.Editor.
+using ContentEditResult = Molca.ContentPackage.Editor.ContentEditResult;
+using ContentPackageEditingService = Molca.ContentPackage.Editor.ContentPackageEditingService;
 
 namespace Molca.Editor.Mcp.Providers
 {
@@ -19,13 +24,20 @@ namespace Molca.Editor.Mcp.Providers
     /// defining packages, patching their metadata, and binding Addressables labels/groups.
     /// </summary>
     /// <remarks>
-    /// All config edits route through <see cref="Undo.RecordObject"/> on the
-    /// <see cref="ContentPackageSettings"/> asset, so they collapse to a single Unity Undo group and are
-    /// revertible with Ctrl+Z (<see cref="McpToolReversibility.UnityUndo"/>). The Addressables group
-    /// binding stamps labels onto group entries — those entry mutations are not cleanly undoable, so that
-    /// tool is marked <see cref="McpToolReversibility.Irreversible"/>. Every <see cref="McpToolKind.Action"/>
-    /// tool here is allowlist + confirmation gated (Sprint 17). Mirrors the inspector authoring paths in
-    /// <c>ContentPackageSettingsEditor</c> — no new runtime behaviour.
+    /// <b>Every config edit goes through <see cref="ContentPackageEditingService"/></b>, the one write
+    /// path the Hub workspace and the remediation fixes also use. These tools used to mutate
+    /// <see cref="ContentPackageSettings.PackageConfig"/> fields directly, which meant they were the only
+    /// surface that could write a settings asset the service refuses — one inside a package or the
+    /// read-only SDK layer, where an upgrade discards the write. They also could not report a refusal,
+    /// because nothing was refusing.
+    /// <para>
+    /// The service records one Undo entry per operation; each tool collapses its batch into a single
+    /// named group, so a multi-field call is still one Ctrl+Z
+    /// (<see cref="McpToolReversibility.UnityUndo"/>). The Addressables group binding stamps labels onto
+    /// group entries — those entry mutations are not cleanly undoable, so that tool is marked
+    /// <see cref="McpToolReversibility.Irreversible"/>. Every <see cref="McpToolKind.Action"/> tool here
+    /// is allowlist + confirmation gated (Sprint 17). No new runtime behaviour.
+    /// </para>
     /// </remarks>
     public partial class CoreMcpToolProvider
     {
@@ -60,39 +72,73 @@ namespace Molca.Editor.Mcp.Providers
         private static string ExecuteContentDefinePackage(string argumentsJson)
         {
             var args = ParseArgs(argumentsJson);
-            var settings = ResolveContentSettings(out var error);
-            if (settings == null) return Error(error);
+            var editing = ResolveContentEditing(out var settings, out var error);
+            if (editing == null) return Error(error);
 
             var packageId = args.Value<string>("packageId");
             if (string.IsNullOrWhiteSpace(packageId)) return Error("'packageId' is required.");
 
-            Undo.RecordObject(settings, "Define Content Package");
+            int group = Undo.GetCurrentGroup();
+            var notes = new List<string>();
 
-            var cfg = settings.GetPackageConfig(packageId);
-            bool created = cfg == null;
+            bool created = settings.GetPackageConfig(packageId) == null;
             if (created)
             {
-                cfg = new ContentPackageSettings.PackageConfig { packageId = packageId };
-                settings.packageConfigs.Add(cfg);
+                var add = editing.AddPackage(packageId);
+                if (!add.Changed) return Error(add.Message);
+
+                // The service creates a package with an empty display name; this tool has always
+                // defaulted it to the id, and a caller relying on that would otherwise get a config
+                // carrying a blocking package_display_name_missing finding it did not ask for.
+                if (args["displayName"] == null)
+                    Note(notes, editing.SetDisplayName(packageId, packageId));
             }
 
-            cfg.displayName       = args.Value<string>("displayName") ?? cfg.displayName ?? packageId;
-            cfg.metadata        ??= new ContentPackageSettings.PackageMetadata();
-            cfg.metadata.version     = args.Value<string>("version") ?? cfg.metadata.version;
-            cfg.metadata.description = args.Value<string>("description") ?? cfg.metadata.description ?? "";
-            cfg.metadata.author      = args.Value<string>("author") ?? cfg.metadata.author ?? "";
-            if (args["tags"] is JArray tags) cfg.metadata.tags = ToStringArray(tags);
-            if (args["isVisible"] != null)  cfg.isVisible  = args.Value<bool>("isVisible");
-            if (args["isRequired"] != null) cfg.isRequired = args.Value<bool>("isRequired");
-            if (args["dependencies"] is JArray deps)
-                cfg.dependencies = ToStringArray(deps)
-                    .Select(id => new ContentPackageSettings.PackageDependency { packageId = id })
-                    .ToArray();
-            if (args["addressableLabels"] is JArray labels)
-                cfg.addressableLabels = ToStringArray(labels);
+            ApplyPackageFields(editing, packageId, args, notes);
 
+            CollapseUndo(group, "Define Content Package");
             PersistSettings(settings);
-            return PackageConfigToJson(cfg, extra: new JObject { ["created"] = created });
+
+            var cfg = settings.GetPackageConfig(packageId);
+            return PackageConfigToJson(cfg, extra: new JObject
+            {
+                ["created"] = created,
+                ["notes"] = new JArray(notes),
+            });
+        }
+
+        /// <summary>
+        /// Applies whichever package fields the arguments carry, through the editing service.
+        /// </summary>
+        /// <param name="editing">The write path.</param>
+        /// <param name="packageId">The package to patch.</param>
+        /// <param name="args">The parsed tool arguments.</param>
+        /// <param name="notes">Collects what each setter reported, including refusals.</param>
+        /// <remarks>
+        /// Shared by define and update so the two cannot drift: they took the same field set and wrote it
+        /// two ways, and only one of them was ever read.
+        /// </remarks>
+        private static void ApplyPackageFields(
+            ContentPackageEditingService editing, string packageId, JObject args, List<string> notes)
+        {
+            if (args["displayName"] != null)
+                Note(notes, editing.SetDisplayName(packageId, args.Value<string>("displayName")));
+            if (args["version"] != null)
+                Note(notes, editing.SetVersion(packageId, args.Value<string>("version")));
+            if (args["description"] != null)
+                Note(notes, editing.SetDescription(packageId, args.Value<string>("description")));
+            if (args["author"] != null)
+                Note(notes, editing.SetAuthor(packageId, args.Value<string>("author")));
+            if (args["tags"] is JArray tags)
+                Note(notes, editing.SetTags(packageId, ToStringArray(tags)));
+            if (args["isVisible"] != null)
+                Note(notes, editing.SetVisible(packageId, args.Value<bool>("isVisible")));
+            if (args["isRequired"] != null)
+                Note(notes, editing.SetRequired(packageId, args.Value<bool>("isRequired")));
+            if (args["dependencies"] is JArray dependencies)
+                Note(notes, editing.SetDependencies(packageId, ToStringArray(dependencies)));
+            if (args["addressableLabels"] is JArray labels)
+                Note(notes, editing.SetLabels(packageId, ToStringArray(labels)));
         }
 
         // ── molca_content_update_package ─────────────────────────────────────────────────────
@@ -123,35 +169,25 @@ namespace Molca.Editor.Mcp.Providers
         private static string ExecuteContentUpdatePackage(string argumentsJson)
         {
             var args = ParseArgs(argumentsJson);
-            var settings = ResolveContentSettings(out var error);
-            if (settings == null) return Error(error);
+            var editing = ResolveContentEditing(out var settings, out var error);
+            if (editing == null) return Error(error);
 
             var packageId = args.Value<string>("packageId");
             if (string.IsNullOrWhiteSpace(packageId)) return Error("'packageId' is required.");
+            if (settings.GetPackageConfig(packageId) == null)
+                return Error($"No package config with id '{packageId}'.");
 
-            var cfg = settings.GetPackageConfig(packageId);
-            if (cfg == null) return Error($"No package config with id '{packageId}'.");
+            int group = Undo.GetCurrentGroup();
+            var notes = new List<string>();
 
-            Undo.RecordObject(settings, "Update Content Package");
+            ApplyPackageFields(editing, packageId, args, notes);
 
-            if (args["displayName"] != null) cfg.displayName = args.Value<string>("displayName");
-            if (args["version"] != null || args["description"] != null || args["author"] != null || args["tags"] is JArray)
-                cfg.metadata ??= new ContentPackageSettings.PackageMetadata();
-            if (args["version"] != null)     cfg.metadata.version     = args.Value<string>("version");
-            if (args["description"] != null) cfg.metadata.description = args.Value<string>("description");
-            if (args["author"] != null)      cfg.metadata.author      = args.Value<string>("author");
-            if (args["tags"] is JArray tags) cfg.metadata.tags        = ToStringArray(tags);
-            if (args["isVisible"] != null)   cfg.isVisible  = args.Value<bool>("isVisible");
-            if (args["isRequired"] != null)  cfg.isRequired = args.Value<bool>("isRequired");
-            if (args["dependencies"] is JArray deps)
-                cfg.dependencies = ToStringArray(deps)
-                    .Select(id => new ContentPackageSettings.PackageDependency { packageId = id })
-                    .ToArray();
-            if (args["addressableLabels"] is JArray labels)
-                cfg.addressableLabels = ToStringArray(labels);
-
+            CollapseUndo(group, "Update Content Package");
             PersistSettings(settings);
-            return PackageConfigToJson(cfg);
+
+            return PackageConfigToJson(
+                settings.GetPackageConfig(packageId),
+                extra: new JObject { ["notes"] = new JArray(notes) });
         }
 
         // ── molca_content_remove_package ─────────────────────────────────────────────────────
@@ -169,44 +205,66 @@ namespace Molca.Editor.Mcp.Providers
         private static string ExecuteContentRemovePackage(string argumentsJson)
         {
             var args = ParseArgs(argumentsJson);
-            var settings = ResolveContentSettings(out var error);
-            if (settings == null) return Error(error);
+            var editing = ResolveContentEditing(out var settings, out var error);
+            if (editing == null) return Error(error);
 
             var packageId = args.Value<string>("packageId");
             if (string.IsNullOrWhiteSpace(packageId)) return Error("'packageId' is required.");
 
-            int idx = settings.packageConfigs.FindIndex(c => c.packageId == packageId);
-            if (idx < 0) return Error($"No package config with id '{packageId}'.");
+            var result = editing.RemovePackage(packageId);
+            if (!result.Changed) return Error(result.Message);
 
-            Undo.RecordObject(settings, "Remove Content Package");
-            settings.packageConfigs.RemoveAt(idx);
             PersistSettings(settings);
 
-            return new JObject { ["packageId"] = packageId, ["removed"] = true }.ToString(Formatting.None);
+            // The message names any package left depending on this one. Those are now
+            // dependency_missing errors, and a caller that removed a package in a batch has no other
+            // way to find out before its next validate.
+            return new JObject
+            {
+                ["packageId"] = packageId,
+                ["removed"] = true,
+                ["notes"] = new JArray(result.Message),
+            }.ToString(Formatting.None);
         }
 
         // ── molca_content_validate_config (read-only) ────────────────────────────────────────
 
         private static McpToolDefinition CreateContentValidateConfigTool() => new McpToolDefinition(
             name: "molca_content_validate_config",
-            description: "Validates the authored content package configs (missing ids, display names, or "
-                       + "Addressables labels) and returns the list of human-readable errors. Read-only.",
+            description: "Validates the authored content package configs (ids, display names, versions, "
+                       + "Addressables labels, dependency edges and cycles) and returns the findings. "
+                       + "Settings-level only — findings that need a build graph come from the Hub's "
+                       + "Verify page. Read-only.",
             inputSchemaJson: "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}",
             execute: ExecuteContentValidateConfig,
             mode: McpToolMode.Edit,
             kind: McpToolKind.ReadOnly);
 
+        /// <remarks>
+        /// Reports what <see cref="Molca.ContentPackage.Editor.ContentValidation"/> reports, not
+        /// <c>ContentPackageSettings.ValidateConfigurations</c>. The legacy method knows about three of
+        /// the checks and none of the dependency ones, so an agent could be told a definition set was
+        /// valid while the Hub, the Doctor check and publishing all refused it.
+        /// </remarks>
         private static string ExecuteContentValidateConfig(string argumentsJson)
         {
             var settings = ResolveContentSettings(out var error);
             if (settings == null) return Error(error);
 
-            var errors = settings.ValidateConfigurations();
+            var report = Molca.ContentPackage.Editor.ContentValidation.ValidateSettings(settings.packageConfigs);
+
             return new JObject
             {
                 ["packageCount"] = settings.packageConfigs.Count,
-                ["valid"] = errors.Count == 0,
-                ["errors"] = new JArray(errors)
+                ["valid"] = report.ErrorCount == 0,
+                ["errorCount"] = report.ErrorCount,
+                ["warningCount"] = report.WarningCount,
+                ["errors"] = new JArray(report.Issues
+                    .Where(issue => issue.Severity == Molca.ContentPackage.Editor.ContentIssueSeverity.Error)
+                    .Select(issue => issue.ToString())),
+                ["warnings"] = new JArray(report.Issues
+                    .Where(issue => issue.Severity == Molca.ContentPackage.Editor.ContentIssueSeverity.Warning)
+                    .Select(issue => issue.ToString())),
             }.ToString(Formatting.None);
         }
 
@@ -233,8 +291,8 @@ namespace Molca.Editor.Mcp.Providers
         private static string ExecuteContentAssignLabels(string argumentsJson)
         {
             var args = ParseArgs(argumentsJson);
-            var settings = ResolveContentSettings(out var error);
-            if (settings == null) return Error(error);
+            var editing = ResolveContentEditing(out var settings, out var error);
+            if (editing == null) return Error(error);
 
             var packageId = args.Value<string>("packageId");
             if (string.IsNullOrWhiteSpace(packageId)) return Error("'packageId' is required.");
@@ -242,22 +300,31 @@ namespace Molca.Editor.Mcp.Providers
             var cfg = settings.GetPackageConfig(packageId);
             if (cfg == null) return Error($"No package config with id '{packageId}'.");
 
-            Undo.RecordObject(settings, "Assign Content Labels");
+            int group = Undo.GetCurrentGroup();
+            var notes = new List<string>();
 
-            var current = new List<string>(cfg.addressableLabels ?? new string[0]);
-            if (args["remove"] is JArray rem)
-                foreach (var label in ToStringArray(rem)) current.RemoveAll(l => l == label);
-            if (args["add"] is JArray add)
-                foreach (var label in ToStringArray(add))
-                    if (!current.Contains(label)) current.Add(label);
+            // Removals first, so add+remove of the same label in one call leaves it present — the order
+            // this tool has always applied them in.
+            if (args["remove"] is JArray removals)
+            {
+                foreach (var label in ToStringArray(removals))
+                    Note(notes, editing.RemoveLabel(packageId, label));
+            }
 
-            cfg.addressableLabels = current.ToArray();
+            if (args["add"] is JArray additions)
+            {
+                foreach (var label in ToStringArray(additions))
+                    Note(notes, editing.AddLabel(packageId, label));
+            }
+
+            CollapseUndo(group, "Assign Content Labels");
             PersistSettings(settings);
 
             return new JObject
             {
                 ["packageId"] = packageId,
-                ["addressableLabels"] = new JArray(current)
+                ["addressableLabels"] = new JArray(cfg.addressableLabels ?? new string[0]),
+                ["notes"] = new JArray(notes),
             }.ToString(Formatting.None);
         }
 
@@ -282,8 +349,8 @@ namespace Molca.Editor.Mcp.Providers
         private static string ExecuteContentBindGroup(string argumentsJson)
         {
             var args = ParseArgs(argumentsJson);
-            var settings = ResolveContentSettings(out var error);
-            if (settings == null) return Error(error);
+            var editing = ResolveContentEditing(out var settings, out var error);
+            if (editing == null) return Error(error);
 
             var packageId = args.Value<string>("packageId");
             var groupName = args.Value<string>("group");
@@ -313,10 +380,7 @@ namespace Molca.Editor.Mcp.Providers
             }
             EditorUtility.SetDirty(addrSettings);
 
-            Undo.RecordObject(settings, "Bind Content Group");
-            var labels = new List<string>(cfg.addressableLabels ?? new string[0]);
-            if (!labels.Contains(labelName)) labels.Add(labelName);
-            cfg.addressableLabels = labels.ToArray();
+            var bind = editing.AddLabel(packageId, labelName);
             PersistSettings(settings);
 
             return new JObject
@@ -325,7 +389,8 @@ namespace Molca.Editor.Mcp.Providers
                 ["group"] = groupName,
                 ["label"] = labelName,
                 ["entriesStamped"] = stamped,
-                ["addressableLabels"] = new JArray(labels)
+                ["addressableLabels"] = new JArray(cfg.addressableLabels ?? new string[0]),
+                ["notes"] = new JArray(bind.Message),
             }.ToString(Formatting.None);
         }
 
@@ -396,6 +461,67 @@ namespace Molca.Editor.Mcp.Providers
                 return null;
             }
             return settings;
+        }
+
+        /// <summary>
+        /// Resolves the project's settings asset and the one service permitted to write it.
+        /// </summary>
+        /// <param name="settings">The resolved asset, or null.</param>
+        /// <param name="error">Why no service could be built, or null.</param>
+        /// <returns>The editing service, or null.</returns>
+        /// <remarks>
+        /// The read-only check is the reason this exists. These tools used to write
+        /// <see cref="ContentPackageSettings.PackageConfig"/> fields directly, so an agent could author a
+        /// settings asset living inside <c>Packages/</c> or the read-only SDK layer — writes an upgrade
+        /// discards without anything saying so. The service refuses those assets; asking it up front
+        /// turns that refusal into one clear tool error instead of a per-field one.
+        /// </remarks>
+        private static ContentPackageEditingService ResolveContentEditing(
+            out ContentPackageSettings settings, out string error)
+        {
+            settings = ResolveContentSettings(out error);
+            if (settings == null) return null;
+
+            var editing = new ContentPackageEditingService(settings);
+            string readOnly = editing.ReadOnlyReason();
+            if (readOnly != null)
+            {
+                error = readOnly;
+                return null;
+            }
+
+            return editing;
+        }
+
+        /// <summary>Records what a setter reported, so a refused field is visible in the tool result.</summary>
+        /// <param name="notes">The collected messages.</param>
+        /// <param name="result">The setter's result.</param>
+        /// <remarks>
+        /// Only changes and refusals are recorded. "Already that" is the common case when a caller
+        /// re-sends a full field set, and reporting it would bury the one line that matters.
+        /// </remarks>
+        private static void Note(List<string> notes, ContentEditResult result)
+        {
+            if (result == null) return;
+            if (result.Changed || !result.Message.EndsWith("is already that.", StringComparison.Ordinal))
+                notes.Add(result.Message);
+        }
+
+        /// <summary>
+        /// Folds every Undo entry since <paramref name="group"/> into one named step.
+        /// </summary>
+        /// <param name="group">The undo group captured before the first edit.</param>
+        /// <param name="name">What the collapsed step is called.</param>
+        /// <remarks>
+        /// The editing service records one Undo entry per operation, which is what lets a Hub form undo a
+        /// single field. A tool that applies eight fields is one action to its caller, though, and these
+        /// tools promise <c>UnityUndo</c> reversibility — without the collapse, Ctrl+Z would walk back
+        /// through them one at a time.
+        /// </remarks>
+        private static void CollapseUndo(int group, string name)
+        {
+            Undo.SetCurrentGroupName(name);
+            Undo.CollapseUndoOperations(group);
         }
 
         /// <summary>Marks the settings asset dirty and writes it to disk after an authored edit.</summary>

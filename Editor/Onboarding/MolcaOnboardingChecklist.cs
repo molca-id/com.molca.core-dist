@@ -31,13 +31,28 @@ namespace Molca.Editor.Onboarding
     /// </summary>
     public sealed class MolcaOnboardingSnapshot
     {
-        /// <summary>Creates a snapshot.</summary>
+        /// <summary>Creates a snapshot, stamped with the moment it was taken.</summary>
         /// <param name="entries">Evaluated entries, in render order.</param>
         public MolcaOnboardingSnapshot(IReadOnlyList<MolcaOnboardingEntry> entries)
-            => Entries = entries ?? Array.Empty<MolcaOnboardingEntry>();
+        {
+            Entries = entries ?? Array.Empty<MolcaOnboardingEntry>();
+            EvaluatedAt = DateTime.Now;
+        }
 
         /// <summary>Every evaluated entry, in render order.</summary>
         public IReadOnlyList<MolcaOnboardingEntry> Entries { get; }
+
+        /// <summary>Local time this snapshot was produced.</summary>
+        /// <remarks>
+        /// <para>The counterpart to this type being a snapshot rather than a live view: nothing re-evaluates
+        /// when the project changes, so a row can be true when it is rendered and false a minute later, and
+        /// without this there is no way to tell those apart. Any surface showing snapshot state should show
+        /// when it was taken.</para>
+        /// <para>Captured here rather than passed in, so a future second call site cannot produce an
+        /// unstamped snapshot. Consumers should render it as a wall-clock time, not as an elapsed interval —
+        /// a static "3 minutes ago" that no longer updates is the same staleness in a new place.</para>
+        /// </remarks>
+        public DateTime EvaluatedAt { get; }
 
         /// <summary>Outstanding entries at <see cref="MolcaOnboardingSeverity.Required"/>, of either kind.</summary>
         public int RequiredOutstanding => Entries.Count(

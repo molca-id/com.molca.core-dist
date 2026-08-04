@@ -1,258 +1,118 @@
 using UnityEngine;
 using UnityEditor;
-using System.Collections.Generic;
+using System.Linq;
 using Molca.ContentPackage;
-using Molca.ContentPackage.Core;
-using Molca.ContentPackage.Services;
 using Molca.Editor.UI;
-using Molca.Settings;
-// Aliased: this file's namespace is Molca.Editor.ContentPackage, so the unqualified name would not
-// resolve against Molca.ContentPackage.Editor.
-using ContentPackageEditingService = Molca.ContentPackage.Editor.ContentPackageEditingService;
+using ContentValidation = Molca.ContentPackage.Editor.ContentValidation;
+using ContentIssueSeverity = Molca.ContentPackage.Editor.ContentIssueSeverity;
 
 namespace Molca.Editor.ContentPackage
 {
     /// <summary>
-    /// Two-column inspector for <see cref="ContentPackageSettings"/>.
-    /// Left: scrollable package list with health indicators.
-    /// Right: selected package detail form.
-    /// Bottom: collapsible system settings.
+    /// A summary of the content settings asset, and the way to the workspace that authors it.
     /// </summary>
+    /// <remarks>
+    /// <b>Placement:</b> <c>Packages/com.molca.core/Editor/ContentPackage/</c>.
+    /// <b>Registration:</b> <c>[CustomEditor(typeof(ContentPackageSettings))]</c>.
+    /// <para>
+    /// <b>This used to be the authoring surface</b> — a two-column package list and detail form, an
+    /// Addressables label picker, a collapsible system-settings panel, and a build panel, across five
+    /// files. All of it now lives in the Hub's Content workspace, which reaches the asset through
+    /// <c>ContentPackageEditingService</c> rather than through an inspector's own
+    /// <see cref="SerializedObject"/>. Keeping both would mean two surfaces that can disagree about
+    /// what a package is, and only one of them validates.
+    /// </para>
+    /// <para>
+    /// What is left follows the slim-page rule the design language already applies to
+    /// <c>Project Settings &gt; Molca</c>: say what this asset is, say whether it is healthy, and open
+    /// the place it is edited. The health line is not decoration — an asset selected in the Project
+    /// window is often selected <em>because</em> something is wrong with it, and sending the reader to
+    /// the Hub to find out what would be a worse answer than one line here.
+    /// </para>
+    /// </remarks>
     [CustomEditor(typeof(ContentPackageSettings))]
-    public partial class ContentPackageSettingsEditor : UnityEditor.Editor
+    public class ContentPackageSettingsEditor : UnityEditor.Editor
     {
-        // ── Selection & search ───────────────────────────────────────────────
-        private string _selectedPackageId;
-        private int    _selectedPackageIndex = -1;   // fallback when packageId is empty mid-edit
-        private string _searchFilter       = "";
-        private string _searchFilterLower  = "";
-
-        // ── Runtime service (play mode only) ────────────────────────────────
-        private PackageService _packageService;
-        private Dictionary<string, PackageState> _runtimeStates = new Dictionary<string, PackageState>();
-        private PackageCloudStatus _cloudStatus;
-
-        // ── Styles ───────────────────────────────────────────────────────────
-        private GUIStyle _titleStyle;
-        private GUIStyle _sectionLabelStyle;
-        private GUIStyle _cardStyle;
-        private GUIStyle _cardSelectedStyle;
-        private GUIStyle _successStyle;
-        private GUIStyle _warningStyle;
-        private GUIStyle _errorStyle;
-        private GUIStyle _mutedStyle;
-        private bool _stylesInitialized;
-
-        // ── Layout ───────────────────────────────────────────────────────────
-        private const int  LeftPanelWidth = 210;
-        private const int  ColumnGap      = 8;
-
-        // Width available to the right detail panel. It must be measured from the actual layout
-        // (currentViewWidth reports the host EditorWindow width, not the IMGUIContainer pane width
-        // when this editor is embedded in the Hub). _pendingRightPanelWidth is captured during the
-        // Repaint pass and promoted to _rightPanelWidth at the start of the next Layout pass, so both
-        // passes of any single frame use an identical value (a mid-frame change throws GUILayout errors).
-        private float      _rightPanelWidth        = 360f;
-        private float      _pendingRightPanelWidth = 360f;
-
-        private ContentPackageEditingService _editing;
-
-        /// <summary>
-        /// The one write path for this asset, shared with automation, MCP, and remediation fixes.
-        /// </summary>
-        /// <remarks>
-        /// Structural changes — add, remove, retarget a dependency — go through here rather than
-        /// through this inspector's own <see cref="SerializedObject"/>. Per-field editing below still
-        /// binds <c>PropertyField</c> directly, which is ordinary inspector binding and not a second
-        /// write path: it edits the field the user is looking at, and cannot invent a package or
-        /// silently orphan a dependent.
-        /// </remarks>
-        private ContentPackageEditingService Editing =>
-            _editing ??= new ContentPackageEditingService((ContentPackageSettings)target);
-
-        private void OnEnable()
-        {
-            EditorApplication.update += OnEditorUpdate;
-        }
-
-        private void OnDisable()
-        {
-            EditorApplication.update -= OnEditorUpdate;
-        }
-
-        private void OnEditorUpdate()
-        {
-            if (Application.isPlaying && _packageService == null)
-            {
-                var sub = RuntimeManager.GetSubsystem<PackageSubsystem>();
-                if (sub?.PackageService != null)
-                {
-                    _packageService = sub.PackageService;
-                    _cloudStatus    = _packageService.CloudStatus;
-                    _packageService.OnCloudStatusChanged += OnCloudStatusChanged;
-                    RefreshRuntimeStates();
-                }
-            }
-            else if (!Application.isPlaying && _packageService != null)
-            {
-                _packageService.OnCloudStatusChanged -= OnCloudStatusChanged;
-                _packageService = null;
-                _runtimeStates.Clear();
-                _cloudStatus = null;
-                Repaint();
-            }
-        }
-
-        private void RefreshRuntimeStates()
-        {
-            if (_packageService == null) return;
-            _runtimeStates.Clear();
-            foreach (var s in _packageService.GetInstalledPackages())
-                _runtimeStates[s.packageId] = s;
-            // Also pull any non-installed states for packages in the config list.
-            var settings = target as ContentPackageSettings;
-            foreach (var cfg in settings.packageConfigs)
-            {
-                if (!_runtimeStates.ContainsKey(cfg.packageId))
-                {
-                    var state = _packageService.GetPackageState(cfg.packageId);
-                    if (state != null) _runtimeStates[cfg.packageId] = state;
-                }
-            }
-            Repaint();
-        }
-
-        private void OnCloudStatusChanged(PackageCloudStatus status)
-        {
-            _cloudStatus = status;
-            Repaint();
-        }
-
+        /// <inheritdoc/>
         public override void OnInspectorGUI()
         {
-            EnsureStyles();
-            serializedObject.Update();
+            var settings = (ContentPackageSettings)target;
 
-            var settings = target as ContentPackageSettings;
-
-            // Top bar
             EditorGUILayout.Space(4);
-            DrawTopBar();
+            EditorGUILayout.LabelField("Content Packages", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(
+                $"{settings.packageConfigs.Count} package(s) defined.",
+                EditorStyles.miniLabel);
+
             EditorGUILayout.Space(6);
+            DrawHealth(settings);
 
-            // Promote the last measured width at the start of the Layout pass so both passes of this
-            // frame share one value. The right panel must be width-constrained: hosted inside the Hub's
-            // InspectorElement (an IMGUIContainer), an unbounded BeginVertical grows to its content's
-            // intrinsic width and overflows the pane.
-            if (Event.current.type == EventType.Layout)
-                _rightPanelWidth = _pendingRightPanelWidth;
+            EditorGUILayout.Space(6);
+            if (GUILayout.Button("Open in Molca Hub", GUILayout.Height(24)))
+                Molca.Editor.Hub.MolcaHubWindow.OpenWorkspace("content");
 
-            // Measure the real available width by reserving a full-width, zero-height rect. During the
-            // Layout pass its width is unknown (0); only the Repaint pass yields the true pane width.
-            Rect widthProbe = GUILayoutUtility.GetRect(0f, 0f, GUILayout.ExpandWidth(true));
-            if (Event.current.type == EventType.Repaint && widthProbe.width > 1f)
+            EditorGUILayout.Space(2);
+            EditorGUILayout.LabelField(
+                "Packages, release identity, delivery, and publishing are authored there.",
+                EditorStyles.centeredGreyMiniLabel);
+
+            EditorGUILayout.Space(8);
+            DrawReadOnlyWarning();
+        }
+
+        /// <summary>
+        /// One line of validation, from the engine every other surface uses.
+        /// </summary>
+        /// <remarks>
+        /// Settings-level only, and it says so. Findings that need a build graph — a package that
+        /// resolves to no bundles, a bundle belonging to nothing — cannot be produced without building,
+        /// and implying otherwise here is exactly the confidently-wrong reporting the workspace was
+        /// rebuilt to remove.
+        /// </remarks>
+        private static void DrawHealth(ContentPackageSettings settings)
+        {
+            var report = ContentValidation.ValidateSettings(settings.packageConfigs);
+
+            if (report.ErrorCount == 0 && report.WarningCount == 0)
             {
-                float measured = Mathf.Max(160f, widthProbe.width - LeftPanelWidth - ColumnGap - 6f);
-                if (Mathf.Abs(measured - _pendingRightPanelWidth) > 0.5f)
+                EditorGUILayout.HelpBox(
+                    "No configuration findings. Content is checked against a build on the Hub's Verify page.",
+                    MessageType.None);
+                return;
+            }
+
+            string summary = $"{report.ErrorCount} error(s), {report.WarningCount} warning(s).";
+            var worst = report.ErrorCount > 0 ? MessageType.Error : MessageType.Warning;
+
+            var lines = report.Issues
+                .Take(6)
+                .Select(issue =>
                 {
-                    _pendingRightPanelWidth = measured;
-                    Repaint(); // re-layout next frame with the corrected width
-                }
-            }
+                    string marker = issue.Severity == ContentIssueSeverity.Error ? "✕"
+                        : issue.Severity == ContentIssueSeverity.Warning ? "!" : "·";
+                    return string.IsNullOrEmpty(issue.PackageId)
+                        ? $"{marker} {issue.Message}"
+                        : $"{marker} [{issue.PackageId}] {issue.Message}";
+                });
 
-            EditorGUILayout.BeginHorizontal();
-            DrawLeftPanel(settings);
-            GUILayout.Space(6);
-            DrawRightPanel(settings);
-            EditorGUILayout.EndHorizontal();
-
-            // Collapsible panels at the bottom
-            EditorGUILayout.Space(10);
-            DrawSettingsPanel();
-            EditorGUILayout.Space(4);
-            DrawBuildPanel();
-
-            serializedObject.ApplyModifiedProperties();
+            string more = report.Issues.Count > 6 ? $"\n\n…and {report.Issues.Count - 6} more." : "";
+            EditorGUILayout.HelpBox($"{summary}\n\n{string.Join("\n\n", lines)}{more}", worst);
         }
 
-        private void DrawTopBar()
+        /// <summary>
+        /// Warns when this asset lives somewhere an edit would not survive.
+        /// </summary>
+        /// <remarks>
+        /// Shown here as well as in the workspace because the Project window is where someone finds a
+        /// second copy of this asset. The rule is the editing service's, read through it rather than
+        /// re-derived, so the inspector cannot disagree with what the workspace refuses.
+        /// </remarks>
+        private void DrawReadOnlyWarning()
         {
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Content Package Manager", _titleStyle);
-            GUILayout.FlexibleSpace();
+            string reason = new Molca.ContentPackage.Editor.ContentPackageEditingService(
+                (ContentPackageSettings)target).ReadOnlyReason();
 
-            if (_packageService != null)
-            {
-                var prevColor = GUI.color;
-                GUI.color = MolcaEditorColors.StatusOk;
-                EditorGUILayout.LabelField("● Live", EditorStyles.miniLabel, GUILayout.Width(38));
-                GUI.color = prevColor;
-
-                DrawCloudStatusBadge();
-
-                if (GUILayout.Button("↻", GUILayout.Width(24), GUILayout.Height(16)))
-                    RefreshRuntimeStates();
-            }
-            EditorGUILayout.EndHorizontal();
-        }
-
-        // ── Cloud status badge (top bar) ─────────────────────────────────────
-
-        private void DrawCloudStatusBadge()
-        {
-            var (dot, label, color) = GetCloudBadgeInfo();
-            var prev = GUI.color;
-            GUI.color = color;
-            EditorGUILayout.LabelField($"{dot} {label}", EditorStyles.miniLabel, GUILayout.Width(90));
-            GUI.color = prev;
-        }
-
-        private (string dot, string label, Color color) GetCloudBadgeInfo()
-        {
-            var state = _cloudStatus?.State ?? CloudConnectionState.Unknown;
-            return state switch
-            {
-                CloudConnectionState.Connected     => ("●", "CDN Connected",    MolcaEditorColors.StatusOk),
-                CloudConnectionState.Unreachable   => ("●", "CDN Unreachable",  MolcaEditorColors.StatusError),
-                CloudConnectionState.NotConfigured => ("●", "CDN Not Set",      MolcaEditorColors.StatusWarn),
-                _                                  => ("●", "CDN Unknown",      MolcaEditorColors.StatusIdle),
-            };
-        }
-
-        // ── Style init ───────────────────────────────────────────────────────
-
-        private void EnsureStyles()
-        {
-            if (_stylesInitialized) return;
-            _stylesInitialized = true;
-
-            _titleStyle = new GUIStyle(EditorStyles.boldLabel)
-            {
-                fontSize = 13,
-                padding  = new RectOffset(0, 0, 2, 2)
-            };
-            _sectionLabelStyle = new GUIStyle(EditorStyles.boldLabel)
-            {
-                fontSize = 11
-            };
-            _cardStyle = new GUIStyle(EditorStyles.helpBox)
-            {
-                padding = new RectOffset(8, 8, 5, 5),
-                margin  = new RectOffset(0, 0, 1, 2)
-            };
-            _cardSelectedStyle = new GUIStyle(_cardStyle);
-
-            _successStyle = new GUIStyle(EditorStyles.miniLabel);
-            _successStyle.normal.textColor = MolcaEditorColors.StatusOk;
-
-            _warningStyle = new GUIStyle(EditorStyles.miniLabel);
-            _warningStyle.normal.textColor = MolcaEditorColors.StatusWarn;
-
-            _errorStyle = new GUIStyle(EditorStyles.miniLabel);
-            _errorStyle.normal.textColor = MolcaEditorColors.StatusError;
-
-            _mutedStyle = new GUIStyle(EditorStyles.miniLabel);
-            _mutedStyle.normal.textColor = MolcaEditorColors.Muted;
+            if (reason != null) EditorGUILayout.HelpBox(reason, MessageType.Warning);
         }
     }
 }

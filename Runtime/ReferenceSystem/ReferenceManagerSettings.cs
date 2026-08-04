@@ -28,7 +28,6 @@ namespace Molca.ReferenceSystem
                  "switch off. Retained so existing authored assets keep deserializing.")]
         [SerializeField] private bool autoValidateOnScan = true;
         [SerializeField] private bool showValidationResults = true;
-        [SerializeField] private bool comprehensiveSceneScanning = false;
 
         [Header("On Scene Save")]
         [Tooltip("When enabled, reports missing or duplicate provider Ref Ids in the scene being saved. " +
@@ -99,9 +98,6 @@ namespace Molca.ReferenceSystem
             + "Removed next major.")]
         public bool ShowValidationResults => TypedState?.ShowValidationResults ?? showValidationResults;
 
-        /// <summary>Whether a project audit may open closed scenes to reach complete scene coverage.</summary>
-        public bool ComprehensiveSceneScanning => comprehensiveSceneScanning;
-
         /// <summary>Whether saving a scene reports its provider identity problems. Read-only either way.</summary>
         public bool ValidateRefIdsOnSceneSave => validateRefIdsOnSceneSave;
 
@@ -136,7 +132,7 @@ namespace Molca.ReferenceSystem
 
             if (EnableDebugLogging)
             {
-                Debug.Log($"[ReferenceManagerSettings] Settings loaded: Debug={EnableDebugLogging}, ComprehensiveSceneScanning={ComprehensiveSceneScanning}");
+                Debug.Log($"[ReferenceManagerSettings] Settings loaded: Debug={EnableDebugLogging}");
             }
         }
 

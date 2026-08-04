@@ -116,28 +116,34 @@ namespace Molca.Editor.ReferenceSystem
         /// <summary>
         /// Builds the scope described by a <see cref="ReferenceManagerSettings"/> asset.
         /// </summary>
-        /// <param name="settings">The settings asset. Null falls back to <see cref="OpenScenes"/>.</param>
-        /// <param name="mayOpenScenes">
-        /// Whether comprehensive scanning is permitted to open closed scenes. Callers running inside a
-        /// user-facing command pass true; background/incremental callers pass false.
+        /// <param name="settings">
+        /// The settings asset supplying prefab scan paths. Null contributes no prefab coverage and does not
+        /// otherwise narrow the scope.
         /// </param>
+        /// <param name="mayOpenScenes">
+        /// Whether this run covers the whole project, opening closed scenes to read them. True is the
+        /// user-facing <i>Full audit</i> command; background and incremental callers pass false and get the
+        /// open scenes only.
+        /// </param>
+        /// <remarks>
+        /// This is the <b>only</b> gate on closed-scene coverage. It used to be ANDed with a
+        /// <c>ComprehensiveSceneScanning</c> setting that stated the same condition in different words, and
+        /// which defaulted to off — so the sole live effect of that setting was to let a button labelled
+        /// Full audit scan nothing the user did not already have open, and still report Clean.
+        /// </remarks>
         public static ReferenceAuditScope FromSettings(ReferenceManagerSettings settings, bool mayOpenScenes = false)
         {
-            if (settings == null)
-                return OpenScenes();
-
-            var scenePaths = settings.ComprehensiveSceneScanning && mayOpenScenes
+            var scenePaths = mayOpenScenes
                 ? UnityEditor.AssetDatabase.FindAssets("t:Scene", new[] { "Assets" })
                     .Select(UnityEditor.AssetDatabase.GUIDToAssetPath)
                     .Where(p => !ReferenceAssetPolicy.IsExcludedFromScan(p))
-                    .ToList()
-                : (IReadOnlyList<string>)Array.Empty<string>();
+                : Enumerable.Empty<string>();
 
             return new ReferenceAuditScope
             {
                 IncludeOpenScenes = true,
-                ExplicitScenePaths = scenePaths,
-                PrefabScanPaths = Normalize(settings.PrefabScanPaths),
+                ExplicitScenePaths = Normalize(scenePaths),
+                PrefabScanPaths = Normalize(settings?.PrefabScanPaths),
                 MayOpenScenes = mayOpenScenes,
             };
         }
@@ -199,6 +205,10 @@ namespace Molca.Editor.ReferenceSystem
         /// Compared structurally rather than by reference: callers naturally build a fresh scope per request
         /// (<c>ReferenceAuditScope.OpenScenes()</c> allocates), and reference comparison would turn every
         /// cache lookup into a full rescan — including in Framework Graph, which rebuilds on demand.
+        ///
+        /// The path lists are ordered by <see cref="Normalize"/>, so the sequence comparisons below behave as
+        /// set comparisons: two scopes describing the same scenes match even though the query that produced
+        /// them promises nothing about order.
         /// </remarks>
         internal bool MatchesCacheOf(ReferenceAuditScope other) =>
             other != null
@@ -218,10 +228,23 @@ namespace Molca.Editor.ReferenceSystem
         public bool ShouldSkip(string assetPath) =>
             ReferenceAssetPolicy.IsExcludedFromScan(assetPath) || (IsIgnored?.Invoke(assetPath) ?? false);
 
+        /// <summary>
+        /// Cleans a caller's path list into the canonical form a scope stores: trimmed, forward-slashed,
+        /// deduplicated and ordered.
+        /// </summary>
+        /// <param name="paths">The caller's paths. Null yields an empty list.</param>
+        /// <remarks>
+        /// Ordering is part of the contract, for two reasons. It makes <see cref="MatchesCacheOf"/> a set
+        /// comparison in practice, so a cached full-project snapshot is not thrown away because
+        /// <c>AssetDatabase.FindAssets</c> — whose order is unspecified — returned the same scenes in a
+        /// different sequence; discarding it costs a rescan that now opens every scene in the project. And it
+        /// makes scan order reproducible, which the prefab phase already relied on.
+        /// </remarks>
         private static IReadOnlyList<string> Normalize(IEnumerable<string> paths) =>
             paths?.Where(p => !string.IsNullOrWhiteSpace(p))
                 .Select(p => p.Replace('\\', '/').Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(p => p, StringComparer.Ordinal)
                 .ToList()
             ?? (IReadOnlyList<string>)Array.Empty<string>();
     }

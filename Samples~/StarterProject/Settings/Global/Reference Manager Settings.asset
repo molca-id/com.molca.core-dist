@@ -15,7 +15,6 @@ MonoBehaviour:
   enableDebugLogging: 1
   autoValidateOnScan: 1
   showValidationResults: 1
-  comprehensiveSceneScanning: 1
   validateRefIdsOnSceneSave: 1
   fixRefIdsOnSceneSave: 1
   assetKnownIds: []

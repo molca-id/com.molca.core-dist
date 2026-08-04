@@ -7,7 +7,7 @@ namespace Molca.Editor.Automation.Hub
 {
     /// <summary>
     /// The Molca Hub <b>Automation</b> workspace content (§12), laid out as a left navigation rail
-    /// (<see cref="MolcaRail"/>) with a detail pane: Overview, Workflows, Permissions, History, and
+    /// (<see cref="MolcaNavRail"/>) with a detail pane: Overview, Workflows, Permissions, History, and
     /// Capabilities. Only the selected section renders, so the tab stays compact as sections grow. Styled
     /// with the shared Molca editor card/field vocabulary. Editor-only; main thread.
     /// </summary>
@@ -17,19 +17,32 @@ namespace Molca.Editor.Automation.Hub
     /// </remarks>
     public sealed class MolcaAutomationView : VisualElement
     {
-        private readonly MolcaRail _rail = new MolcaRail();
+        /// <summary>Left-rail width, per the editor design language.</summary>
+        private const int RailWidth = 188;
+
+        private readonly MolcaNavRail _rail = new MolcaNavRail("Search");
         // ScrollView so a tall section scrolls instead of flex-compressing its rows (which overlapped text).
-        private readonly ScrollView _detail = new ScrollView { style = { flexGrow = 1, minHeight = 0, paddingLeft = 12 } };
+        private readonly ScrollView _detail = new ScrollView { style = { flexGrow = 1, minHeight = 0, paddingLeft = 12, paddingRight = 12 } };
 
         /// <summary>Builds the Automation workspace view.</summary>
         public MolcaAutomationView()
         {
+            // No horizontal padding on the root: the rail below reaches the panel edge, as it does in
+            // Settings and Docs. The header and the detail pane carry the inset instead.
             style.flexGrow = 1;
-            style.paddingLeft = 12;
-            style.paddingRight = 12;
-            style.paddingTop = 10;
 
-            var header = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginBottom = 10 } };
+            var header = new VisualElement
+            {
+                style =
+                {
+                    flexDirection = FlexDirection.Row,
+                    alignItems = Align.Center,
+                    marginBottom = 10,
+                    paddingTop = 10,
+                    paddingLeft = 12,
+                    paddingRight = 12,
+                },
+            };
             var title = new Label("Automation");
             title.AddToClassList("molca-hub-title");
             title.style.flexGrow = 1;
@@ -37,20 +50,32 @@ namespace Molca.Editor.Automation.Hub
             header.Add(MolcaButtons.Mini("Refresh", Refresh));
             Add(header);
 
-            var body = new VisualElement { style = { flexDirection = FlexDirection.Row, flexGrow = 1, minHeight = 0 } };
-            _rail.AddItem("overview", "Overview");
-            _rail.AddItem("workflows", "Workflows");
-            _rail.AddItem("permissions", "Permissions");
-            _rail.AddItem("history", "History");
-            _rail.AddItem("capabilities", "Capabilities");
-            _rail.OnSelected += _ => ShowSelected();
+            // A split pane rather than a flex row, so the rail is draggable here exactly as it is in
+            // Settings and Docs. The pane owns the width; the rail deliberately carries none.
+            var body = new TwoPaneSplitView(0, RailWidth, TwoPaneSplitViewOrientation.Horizontal);
+            body.style.flexGrow = 1;
+            body.style.minHeight = 0;
+            _rail.SetRoots(new[]
+            {
+                Leaf("overview", "Overview"),
+                Leaf("workflows", "Workflows"),
+                Leaf("permissions", "Permissions"),
+                Leaf("history", "History"),
+                Leaf("capabilities", "Capabilities"),
+            });
+            _rail.NodeSelected += _ => ShowSelected();
+
             body.Add(_rail);
             body.Add(_detail);
             Add(body);
 
             MolcaAutomationKernel.Instance.Rebuild();
-            _rail.Select("overview");
+            _rail.SelectNodeById("overview");
         }
+
+        /// <summary>A flat rail row: a leaf with no children, whose content this view renders itself.</summary>
+        private static MolcaNavRailNode Leaf(string id, string label) =>
+            new MolcaNavRailNode(id, label, () => null);
 
         private void Refresh()
         {
@@ -61,7 +86,7 @@ namespace Molca.Editor.Automation.Hub
         private void ShowSelected()
         {
             _detail.Clear();
-            switch (_rail.SelectedKey)
+            switch (_rail.SelectedNode?.Id)
             {
                 case "workflows": _detail.Add(BuildWorkflows()); break;
                 case "permissions": _detail.Add(BuildPermissions()); break;

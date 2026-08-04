@@ -31,7 +31,7 @@ namespace Molca.Editor.Networking.Hub
             "Packages/com.molca.core/Editor/Networking/Hub/NetworkHubView.uss";
 
         /// <summary>Width of the navigation rail, matching the Hub's other master/detail workspaces.</summary>
-        private const float RailWidth = 188f;
+        private const int RailWidth = 188;
 
         /// <summary>Width below which the rail collapses into a horizontal strip above the content.</summary>
         private const float NarrowWidth = 640f;
@@ -55,13 +55,10 @@ namespace Molca.Editor.Networking.Hub
         private VisualElement _environmentSlot;
 
         // Navigation
-        private VisualElement _railPane;
-        private MolcaSearchField _search;
-        private MolcaRail _rail;
-        private VisualElement _searchResults;
+        private MolcaNavRail _rail;
 
         // Content
-        private VisualElement _body;
+        private TwoPaneSplitView _body;
         private VisualElement _content;
         private bool _isNarrow;
 
@@ -144,7 +141,7 @@ namespace Molca.Editor.Networking.Hub
                     _session.SetSelection(target.ViewId, target.EntityId);
 
                 _session.SelectedView = target.ViewId;
-                _rail?.Select(target.ViewId);
+                _rail?.SelectNodeById(target.ViewId, notify: false);
             }
 
             RefreshContent();
@@ -310,33 +307,29 @@ namespace Molca.Editor.Networking.Hub
 
         private void BuildBody()
         {
-            _body = new VisualElement();
+            // A split pane rather than a flex row, so the rail drags to width exactly as it does in
+            // Settings and Docs. The pane owns the width, which is why the rail pane sets none.
+            _body = new TwoPaneSplitView(0, RailWidth, TwoPaneSplitViewOrientation.Horizontal);
             _body.AddToClassList("molca-network__body");
             _body.style.flexGrow = 1;
 
-            _railPane = new VisualElement();
-            _railPane.AddToClassList("molca-network__rail-pane");
-            _railPane.style.width = RailWidth;
-
-            _search = new MolcaSearchField("Search catalog");
-            _search.OnSearchChanged += _ => RefreshSearchResults();
-            _railPane.Add(_search);
-
-            _rail = new MolcaRail();
-            _rail.OnSelected += viewId =>
+            // The rail *is* the pane, as it is in Settings and Docs. Wrapping it in a container that also
+            // held the search box left the rail's surface and right-hand border spanning only the middle
+            // band of the pane — a border that started below the search field and stopped above the results.
+            _rail = new MolcaNavRail("Search catalog");
+            _rail.NodeSelected += node =>
             {
-                _session.SelectedView = viewId;
-                _search.Clear();
+                _session.SelectedView = node.Id;
+                _rail.ClearSearch();
                 RefreshContent();
             };
-            _railPane.Add(_rail);
 
-            _searchResults = new ScrollView();
-            _searchResults.AddToClassList("molca-network__search-results");
-            _searchResults.style.display = DisplayStyle.None;
-            _railPane.Add(_searchResults);
+            // Catalog matches are contributed as rail rows while filtering, the same way the Hub offers
+            // workspace tabs from its search box. That is what lets one search box serve both jobs: typing
+            // filters the view list and searches the catalog at once, and a result is a row you select.
+            _rail.FilterOnlyRoots = BuildSearchRoots;
 
-            _body.Add(_railPane);
+            _body.Add(_rail);
 
             _content = new VisualElement();
             _content.AddToClassList("molca-network__content");
@@ -353,11 +346,12 @@ namespace Molca.Editor.Networking.Hub
         {
             string selected = _session.SelectedView;
 
-            _rail.ClearItems();
+            var roots = new List<MolcaNavRailNode>();
             foreach (string viewId in NetworkHubViews.All)
-                _rail.AddItem(viewId, NetworkHubViews.Label(viewId));
+                roots.Add(new MolcaNavRailNode(viewId, NetworkHubViews.Label(viewId), () => null));
 
-            _rail.Select(selected);
+            _rail.SetRoots(roots);
+            _rail.SelectNodeById(selected, notify: false);
         }
 
         /// <summary>
@@ -367,45 +361,40 @@ namespace Molca.Editor.Networking.Hub
         /// Results navigate straight to the detail they name rather than filtering a list, because the
         /// thing a search for "identity" wants is that service's detail pane, not a shorter master list.
         /// </remarks>
-        private void RefreshSearchResults()
+        /// <summary>
+        /// Catalog matches for the rail's active filter, grouped under one category.
+        /// </summary>
+        /// <param name="filter">The search text.</param>
+        /// <returns>A single category of command leaves, or empty when nothing matches.</returns>
+        /// <remarks>
+        /// Command leaves, not content leaves: a result is a jump to the entity's own view, so it must not
+        /// be remembered as the row to restore next time.
+        /// </remarks>
+        private IReadOnlyList<MolcaNavRailNode> BuildSearchRoots(string filter)
         {
-            string query = _search.Value;
+            if (string.IsNullOrEmpty(filter) || !_session.HasCatalog)
+                return System.Array.Empty<MolcaNavRailNode>();
 
-            if (string.IsNullOrEmpty(query) || !_session.HasCatalog)
-            {
-                _searchResults.style.display = DisplayStyle.None;
-                _rail.style.display = DisplayStyle.Flex;
-                return;
-            }
-
-            _searchResults.style.display = DisplayStyle.Flex;
-            _rail.style.display = DisplayStyle.None;
-            _searchResults.Clear();
-
-            var matches = NetworkHubSearch.Find(_session.Catalog, query);
-
+            var matches = NetworkHubSearch.Find(_session.Catalog, filter);
             if (matches.Count == 0)
-            {
-                _searchResults.Add(NetworkHubUi.Note($"Nothing matches '{query}'."));
-                return;
-            }
+                return System.Array.Empty<MolcaNavRailNode>();
 
+            var children = new List<MolcaNavRailNode>(matches.Count);
             foreach (var match in matches)
             {
-                _searchResults.Add(NetworkHubUi.ListRow(
+                var target = match.Target;
+                children.Add(MolcaNavRailNode.Command(
+                    "find:" + match.Kind + ":" + match.Title,
                     match.Title,
-                    match.Subtitle,
-                    MolcaStatusKind.None,
-                    match.Kind,
-                    selected: false,
-                    onClick: () =>
+                    () =>
                     {
-                        _search.Clear();
-                        RefreshSearchResults();
-                        Navigate(match.Target);
+                        _rail.ClearSearch();
+                        Navigate(target);
                     },
-                    NetworkHubUi.Badge(match.Kind)));
+                    match.Subtitle));
             }
+
+            return new[] { new MolcaNavRailNode("cat:catalog-matches", "Catalog", children) };
         }
 
         #endregion
@@ -449,7 +438,12 @@ namespace Molca.Editor.Networking.Hub
 
             _isNarrow = narrow;
             _body.EnableInClassList("molca-network__body--narrow", narrow);
-            _railPane.style.width = narrow ? StyleKeyword.Auto : RailWidth;
+
+            // Narrow puts the rail above the content, which for a split pane is its orientation rather than
+            // a flex-direction override — the splitter has to move to the same axis the CSS is flipping to.
+            _body.orientation = narrow
+                ? TwoPaneSplitViewOrientation.Vertical
+                : TwoPaneSplitViewOrientation.Horizontal;
         }
 
         #endregion

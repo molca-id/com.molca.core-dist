@@ -6,12 +6,10 @@
  * Layout follows EDITOR_DESIGN_LANGUAGE.md so the workspace renders uniformly with the rest of the Hub.
  */
 
+/* No horizontal padding: the rail below reaches the panel edge, as it does in Settings and Docs. The
+ * toolbar and the content pane carry the inset instead. */
 .molca-network {
     flex-grow: 1;
-    padding-top: 8px;
-    padding-bottom: 8px;
-    padding-left: 10px;
-    padding-right: 10px;
 }
 
 /* ---- Toolbar ---- */
@@ -21,6 +19,9 @@
     align-items: center;
     margin-bottom: 8px;
     flex-wrap: wrap;
+    padding-top: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
 }
 
 .molca-network__catalog {
@@ -69,41 +70,20 @@
 
 /* ---- Body: rail + content ---- */
 
+/* A TwoPaneSplitView. It lays its own panes out from its orientation, so nothing here sets a
+ * flex-direction — a CSS override would put the panes on one axis and the drag handle on the other. */
 .molca-network__body {
-    flex-direction: row;
     flex-grow: 1;
 }
 
-.molca-network__body--narrow {
-    flex-direction: column;
-}
-
-.molca-network__rail-pane {
-    flex-shrink: 0;
-    margin-right: 10px;
-    border-right-width: 1px;
-    border-right-color: var(--molca-border-soft);
-    padding-right: 8px;
-}
-
-.molca-network__body--narrow .molca-network__rail-pane {
-    margin-right: 0;
-    margin-bottom: 8px;
-    border-right-width: 0;
-    border-bottom-width: 1px;
-    border-bottom-color: var(--molca-border-soft);
-    padding-right: 0;
-    padding-bottom: 8px;
-}
-
-.molca-network__search-results {
-    max-height: 260px;
-}
 
 .molca-network__content {
     flex-grow: 1;
     flex-shrink: 1;
     min-width: 0;
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-bottom: 8px;
 }
 
 .molca-network__view {
@@ -155,36 +135,69 @@
 
 /* ---- Rows ---- */
 
+/*
+ * The border is reserved transparent at rest and the padding already accounts for it, so selecting a row
+ * only ever changes colour. The previous treatment bought its 3px edge by shrinking padding-left from 6
+ * to 3, which slid every label in the row sideways the moment it was clicked.
+ */
 .molca-network__row {
     flex-direction: row;
     align-items: center;
+    justify-content: flex-start;
     background-color: transparent;
-    border-width: 0;
+    border-width: 1px;
+    border-color: rgba(0, 0, 0, 0);
     border-radius: 3px;
     margin-top: 1px;
     margin-bottom: 1px;
     margin-left: 0;
     margin-right: 0;
-    padding-top: 4px;
-    padding-bottom: 4px;
-    padding-left: 6px;
-    padding-right: 6px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 5px;
+    padding-right: 5px;
     min-height: 44px;
+    /*
+     * A list row is built from a Button, and Unity's default button style centres its text. That property
+     * inherits, so every row title and subtitle was being centred inside the row's full width — the name
+     * floated in the middle of the row, far from the status dot describing it and from the left edge the
+     * eye scans down. Nobody chose that; it arrived with the control. Rows read left-to-right.
+     */
+    -unity-text-align: middle-left;
 }
 
 .molca-network__row:hover {
     background-color: var(--molca-control);
 }
 
+/*
+ * A content row is selected, not navigated to, and it should not look like a rail item.
+ *
+ * The rail marks the current destination with a solid fill and an accent edge along the panel border,
+ * where it is the only such mark on screen. Repeating it on a row inside a card puts a second rail in
+ * the middle of the window, spends the accent colour — which means "current workspace" everywhere else —
+ * on a list selection, and drowns the hover state, since a solid fill leaves hover nothing to add.
+ *
+ * So: the same selection hue, but as a wash with the solid colour moved into the ring. The row reads as
+ * the one being edited, the rail keeps sole ownership of "you are here", and hover still has somewhere
+ * to go.
+ */
 .molca-network__row--selected {
+    background-color: var(--molca-row-selected-soft);
+    border-color: var(--molca-row-selected);
+}
+
+/*
+ * Hover is more specific than the selected class, so without this a selected row reverted to the plain
+ * control fill under the pointer — it looked deselected exactly while being pointed at.
+ */
+.molca-network__row--selected:hover {
     background-color: var(--molca-row-selected);
-    border-left-width: 3px;
-    border-left-color: var(--molca-accent);
-    padding-left: 3px;
 }
 
 .molca-network__row--selected .molca-network__row-title {
     color: var(--molca-on-row-selected);
+    -unity-font-style: bold;
 }
 
 .molca-network__row-text {
@@ -253,6 +266,105 @@
     font-size: 11px;
     color: var(--molca-text);
     white-space: normal;
+}
+
+/* ---- Editable fields ----
+   Sized so an editable row and a read-only row line up on the same 160px label grid. */
+
+.molca-network__field-control {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-left: 0;
+    margin-right: 0;
+}
+
+/* UIElements fields carry their own label slot; these views supply the label, so it is collapsed. */
+.molca-network__field-control > .unity-base-field__label {
+    display: none;
+}
+
+/*
+ * The strict-choice control. It is a Button rather than a PopupField because the list behind it searches
+ * — the response-type field offers every concrete type in the player assemblies — so this styles a
+ * button to read as a field, keeping a column of mixed text, enum and choice rows on one visual grid.
+ */
+.molca-network__choice {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    padding-left: 6px;
+    padding-right: 6px;
+    min-height: 20px;
+    background-color: var(--molca-input);
+    border-width: 1px;
+    border-color: var(--molca-border);
+    border-radius: 3px;
+    color: var(--molca-text);
+    -unity-text-align: middle-left;
+    font-size: 11px;
+}
+
+.molca-network__choice:hover {
+    background-color: var(--molca-control);
+}
+
+/*
+ * An authored value that detection could not account for. Warned, not errored, and never red: a key can
+ * legitimately exist only on a build agent and a response model can legitimately not be compiled yet.
+ * The mark says "nothing here could confirm this", which is a different claim from "this is wrong".
+ */
+.molca-network__choice--missing {
+    border-color: var(--molca-status-warn);
+    color: var(--molca-muted);
+}
+
+.molca-network__textarea > .unity-base-text-field__input {
+    min-height: 48px;
+    white-space: normal;
+}
+
+.molca-network__list-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+.molca-network__list-entry {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-right: 4px;
+}
+
+.molca-network__header-key {
+    width: 150px;
+    flex-shrink: 0;
+    margin-left: 4px;
+    margin-right: 4px;
+}
+
+.molca-network__header-value {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-right: 4px;
+}
+
+/* One parameter's fields, grouped so a list of them reads as separate entries. */
+.molca-network__parameter {
+    margin-top: 4px;
+    margin-bottom: 4px;
+    padding-left: 6px;
+    border-left-width: 2px;
+    border-left-color: var(--molca-border);
 }
 
 .molca-network__provenance {

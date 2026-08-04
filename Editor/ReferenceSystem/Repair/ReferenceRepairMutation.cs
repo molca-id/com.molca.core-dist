@@ -37,6 +37,27 @@ namespace Molca.Editor.ReferenceSystem.Repair
         /// Clear a reference. Requires a user choice: clearing to make validation green destroys intent.
         /// </summary>
         ClearReference = 4,
+
+        /// <summary>
+        /// Give a provider a Ref Id the author chose. Never automatic, and never emitted without the
+        /// <see cref="FollowProviderRename"/> mutations that carry every inbound reference with it.
+        /// </summary>
+        RenameProviderId = 5,
+
+        /// <summary>
+        /// Move one inbound reference onto a provider's new identity. The target does not change — only
+        /// the name it is known by — which is what separates this from <see cref="RedirectReference"/>.
+        /// </summary>
+        FollowProviderRename = 6,
+
+        /// <summary>Change a provider's Ref Type, carrying its inbound references with it.</summary>
+        RetypeProvider = 7,
+
+        /// <summary>
+        /// Change which space a provider's id must be unique in. Scope is part of identity, so this is
+        /// the one metadata change that can strand every reference to the target.
+        /// </summary>
+        ChangeProviderScope = 8,
     }
 
     /// <summary>Whether a repair may be applied without asking, or needs an explicit decision.</summary>

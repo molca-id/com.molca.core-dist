@@ -34,6 +34,11 @@ namespace Molca.Editor.Hub.Sections
         private bool _revealToken;
         private int _allowlistPage;
         private int _readOnlyPage;
+
+        // Search text is held here, not just in the fields, so the provider-signature poll's rebuild
+        // (a provider added, removed, or its tool count changed) restores the filter the user is typing in.
+        private string _readOnlyQuery = string.Empty;
+        private string _actionQuery = string.Empty;
         private IVisualElementScheduledItem _providerRefreshPoll;
         private string _providerSignature;
 
@@ -506,9 +511,14 @@ namespace Molca.Editor.Hub.Sections
                 return card;
             }
 
-            var note = new Label($"{readTools.Count} read-only tools — always available to connected clients (no mutation, no confirmation).");
+            var note = new Label();
             note.AddToClassList("molca-hub-muted");
             card.Body.Add(note);
+
+            var search = new MolcaSearchField("Search read-only tools");
+            search.AddToClassList("molca-hub-mcp-search");
+            search.SetValueWithoutNotify(_readOnlyQuery);
+            card.Body.Add(search);
 
             var viewport = new VisualElement();
             viewport.AddToClassList("molca-hub-mcp-allowlist");
@@ -521,14 +531,23 @@ namespace Molca.Editor.Hub.Sections
 
             void RebuildPage()
             {
-                int pageCount = Mathf.Max(1, Mathf.CeilToInt(readTools.Count / (float)AllowlistPageSize));
+                // Paging is over the filtered set, so page 1 of a search is the first match, not the first
+                // tool that happens to sit on the page the user was on before typing.
+                var matches = FilterTools(readTools, _readOnlyQuery);
+                note.text = string.IsNullOrEmpty(_readOnlyQuery)
+                    ? $"{readTools.Count} read-only tools — always available to connected clients (no mutation, no confirmation)."
+                    : $"{matches.Count} of {readTools.Count} read-only tools match \"{_readOnlyQuery}\".";
+
+                int pageCount = Mathf.Max(1, Mathf.CeilToInt(matches.Count / (float)AllowlistPageSize));
                 _readOnlyPage = Mathf.Clamp(_readOnlyPage, 0, pageCount - 1);
                 int start = _readOnlyPage * AllowlistPageSize;
-                int end = Mathf.Min(start + AllowlistPageSize, readTools.Count);
+                int end = Mathf.Min(start + AllowlistPageSize, matches.Count);
 
                 grid.Clear();
+                if (matches.Count == 0)
+                    grid.Add(MakeNoMatchLabel(_readOnlyQuery));
                 for (int i = start; i < end; i++)
-                    grid.Add(BuildReadOnlyCell(readTools[i]));
+                    grid.Add(BuildReadOnlyCell(matches[i]));
 
                 nav.Clear();
                 if (pageCount > 1)
@@ -538,7 +557,7 @@ namespace Molca.Editor.Hub.Sections
                     prev.SetEnabled(_readOnlyPage > 0);
                     nav.Add(prev);
 
-                    var pageLabel = new Label($"Page {_readOnlyPage + 1} / {pageCount}   (tools {start + 1}–{end} of {readTools.Count})");
+                    var pageLabel = new Label($"Page {_readOnlyPage + 1} / {pageCount}   (tools {start + 1}–{end} of {matches.Count})");
                     pageLabel.AddToClassList("molca-hub-mcp-allowlist-nav__label");
                     nav.Add(pageLabel);
 
@@ -548,6 +567,13 @@ namespace Molca.Editor.Hub.Sections
                     nav.Add(next);
                 }
             }
+
+            search.OnSearchChanged += query =>
+            {
+                _readOnlyQuery = query;
+                _readOnlyPage = 0;
+                RebuildPage();
+            };
 
             card.Body.Add(viewport);
             card.Body.Add(nav);
@@ -606,9 +632,23 @@ namespace Molca.Editor.Hub.Sections
             warning.Add(warnText);
             card.Body.Add(warning);
 
+            var search = new MolcaSearchField("Search action tools");
+            search.AddToClassList("molca-hub-mcp-search");
+            search.SetValueWithoutNotify(_actionQuery);
+            card.Body.Add(search);
+
             var countLabel = new Label();
             countLabel.AddToClassList("molca-hub-muted");
-            void RefreshCount() => countLabel.text = $"{CountAllowed(listProp, actionTools)} / {actionTools.Count} allowed";
+
+            // The allowed/total count always spans every action tool — an allowlist the search happens to be
+            // hiding is still in force, so scoping the count to the filter would misreport what can run.
+            void RefreshCount()
+            {
+                var allowed = $"{CountAllowed(listProp, actionTools)} / {actionTools.Count} allowed";
+                countLabel.text = string.IsNullOrEmpty(_actionQuery)
+                    ? allowed
+                    : $"{allowed} · {FilterTools(actionTools, _actionQuery).Count} match \"{_actionQuery}\"";
+            }
 
             // Fixed-height viewport holds the page height; the inner wrap grid sits at its natural row
             // height (Yoga stretches wrap lines if min-height is on the wrapping element itself).
@@ -625,14 +665,18 @@ namespace Molca.Editor.Hub.Sections
             // so toggling, paging, and All/None keep the user on the same card.
             void RebuildPage()
             {
-                int pageCount = Mathf.Max(1, Mathf.CeilToInt(actionTools.Count / (float)AllowlistPageSize));
+                var matches = FilterTools(actionTools, _actionQuery);
+
+                int pageCount = Mathf.Max(1, Mathf.CeilToInt(matches.Count / (float)AllowlistPageSize));
                 _allowlistPage = Mathf.Clamp(_allowlistPage, 0, pageCount - 1);
                 int start = _allowlistPage * AllowlistPageSize;
-                int end = Mathf.Min(start + AllowlistPageSize, actionTools.Count);
+                int end = Mathf.Min(start + AllowlistPageSize, matches.Count);
 
                 grid.Clear();
+                if (matches.Count == 0)
+                    grid.Add(MakeNoMatchLabel(_actionQuery));
                 for (int i = start; i < end; i++)
-                    grid.Add(BuildAllowlistCell(settingsSO, listProp, actionTools[i], RefreshCount));
+                    grid.Add(BuildAllowlistCell(settingsSO, listProp, matches[i], RefreshCount));
 
                 nav.Clear();
                 if (pageCount > 1)
@@ -642,7 +686,7 @@ namespace Molca.Editor.Hub.Sections
                     prev.SetEnabled(_allowlistPage > 0);
                     nav.Add(prev);
 
-                    var pageLabel = new Label($"Page {_allowlistPage + 1} / {pageCount}   (tools {start + 1}–{end} of {actionTools.Count})");
+                    var pageLabel = new Label($"Page {_allowlistPage + 1} / {pageCount}   (tools {start + 1}–{end} of {matches.Count})");
                     pageLabel.AddToClassList("molca-hub-mcp-allowlist-nav__label");
                     nav.Add(pageLabel);
 
@@ -653,25 +697,44 @@ namespace Molca.Editor.Hub.Sections
                 }
             }
 
+            search.OnSearchChanged += query =>
+            {
+                _actionQuery = query;
+                _allowlistPage = 0;
+                RebuildPage();
+                RefreshCount();
+            };
+
+            // All/None act on what the search leaves visible: a bulk toggle must never grant or revoke a
+            // permission the user cannot see it touching.
             var all = new Button(() =>
             {
-                foreach (var t in actionTools) SetAllowed(settingsSO, listProp, t.Name, true);
+                foreach (var t in FilterTools(actionTools, _actionQuery)) SetAllowed(settingsSO, listProp, t.Name, true);
                 RefreshCount();
                 RebuildPage();
             })
-            { text = "All", tooltip = "Allow every action tool." };
+            { text = "All", tooltip = "Allow every action tool currently listed." };
             all.AddToClassList("molca-hub-mini-button");
             card.AddHeaderAction(all);
 
             var none2 = new Button(() =>
             {
-                for (int i = listProp.arraySize - 1; i >= 0; i--) listProp.DeleteArrayElementAtIndex(i);
-                settingsSO.ApplyModifiedProperties();
-                EditorUtility.SetDirty(settings);
+                if (string.IsNullOrEmpty(_actionQuery))
+                {
+                    // Unfiltered: clear the whole array, which also drops stale entries naming tools no
+                    // provider registers any more. A filtered clear can only remove what it can see.
+                    for (int i = listProp.arraySize - 1; i >= 0; i--) listProp.DeleteArrayElementAtIndex(i);
+                    settingsSO.ApplyModifiedProperties();
+                    EditorUtility.SetDirty(settings);
+                }
+                else
+                {
+                    foreach (var t in FilterTools(actionTools, _actionQuery)) SetAllowed(settingsSO, listProp, t.Name, false);
+                }
                 RefreshCount();
                 RebuildPage();
             })
-            { text = "None", tooltip = "Disallow every action tool." };
+            { text = "None", tooltip = "Disallow every action tool currently listed." };
             none2.AddToClassList("molca-hub-mini-button");
             card.AddHeaderAction(none2);
 
@@ -715,6 +778,49 @@ namespace Molca.Editor.Hub.Sections
             cell.Add(toggle);
 
             return cell;
+        }
+
+        /// <summary>
+        /// The tools whose name or description contains every whitespace-separated term in
+        /// <paramref name="query"/>, case-insensitively. An empty query returns <paramref name="tools"/>
+        /// itself, so the unfiltered path allocates nothing.
+        /// </summary>
+        /// <remarks>
+        /// Terms are ANDed rather than matched as one substring so <c>"prefab create"</c> finds
+        /// <c>molca_create_prefab</c> — tool names order their words, users don't.
+        /// </remarks>
+        private static List<McpToolDefinition> FilterTools(List<McpToolDefinition> tools, string query)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+                return tools;
+
+            var terms = query.Split(new[] { ' ', '\t' }, System.StringSplitOptions.RemoveEmptyEntries);
+            var matches = new List<McpToolDefinition>();
+            foreach (var tool in tools)
+            {
+                var haystack = tool.Name + "\n" + tool.Description;
+                var all = true;
+                foreach (var term in terms)
+                {
+                    if (haystack.IndexOf(term, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        continue;
+                    all = false;
+                    break;
+                }
+                if (all)
+                    matches.Add(tool);
+            }
+
+            return matches;
+        }
+
+        /// <summary>Full-width grid placeholder shown when the active search matches no tool.</summary>
+        private static Label MakeNoMatchLabel(string query)
+        {
+            var label = new Label($"No tools match \"{query}\".");
+            label.AddToClassList("molca-hub-muted");
+            label.AddToClassList("molca-hub-mcp-allowlist__empty");
+            return label;
         }
 
         private static Label MakeBadge(string text, string variantClass, string tooltip)

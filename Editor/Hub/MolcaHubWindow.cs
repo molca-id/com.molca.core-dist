@@ -40,18 +40,10 @@ namespace Molca.Editor.Hub
             new SectionInfo(MolcaHubSection.About, "About", "Installed versions, framework update check, license, and links.")
         };
 
-        // Nested navigation rail (TreeView) state. _railRoots holds the built node hierarchy; the id maps are
-        // rebuilt on every (re)build/filter so selection and expansion can be addressed by stable node id.
-        private TreeView _railTree;
-        private readonly List<MolcaHubRailNode> _railRoots = new List<MolcaHubRailNode>();
-        private readonly Dictionary<int, MolcaHubRailNode> _itemIdToNode = new Dictionary<int, MolcaHubRailNode>();
-        private readonly Dictionary<string, int> _nodeIdToItemId = new Dictionary<string, int>();
-        private HashSet<string> _expandedNodeIds = new HashSet<string>();
-        private bool _suppressRailSelection;
-        private int _nextItemId;
-
-        // The row Enter in the search field activates: the first leaf surviving the active filter.
-        private MolcaHubRailNode _firstFilterMatch;
+        // The navigation rail. Node hierarchy is built here; the tree, the search box, filtering and
+        // expansion persistence all live in the shared component.
+        private MolcaNavRail _navRail;
+        private readonly List<MolcaNavRailNode> _railRoots = new List<MolcaNavRailNode>();
 
         // Non-Settings workspace tabs resolved from the provider registry (Core's Doctor/Assistant plus
         // com.molca.sequence's Sequence tab and any other consumer-contributed tabs), rebuilt each time
@@ -59,8 +51,6 @@ namespace Molca.Editor.Hub
         private IReadOnlyList<MolcaHubWorkspaceItem> _workspaceItems = System.Array.Empty<MolcaHubWorkspaceItem>();
 
         private MolcaHubState _state;
-        private TextField _searchField;
-        private Label _searchPlaceholder;
         private VisualElement _rail;
         private VisualElement _detailHeader;
         private Label _detailTitle;
@@ -225,8 +215,7 @@ namespace Molca.Editor.Hub
                 BuildFallbackLayout(root);
             }
 
-            _searchField = root.Q<TextField>("settings-search");
-            _rail = root.Q<VisualElement>("settings-rail");
+            _rail = root.Q<VisualElement>("rail-panel");
             _detailHeader = root.Q<VisualElement>("detail-header");
             _detailTitle = root.Q<Label>("detail-title");
             _detailDescription = root.Q<Label>("detail-description");
@@ -312,55 +301,33 @@ namespace Molca.Editor.Hub
         {
             if (_rail == null) return;
 
-            _expandedNodeIds = _state.RailExpanded ?? new HashSet<string>();
-            BuildRailNodes();
+            _navRail = new MolcaNavRail(
+                "Search",
+                () => _state.RailExpanded ?? new HashSet<string>(),
+                ids => _state.SetRailExpanded(ids));
+            _navRail.tooltip = "Filter Molca Hub navigation.";
+            _navRail.style.flexGrow = 1;
+            _navRail.NodeSelected += OnRailNodeSelected;
 
-            _railTree = new TreeView
+            // While filtering, matching workspace tabs are offered ahead of the sections. A tab the user
+            // cannot see is a tab they cannot find, and switching workspace is the more expensive thing to
+            // do by hand — so workspace results outrank section results.
+            _navRail.FilterOnlyRoots = filter =>
             {
-                fixedItemHeight = 24,
-                selectionType = SelectionType.Single,
-                makeItem = MakeRailRow,
-                bindItem = BindRailRow
+                var category = MolcaHubRailFilter.BuildWorkspaceCategory(
+                    _workspaceItems, filter, SelectWorkspace);
+                return category == null
+                    ? System.Array.Empty<MolcaNavRailNode>()
+                    : new[] { category };
             };
-            _railTree.AddToClassList("molca-hub-rail-tree");
-            _railTree.style.flexGrow = 1;
-            _railTree.selectionChanged += OnRailSelectionChanged;
-            _rail.Add(_railTree);
 
-            RebuildRailTree(null);
+            _rail.Add(_navRail);
 
-            if (_searchField != null)
-            {
-                _searchField.tooltip = "Filter Molca Hub navigation.";
-                _searchField.label = string.Empty;
-                _searchField.SetValueWithoutNotify(string.Empty);
-                _searchPlaceholder = new Label("Search");
-                _searchPlaceholder.pickingMode = PickingMode.Ignore;
-                _searchPlaceholder.AddToClassList("molca-hub-search-placeholder");
-                _searchField.Add(_searchPlaceholder);
-                _searchField.RegisterValueChangedCallback(evt => ApplyRailFilter(evt.newValue));
-                _searchField.RegisterCallback<KeyDownEvent>(OnSearchKeyDown);
-            }
+            BuildRailNodes();
+            _navRail.SetRoots(_railRoots);
         }
 
         /// <summary>Enter in the search field activates the first surviving match (a workspace, if any matched).</summary>
-        private void OnSearchKeyDown(KeyDownEvent evt)
-        {
-            if (evt.keyCode != KeyCode.Return && evt.keyCode != KeyCode.KeypadEnter) return;
-            if (_firstFilterMatch == null) return;
-
-            var node = _firstFilterMatch;
-            evt.StopPropagation();
-
-            if (node.Activate != null)
-            {
-                node.Activate();
-                return;
-            }
-
-            SelectNodeById(node.Id);
-        }
-
         // ---- Rail node model ----------------------------------------------------------------------
 
         /// <summary>Builds the settings rail hierarchy: grouped, editable settings sections.</summary>
@@ -409,16 +376,16 @@ namespace Molca.Editor.Hub
             var leaves = MolcaHubSettingsLeafRegistry.GetLeaves();
             if (leaves.Count == 0) return;
 
-            List<MolcaHubRailNode> extensions = null;
+            List<MolcaNavRailNode> extensions = null;
             foreach (var leaf in leaves)
             {
-                var node = new MolcaHubRailNode(
+                var node = new MolcaNavRailNode(
                     MolcaHubSettingsLeafRegistry.NodeId(leaf.Id), leaf.Label, leaf.CreateContent, leaf.Description);
 
                 var category = MolcaHubSettingsLeafRegistry.ResolveCategory(leaf.Group);
                 if (category == MolcaHubSettingsLeafRegistry.Extensions)
                 {
-                    (extensions ??= new List<MolcaHubRailNode>()).Add(node);
+                    (extensions ??= new List<MolcaNavRailNode>()).Add(node);
                     continue;
                 }
 
@@ -426,11 +393,11 @@ namespace Molca.Editor.Hub
             }
 
             if (extensions != null)
-                _railRoots.Add(new MolcaHubRailNode(
+                _railRoots.Add(new MolcaNavRailNode(
                     MolcaHubSettingsLeafRegistry.Extensions, MolcaHubSettingsLeafRegistry.ExtensionsLabel, extensions));
         }
 
-        private MolcaHubRailNode FindRoot(string nodeId)
+        private MolcaNavRailNode FindRoot(string nodeId)
         {
             foreach (var root in _railRoots)
                 if (root.Id == nodeId)
@@ -438,90 +405,21 @@ namespace Molca.Editor.Hub
             return null;
         }
 
-        private static MolcaHubRailNode Category(string id, string label, params MolcaHubRailNode[] children)
-            => new MolcaHubRailNode(id, label, new List<MolcaHubRailNode>(children));
+        private static MolcaNavRailNode Category(string id, string label, params MolcaNavRailNode[] children)
+            => new MolcaNavRailNode(id, label, new List<MolcaNavRailNode>(children));
 
-        private MolcaHubRailNode SectionLeaf(MolcaHubSection section)
+        private MolcaNavRailNode SectionLeaf(MolcaHubSection section)
         {
             var info = FindSection(section);
-            return new MolcaHubRailNode(section.ToString(), info.Label, () => CreateSectionContent(section), info.Description);
+            return new MolcaNavRailNode(section.ToString(), info.Label, () => CreateSectionContent(section), info.Description);
         }
 
         // ---- Rail TreeView build / bind / selection -----------------------------------------------
 
-        private VisualElement MakeRailRow()
-        {
-            var row = new VisualElement();
-            row.AddToClassList("molca-hub-rail-node");
-            var label = new Label { name = "label" };
-            label.AddToClassList("molca-hub-rail-node__label");
-            row.Add(label);
-            return row;
-        }
-
-        private void BindRailRow(VisualElement element, int index)
-        {
-            var node = _railTree.GetItemDataForIndex<MolcaHubRailNode>(index);
-            element.userData = node;
-            var label = element.Q<Label>("label");
-            if (label != null) label.text = node.Label;
-            element.EnableInClassList("molca-hub-rail-node--category", !node.IsLeaf);
-            WireRailFoldout(element, node);
-        }
-
         // Bridges the TreeView's auto-created foldout toggle to id-keyed expansion persistence. The toggle is
         // recycled across binds, so the callback is registered once. NOTE: never write the toggle's userData —
         // TreeView stores the item id there and casts it internally.
-        private void WireRailFoldout(VisualElement element, MolcaHubRailNode node)
-        {
-            if (node.IsLeaf) return;
-            var itemRow = element.parent?.parent;
-            var toggle = itemRow?.Q<Toggle>(className: "unity-tree-view__item-toggle") ?? itemRow?.Q<Toggle>();
-            if (toggle == null || toggle.ClassListContains("molca-foldout-wired")) return;
-
-            toggle.AddToClassList("molca-foldout-wired");
-            toggle.RegisterValueChangedCallback(evt =>
-            {
-                var t = evt.currentTarget as VisualElement;
-                var contentRow = t?.parent?.Q(className: "molca-hub-rail-node");
-                if (contentRow?.userData is MolcaHubRailNode n)
-                {
-                    if (evt.newValue) _expandedNodeIds.Add(n.Id);
-                    else _expandedNodeIds.Remove(n.Id);
-                    _state.SetRailExpanded(_expandedNodeIds);
-                }
-            });
-        }
-
-        private void OnRailSelectionChanged(IEnumerable<object> selected)
-        {
-            if (_suppressRailSelection) return;
-
-            MolcaHubRailNode node = null;
-            foreach (var obj in selected) { node = obj as MolcaHubRailNode; break; }
-            if (node == null) return;
-
-            if (node.Activate != null)
-            {
-                // A command leaf is a jump, not a location: run it and deliberately do not persist it as the
-                // active rail node, so returning to Settings restores the last real section.
-                node.Activate();
-            }
-            else if (node.IsLeaf)
-            {
-                ShowNode(node);
-                _state.SetRailNode(node.Id);
-            }
-            else if (_nodeIdToItemId.TryGetValue(node.Id, out var itemId))
-            {
-                // Selecting a category row toggles its expansion.
-                if (_railTree.IsExpanded(itemId)) { _railTree.CollapseItem(itemId); _expandedNodeIds.Remove(node.Id); }
-                else { _railTree.ExpandItem(itemId); _expandedNodeIds.Add(node.Id); }
-                _state.SetRailExpanded(_expandedNodeIds);
-            }
-        }
-
-        private void ShowNode(MolcaHubRailNode node)
+        private void ShowNode(MolcaNavRailNode node)
         {
             if (_detailContent == null || node?.CreateContent == null) return;
             _detailContent.Clear();
@@ -543,147 +441,43 @@ namespace Molca.Editor.Hub
             }
         }
 
-        /// <summary>Rebuilds the rail TreeView from <see cref="_railRoots"/>, applying an optional label filter.</summary>
-        private void RebuildRailTree(string filter)
+        /// <summary>Selects a node by its stable id; the rail clears an active filter if it hides the row.</summary>
+        private void SelectNodeById(string nodeId) => _navRail?.SelectNodeById(nodeId);
+
+        /// <summary>Handles a leaf the rail reports as chosen. Command leaves never arrive here.</summary>
+        /// <param name="node">The chosen leaf.</param>
+        /// <remarks>
+        /// A command leaf runs inside the rail and is deliberately never persisted as the active node, so
+        /// returning to Settings restores the last real section rather than the last jump.
+        /// </remarks>
+        private void OnRailNodeSelected(MolcaNavRailNode node)
         {
-            if (_railTree == null) return;
+            if (node == null) return;
 
-            _itemIdToNode.Clear();
-            _nodeIdToItemId.Clear();
-            _nextItemId = 0;
-
-            var roots = new List<TreeViewItemData<MolcaHubRailNode>>();
-
-            // While a filter is active, matching workspace tabs are offered first as command leaves. A tab the
-            // user cannot see is a tab they cannot find, and switching workspace is the more expensive thing
-            // to do by hand — so workspace results outrank section results.
-            var shown = new List<MolcaHubRailNode>();
-            var workspaces = MolcaHubRailFilter.BuildWorkspaceCategory(_workspaceItems, filter, SelectWorkspace);
-            if (workspaces != null) shown.Add(workspaces);
-            shown.AddRange(_railRoots);
-
-            foreach (var node in shown)
-            {
-                var data = BuildItemData(node, filter);
-                if (data.HasValue) roots.Add(data.Value);
-            }
-
-            // Remember what Enter in the search field should activate: the first surviving leaf, in the order
-            // the rows are actually rendered.
-            _firstFilterMatch = null;
-            foreach (var node in shown)
-            {
-                var leaf = FirstVisibleLeaf(node);
-                if (leaf == null) continue;
-                _firstFilterMatch = leaf;
-                break;
-            }
-
-            _suppressRailSelection = true;
-            try
-            {
-                _railTree.SetRootItems(roots);
-                _railTree.Rebuild();
-                ApplyRailExpansion(filter);
-            }
-            finally
-            {
-                _suppressRailSelection = false;
-            }
-        }
-
-        // Builds the filtered TreeViewItemData subtree for a node, or null when it (and all descendants) are
-        // filtered out. A parent whose own label matches reveals its whole subtree.
-        private TreeViewItemData<MolcaHubRailNode>? BuildItemData(MolcaHubRailNode node, string filter)
-        {
-            bool self = MolcaHubRailFilter.Matches(node.Label, filter);
-
-            // Once this node matches, descendants are all included (pass a null/empty filter downward).
-            string childFilter = self ? null : filter;
-            List<TreeViewItemData<MolcaHubRailNode>> children = null;
-            foreach (var child in node.Children)
-            {
-                var data = BuildItemData(child, childFilter);
-                if (!data.HasValue) continue;
-                children ??= new List<TreeViewItemData<MolcaHubRailNode>>();
-                children.Add(data.Value);
-            }
-
-            if (node.IsLeaf)
-            {
-                if (!self) return null;
-            }
-            else if (!self && children == null)
-            {
-                return null;
-            }
-
-            int id = _nextItemId++;
-            _itemIdToNode[id] = node;
-            _nodeIdToItemId[node.Id] = id;
-            return new TreeViewItemData<MolcaHubRailNode>(id, node, children);
-        }
-
-        private void ApplyRailExpansion(string filter)
-        {
-            // While filtering, expand everything so surviving matches are visible; otherwise honor the
-            // persisted expansion set, defaulting to all-parents-expanded on first run (empty set).
-            if (!string.IsNullOrEmpty(filter))
-            {
-                _railTree.ExpandAll();
-                return;
-            }
-
-            _railTree.CollapseAll();
-            foreach (var pair in _itemIdToNode)
-            {
-                var node = pair.Value;
-                if (node.IsLeaf) continue;
-                if (_expandedNodeIds.Count == 0 || _expandedNodeIds.Contains(node.Id))
-                    _railTree.ExpandItem(pair.Key);
-            }
-        }
-
-        /// <summary>Selects a node by its stable id, rebuilding unfiltered first if it is not currently shown.</summary>
-        private void SelectNodeById(string nodeId)
-        {
-            if (string.IsNullOrEmpty(nodeId) || _railTree == null) return;
-
-            if (!_nodeIdToItemId.TryGetValue(nodeId, out var itemId))
-            {
-                // The node may be hidden by an active filter — clear it and rebuild so cross-navigation works.
-                if (_searchField != null) _searchField.SetValueWithoutNotify(string.Empty);
-                if (_searchPlaceholder != null) _searchPlaceholder.style.display = DisplayStyle.Flex;
-                RebuildRailTree(null);
-                if (!_nodeIdToItemId.TryGetValue(nodeId, out itemId)) return;
-            }
-
-            if (!_itemIdToNode.TryGetValue(itemId, out var node)) return;
-
-            // Highlight the row without notifying, then drive the content directly. Selecting a row inside a
-            // collapsed branch does not reliably fire selectionChanged, so we do not depend on it here.
-            _suppressRailSelection = true;
-            try { _railTree.SetSelectionByIdWithoutNotify(new[] { itemId }); }
-            finally { _suppressRailSelection = false; }
-
-            if (node.Activate != null)
-            {
-                node.Activate();
-            }
-            else if (node.IsLeaf)
-            {
-                ShowNode(node);
-                _state.SetRailNode(node.Id);
-            }
+            ShowNode(node);
+            _state.SetRailNode(node.Id);
         }
 
         /// <summary>Restores the persisted active rail node (falling back to the first leaf).</summary>
         private void RestoreRailSelection()
         {
             var target = _state.RailNode;
-            if (string.IsNullOrEmpty(target) || !_nodeIdToItemId.ContainsKey(target))
-                target = FirstLeafId();
+            if (string.IsNullOrEmpty(target)) target = FirstLeafId();
             if (!string.IsNullOrEmpty(target)) SelectNodeById(target);
+        }
+
+        private static MolcaNavRailNode FirstLeaf(MolcaNavRailNode node)
+        {
+            if (node == null) return null;
+            if (node.IsLeaf) return node;
+
+            foreach (var child in node.Children)
+            {
+                var leaf = FirstLeaf(child);
+                if (leaf != null) return leaf;
+            }
+
+            return null;
         }
 
         private string FirstLeafId()
@@ -701,30 +495,6 @@ namespace Molca.Editor.Hub
         /// <c>null</c>. Unlike <see cref="FirstLeaf"/> this consults the built id map, so it never returns a
         /// row that is not actually on screen.
         /// </summary>
-        private MolcaHubRailNode FirstVisibleLeaf(MolcaHubRailNode node)
-        {
-            if (node == null || !_nodeIdToItemId.ContainsKey(node.Id)) return null;
-            if (node.IsLeaf) return node;
-
-            foreach (var child in node.Children)
-            {
-                var leaf = FirstVisibleLeaf(child);
-                if (leaf != null) return leaf;
-            }
-            return null;
-        }
-
-        private static MolcaHubRailNode FirstLeaf(MolcaHubRailNode node)
-        {
-            if (node.IsLeaf) return node;
-            foreach (var child in node.Children)
-            {
-                var leaf = FirstLeaf(child);
-                if (leaf != null) return leaf;
-            }
-            return null;
-        }
-
         private void SelectWorkspace(string workspaceId)
         {
             // Fall back to the anchored Settings tab if the requested/persisted id is no longer registered
@@ -744,7 +514,7 @@ namespace Molca.Editor.Hub
             _state.SetWorkspace(workspaceId);
             _tabStrip?.SetActive(workspaceId);
 
-            _railTree?.SetEnabled(isSettings);
+            _navRail?.SetEnabled(isSettings);
 
             if (_settingsBody != null) _settingsBody.style.display = isSettings ? DisplayStyle.Flex : DisplayStyle.None;
             if (_workspaceHost != null) _workspaceHost.style.display = isSettings ? DisplayStyle.None : DisplayStyle.Flex;
@@ -796,24 +566,6 @@ namespace Molca.Editor.Hub
             MolcaHubSection.About => new MolcaHubAboutSection(),
             _ => new Label("Unknown section.")
         };
-
-        private void ApplyRailFilter(string rawFilter)
-        {
-            var filter = (rawFilter ?? string.Empty).Trim();
-            if (_searchPlaceholder != null)
-                _searchPlaceholder.style.display = string.IsNullOrEmpty(filter) ? DisplayStyle.Flex : DisplayStyle.None;
-
-            RebuildRailTree(string.IsNullOrEmpty(filter) ? null : filter);
-
-            // Re-assert the active selection (without firing content rebuild) if it survived the filter.
-            var active = _state.RailNode;
-            if (!string.IsNullOrEmpty(active) && _nodeIdToItemId.TryGetValue(active, out var itemId))
-            {
-                _suppressRailSelection = true;
-                try { _railTree.SetSelectionByIdWithoutNotify(new[] { itemId }); }
-                finally { _suppressRailSelection = false; }
-            }
-        }
 
         private static SectionInfo FindSection(MolcaHubSection section)
         {

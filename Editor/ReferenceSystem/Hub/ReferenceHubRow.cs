@@ -79,6 +79,28 @@ namespace Molca.Editor.ReferenceSystem.Hub
         public string StoredTarget { get; }
 
         /// <summary>
+        /// The Ref Type half of <see cref="StoredTarget"/>, unformatted.
+        /// </summary>
+        /// <remarks>
+        /// Carried as its own field rather than parsed back out of the display string. Grouping the Targets
+        /// tree by type, and offering a rename, both need the value the data holds — not the rendering of it,
+        /// which substitutes "(no type)" for an empty one and would silently create a Ref Type by that name.
+        /// </remarks>
+        public string StoredRefType { get; }
+
+        /// <summary>The Ref Id half of <see cref="StoredTarget"/>, unformatted. Empty when unset.</summary>
+        public string StoredRefId { get; }
+
+        /// <summary>
+        /// <see cref="ReferenceObjectLocator.Key"/> of the object this row is anchored to.
+        /// </summary>
+        /// <remarks>
+        /// What selection-scoped planning filters on: a mutation names its target by locator key, so a
+        /// selection expressed in the same terms narrows a plan exactly rather than by asset or by name.
+        /// </remarks>
+        public string OwnerKey { get; }
+
+        /// <summary>
         /// The reference's effective scope. Every v1 reference is <c>Global</c>: v1 identity has no scope
         /// component at all.
         /// </summary>
@@ -158,8 +180,14 @@ namespace Molca.Editor.ReferenceSystem.Hub
             int claimingCount = 0,
             string siteKey = null,
             string providerKey = null,
-            IReadOnlyList<string> candidateProviderKeys = null)
+            IReadOnlyList<string> candidateProviderKeys = null,
+            string storedRefType = null,
+            string storedRefId = null,
+            string ownerKey = null)
         {
+            StoredRefType = storedRefType ?? string.Empty;
+            StoredRefId = storedRefId ?? string.Empty;
+            OwnerKey = ownerKey ?? string.Empty;
             Kind = kind;
             Key = key ?? string.Empty;
             Severity = severity;
@@ -291,8 +319,14 @@ namespace Molca.Editor.ReferenceSystem.Hub
                 isAssigned: site?.IsAssigned ?? true,
                 isLegacyFallback: site != null && site.IsAssigned && string.IsNullOrEmpty(site.StoredRefType),
                 siteKey: finding.SourceSiteKey,
-                providerKey: provider?.ProviderKey,
-                candidateProviderKeys: finding.CandidateProviderKeys);
+                // Falls through to what the site actually resolves to. A finding such as REF005 has both a
+                // site and a target, and without the target key the row could offer neither "Ping target"
+                // nor the identity editor — for a finding whose fix is very often to rename that target.
+                providerKey: provider?.ProviderKey ?? resolution?.Resolved?.ProviderKey,
+                candidateProviderKeys: finding.CandidateProviderKeys,
+                storedRefType: site?.StoredRefType ?? provider?.RefType,
+                storedRefId: site?.StoredRefId ?? provider?.RefId,
+                ownerKey: site?.OwnerLocator.Key ?? provider?.Locator.Key);
 
             row.BuildSearchText();
             return row;
@@ -325,7 +359,10 @@ namespace Molca.Editor.ReferenceSystem.Hub
                 isLegacyFallback: site.IsAssigned && string.IsNullOrEmpty(site.StoredRefType),
                 siteKey: site.SiteKey,
                 providerKey: resolution.Resolved?.ProviderKey,
-                candidateProviderKeys: resolution.Candidates.Select(c => c.ProviderKey).ToList());
+                candidateProviderKeys: resolution.Candidates.Select(c => c.ProviderKey).ToList(),
+                storedRefType: site.StoredRefType,
+                storedRefId: site.StoredRefId,
+                ownerKey: site.OwnerLocator.Key);
 
             row.BuildSearchText();
             return row;
@@ -357,7 +394,10 @@ namespace Molca.Editor.ReferenceSystem.Hub
                 isLegacyFallback: false,
                 inboundCount: inbound,
                 claimingCount: claiming,
-                providerKey: provider.ProviderKey);
+                providerKey: provider.ProviderKey,
+                storedRefType: provider.RefType,
+                storedRefId: provider.RefId,
+                ownerKey: provider.Locator.Key);
 
             row.BuildSearchText();
             return row;

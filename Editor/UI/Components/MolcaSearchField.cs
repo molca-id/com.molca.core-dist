@@ -46,6 +46,22 @@ namespace Molca.Editor.UI.Components
             });
         }
 
+        /// <summary>
+        /// Replaces the query text without raising <see cref="OnSearchChanged"/>, keeping the in-field
+        /// placeholder in sync.
+        /// </summary>
+        /// <remarks>
+        /// For restoring a caller-held query after the owning view rebuilds itself: notifying there would
+        /// re-enter the filter callback while the view is mid-rebuild.
+        /// </remarks>
+        /// <param name="value">Query text to show; null or whitespace leaves the placeholder visible.</param>
+        public void SetValueWithoutNotify(string value)
+        {
+            var text = value ?? string.Empty;
+            _field.SetValueWithoutNotify(text);
+            _placeholder.style.display = string.IsNullOrWhiteSpace(text) ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+
         /// <summary>Clears the field text (raises <see cref="OnSearchChanged"/>).</summary>
         /// <remarks>
         /// Intentionally hides <see cref="VisualElement.Clear"/> (which removes child elements):

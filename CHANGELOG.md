@@ -2,6 +2,77 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [2.0.1] - 2026-08-04
+
+### Added
+- **Author the network catalog from the Hub, not the Inspector.** Every authored value in the Network
+  workspace — environments, services, endpoints, policy and credential profiles, transport-specific fields
+  for SSE/WebSocket/Socket.IO bindings — is now editable in place instead of read-only labels that sent you
+  to the catalog asset's Inspector. `NetworkCatalogEditingService` gains the per-field setters behind the
+  controls, grouped so one group is one Undo step; it stays the single write path, so a Hub edit, an MCP
+  tool and a test share the same validation and refusals. Policy and credential profiles can now be deleted
+  (previously create/rename only), and deleting a profile clears the references that named it rather than
+  leaving them to silently resolve to an inherited value.
+- **Author content packages from the Hub, not the Inspector.** The Content workspace's Packages tab used to
+  end with a line telling you to go edit `ContentPackageSettings` in the Inspector for anything past
+  add/delete. Rebuilt as a nav-rail-and-detail-pane view over `ContentPackageEditingService`'s new setters:
+  id, display name, description, labels, dependencies, metadata, visibility/required flags, release
+  protocol fields, and a new Delivery section (remote catalog, cache budget, download settings) that had no
+  Hub page at all before. `molca_content_define_package`/`_update_package`/`_validate_config` now route
+  through the same service instead of mutating `PackageConfig` directly, so they get the same refusals a
+  Hub edit does — including the refusal to write into a package-owned or read-only SDK-layer asset.
+- **Author reference wiring from the Hub, not the Inspector.** `ReferenceAuthoringPlanner` joins
+  `ReferenceRepairPlanner` behind the same `ReferenceRepairExecutor`, so naming a target, wiring a field, or
+  renaming a target and every inbound reference in one plan gets the same revision check, per-mutation
+  verify, Undo group and after-report as a repair. The workspace is rebuilt on a sortable, multi-select
+  `MultiColumnTreeView`; adds point-at-selection, make-selection-referenceable, and a load-set editor in
+  place of hand-written JSON.
+
+### Changed
+- **One navigation rail for every workspace.** The Hub's Settings tab and the Docs workspace each ran their
+  own tree-view-plus-search implementation; Automation, ColorID and Network used a separate flat rail that
+  could not nest or search. `MolcaNavRail` (`Editor/UI/Components`) replaces both, adopted by all five
+  surfaces; a flat rail is simply a tree whose nodes have no children. Placement rules (the owner sizes the
+  rail; the rail is the pane; a railed workspace pads its header and content, not its root) are now written
+  into `EDITOR_DESIGN_LANGUAGE.md`. Every rail lives in a draggable `TwoPaneSplitView`, so its width now
+  drags consistently everywhere instead of per-workspace CSS overrides.
+- **Every Hub clickable now has its own hover, pressed, and focus state.** A button that set its own
+  background color carried no interaction state of its own in USS terms, so Unity's built-in `Button:hover`
+  outranked it on specificity — hovering the blue Build All pill or a primary action handed the surface back
+  to the editor's default grey. One interaction vocabulary is now shared through `MolcaEditorTokens.uss` and
+  consumed everywhere clickables are built from `MolcaButtons`.
+
+### Fixed
+- **Full reference audit now covers the project's closed scenes.** Closed-scene coverage was gated twice:
+  on the caller asking for the whole project *and* on a `Comprehensive Scene Scanning` setting that stated
+  the same condition in different words and defaulted to off. Every caller that passes the first gate is
+  already an explicit user command (the References workspace's **Full audit**, and
+  `Molca → Reference System → Scan Project`), so the setting's only live effect was to let a button labelled
+  Full audit scan nothing that was not already open — and, because the resulting `Scenes (closed)` gap is
+  recorded as optional, still report **Clean**. Asking for a full audit is now the whole gate. Projects that
+  had the setting off will find Full audit slower and, where closed scenes hold broken references, newly
+  non-Clean — that is the point, since the previous result asserted nothing about those scenes.
+  `ReferenceAuditScope.FromSettings` also no longer collapses a null settings asset to open-scenes-only, a
+  cached full-project snapshot is no longer discarded because the asset database listed the same scenes in
+  a different order, and the closed-scene coverage category no longer renames itself by outcome
+  (`Scenes (declared)`/`Scenes (closed)`) — it is always `Scenes (closed)`, with the outcome in the status.
+- **Full audit no longer refuses to run just because the default new scene is open.** An untitled scene was
+  treated as "no scene setup could be captured", which read as a refusal rather than the easiest case —
+  restore now handles it with a fresh untitled scene, and it is recorded as *Skipped* rather than *Failed*
+  so it no longer permanently marks the snapshot stale and blocks every repair.
+- **The Hub activity rail no longer draws chips over each other** when the row wraps to a second line.
+- **The RuntimeManager onboarding step names what it's waiting on instead of reading as an accusation.**
+  "2 RuntimeManager prefabs exist; assign the intended one" named the count as the fault; it now leads with
+  why it can't pick and lists the paths so duplicates can be told apart. The step also declines to run when
+  a prefab is already assigned, so a sole candidate is never silently re-pointed. The onboarding checklist
+  now stamps each row with the wall-clock time of its last evaluation, so a stale row is distinguishable
+  from a freshly re-checked one.
+
+### Removed
+- **`ReferenceManagerSettings.ComprehensiveSceneScanning`**, along with its serialized field and its
+  Inspector row. Authored assets keep deserializing and the stale key is dropped on their next save. Scene
+  coverage is no longer configuration — the only knob left in Scan Configuration is *Prefab Scan Paths*.
+
 ## [2.0.0] - 2026-08-02
 
 > ### Major upgrade: run the unified report before continuing

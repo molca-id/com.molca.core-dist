@@ -156,6 +156,13 @@ namespace Molca.Editor.ReferenceSystem.Repair
             if (IsEmpty)
             {
                 preview.AppendLine("No change can be made without guessing which target was intended.");
+
+                // A refusal states its reason here or nowhere. An empty plan built by a refusal carries the
+                // explanation in Warnings, and returning before printing them left the one thing the user
+                // needed — why this was refused — visible only to a debugger.
+                foreach (var warning in Warnings)
+                    preview.AppendLine($"  ! {warning}");
+
                 return preview.ToString();
             }
 

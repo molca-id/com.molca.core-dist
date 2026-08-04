@@ -1,7 +1,7 @@
-﻿com.molca.core@2.0.0
-Published: 2026-08-03 11:55:52Z
-Source commit: 0c585d7a
-Files: 3079
+﻿com.molca.core@2.0.1
+Published: 2026-08-04 12:11:02Z
+Source commit: cf13c400
+Files: 3128
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -360,6 +360,8 @@ Editor/ColorID/Generation.meta
 Editor/ColorID/Generation/ColorThemeUssGenerator.cs
 Editor/ColorID/Generation/ColorThemeUssGenerator.cs.meta
 Editor/ColorID/Hub.meta
+Editor/ColorID/Hub/ColorThemeEditSession.cs
+Editor/ColorID/Hub/ColorThemeEditSession.cs.meta
 Editor/ColorID/Hub/ColorThemeHubWorkspaceProvider.cs
 Editor/ColorID/Hub/ColorThemeHubWorkspaceProvider.cs.meta
 Editor/ColorID/Hub/ColorThemeTokenPrompt.cs
@@ -401,16 +403,10 @@ Editor/ContentPackage/ContentBuildGraph.cs
 Editor/ContentPackage/ContentBuildGraph.cs.meta
 Editor/ContentPackage/ContentPackageEditingService.cs
 Editor/ContentPackage/ContentPackageEditingService.cs.meta
-Editor/ContentPackage/ContentPackageSettingsEditor.AddressablesIntegration.cs
-Editor/ContentPackage/ContentPackageSettingsEditor.AddressablesIntegration.cs.meta
-Editor/ContentPackage/ContentPackageSettingsEditor.BuildPanel.cs
-Editor/ContentPackage/ContentPackageSettingsEditor.BuildPanel.cs.meta
+Editor/ContentPackage/ContentPackageEditingService.Fields.cs
+Editor/ContentPackage/ContentPackageEditingService.Fields.cs.meta
 Editor/ContentPackage/ContentPackageSettingsEditor.cs
 Editor/ContentPackage/ContentPackageSettingsEditor.cs.meta
-Editor/ContentPackage/ContentPackageSettingsEditor.PackagePanel.cs
-Editor/ContentPackage/ContentPackageSettingsEditor.PackagePanel.cs.meta
-Editor/ContentPackage/ContentPackageSettingsEditor.SettingsPanel.cs
-Editor/ContentPackage/ContentPackageSettingsEditor.SettingsPanel.cs.meta
 Editor/ContentPackage/ContentReleaseCandidate.cs
 Editor/ContentPackage/ContentReleaseCandidate.cs.meta
 Editor/ContentPackage/ContentReleaseStaging.cs
@@ -577,8 +573,8 @@ Editor/Hub/MolcaHubActivityRegistry.cs
 Editor/Hub/MolcaHubActivityRegistry.cs.meta
 Editor/Hub/MolcaHubCoreWorkspaceProvider.cs
 Editor/Hub/MolcaHubCoreWorkspaceProvider.cs.meta
-Editor/Hub/MolcaHubRailNode.cs
-Editor/Hub/MolcaHubRailNode.cs.meta
+Editor/Hub/MolcaHubRailFilter.cs
+Editor/Hub/MolcaHubRailFilter.cs.meta
 Editor/Hub/MolcaHubSettingsLeafItem.cs
 Editor/Hub/MolcaHubSettingsLeafItem.cs.meta
 Editor/Hub/MolcaHubSettingsLeafProvider.cs
@@ -627,6 +623,37 @@ Editor/Hub/Sections/MolcaHubRuntimeSection.cs.meta
 Editor/Hub/Sections/MolcaHubTasksSection.cs
 Editor/Hub/Sections/MolcaHubTasksSection.cs.meta
 Editor/Hub/Workspaces.meta
+Editor/Hub/Workspaces/Content.meta
+Editor/Hub/Workspaces/Content/ContentCompatibilityView.cs
+Editor/Hub/Workspaces/Content/ContentCompatibilityView.cs.meta
+Editor/Hub/Workspaces/Content/ContentDeliveryView.cs
+Editor/Hub/Workspaces/Content/ContentDeliveryView.cs.meta
+Editor/Hub/Workspaces/Content/ContentLabelPicker.cs
+Editor/Hub/Workspaces/Content/ContentLabelPicker.cs.meta
+Editor/Hub/Workspaces/Content/ContentLegacyBuild.cs
+Editor/Hub/Workspaces/Content/ContentLegacyBuild.cs.meta
+Editor/Hub/Workspaces/Content/ContentManifestIo.cs
+Editor/Hub/Workspaces/Content/ContentManifestIo.cs.meta
+Editor/Hub/Workspaces/Content/ContentPackageDetailView.cs
+Editor/Hub/Workspaces/Content/ContentPackageDetailView.cs.meta
+Editor/Hub/Workspaces/Content/ContentPackagesView.cs
+Editor/Hub/Workspaces/Content/ContentPackagesView.cs.meta
+Editor/Hub/Workspaces/Content/ContentPlatform.cs
+Editor/Hub/Workspaces/Content/ContentPlatform.cs.meta
+Editor/Hub/Workspaces/Content/ContentProtocolView.cs
+Editor/Hub/Workspaces/Content/ContentProtocolView.cs.meta
+Editor/Hub/Workspaces/Content/ContentPublishView.cs
+Editor/Hub/Workspaces/Content/ContentPublishView.cs.meta
+Editor/Hub/Workspaces/Content/ContentRuntimeProbe.cs
+Editor/Hub/Workspaces/Content/ContentRuntimeProbe.cs.meta
+Editor/Hub/Workspaces/Content/ContentScanPreview.cs
+Editor/Hub/Workspaces/Content/ContentScanPreview.cs.meta
+Editor/Hub/Workspaces/Content/ContentVerifyView.cs
+Editor/Hub/Workspaces/Content/ContentVerifyView.cs.meta
+Editor/Hub/Workspaces/Content/ContentWorkspaceContext.cs
+Editor/Hub/Workspaces/Content/ContentWorkspaceContext.cs.meta
+Editor/Hub/Workspaces/Content/ContentWorkspaceUi.cs
+Editor/Hub/Workspaces/Content/ContentWorkspaceUi.cs.meta
 Editor/Hub/Workspaces/ContentWorkspaceProvider.cs
 Editor/Hub/Workspaces/ContentWorkspaceProvider.cs.meta
 Editor/Hub/Workspaces/ContentWorkspaceSession.cs
@@ -1043,6 +1070,8 @@ Editor/Networking/Authoring/NetworkAuthoringResult.cs
 Editor/Networking/Authoring/NetworkAuthoringResult.cs.meta
 Editor/Networking/Authoring/NetworkCatalogEditingService.cs
 Editor/Networking/Authoring/NetworkCatalogEditingService.cs.meta
+Editor/Networking/Authoring/NetworkCatalogEditingService.Fields.cs
+Editor/Networking/Authoring/NetworkCatalogEditingService.Fields.cs.meta
 Editor/Networking/Authoring/NetworkCatalogLocator.cs
 Editor/Networking/Authoring/NetworkCatalogLocator.cs.meta
 Editor/Networking/Authoring/NetworkEffectiveConfigurationService.cs
@@ -1066,8 +1095,12 @@ Editor/Networking/HttpRequestEditingService.cs.meta
 Editor/Networking/Hub.meta
 Editor/Networking/Hub/NetworkActivityTracker.cs
 Editor/Networking/Hub/NetworkActivityTracker.cs.meta
+Editor/Networking/Hub/NetworkHubChoices.cs
+Editor/Networking/Hub/NetworkHubChoices.cs.meta
 Editor/Networking/Hub/NetworkHubDeepLinks.cs
 Editor/Networking/Hub/NetworkHubDeepLinks.cs.meta
+Editor/Networking/Hub/NetworkHubFields.cs
+Editor/Networking/Hub/NetworkHubFields.cs.meta
 Editor/Networking/Hub/NetworkHubNavigation.cs
 Editor/Networking/Hub/NetworkHubNavigation.cs.meta
 Editor/Networking/Hub/NetworkHubPrompt.cs
@@ -1241,12 +1274,16 @@ Editor/ReferenceSystem/Audit/ReferenceSiteRecord.cs.meta
 Editor/ReferenceSystem/Hub.meta
 Editor/ReferenceSystem/Hub/ReferenceHubActivityProvider.cs
 Editor/ReferenceSystem/Hub/ReferenceHubActivityProvider.cs.meta
+Editor/ReferenceSystem/Hub/ReferenceHubAuthoring.cs
+Editor/ReferenceSystem/Hub/ReferenceHubAuthoring.cs.meta
 Editor/ReferenceSystem/Hub/ReferenceHubFilter.cs
 Editor/ReferenceSystem/Hub/ReferenceHubFilter.cs.meta
 Editor/ReferenceSystem/Hub/ReferenceHubGraph.cs
 Editor/ReferenceSystem/Hub/ReferenceHubGraph.cs.meta
 Editor/ReferenceSystem/Hub/ReferenceHubHealthModel.cs
 Editor/ReferenceSystem/Hub/ReferenceHubHealthModel.cs.meta
+Editor/ReferenceSystem/Hub/ReferenceHubLoadSetEditor.cs
+Editor/ReferenceSystem/Hub/ReferenceHubLoadSetEditor.cs.meta
 Editor/ReferenceSystem/Hub/ReferenceHubNavigation.cs
 Editor/ReferenceSystem/Hub/ReferenceHubNavigation.cs.meta
 Editor/ReferenceSystem/Hub/ReferenceHubPolicyStore.cs
@@ -1259,6 +1296,8 @@ Editor/ReferenceSystem/Hub/ReferenceHubRuntimeState.cs
 Editor/ReferenceSystem/Hub/ReferenceHubRuntimeState.cs.meta
 Editor/ReferenceSystem/Hub/ReferenceHubSession.cs
 Editor/ReferenceSystem/Hub/ReferenceHubSession.cs.meta
+Editor/ReferenceSystem/Hub/ReferenceHubTargetTree.cs
+Editor/ReferenceSystem/Hub/ReferenceHubTargetTree.cs.meta
 Editor/ReferenceSystem/Hub/ReferenceHubView.cs
 Editor/ReferenceSystem/Hub/ReferenceHubView.cs.meta
 Editor/ReferenceSystem/Hub/ReferenceHubView.uss
@@ -1270,6 +1309,10 @@ Editor/ReferenceSystem/ReferenceManagerSettingsEditor.cs.meta
 Editor/ReferenceSystem/RefIdEditorUtility.cs
 Editor/ReferenceSystem/RefIdEditorUtility.cs.meta
 Editor/ReferenceSystem/Repair.meta
+Editor/ReferenceSystem/Repair/ReferenceAuthoringPlanner.cs
+Editor/ReferenceSystem/Repair/ReferenceAuthoringPlanner.cs.meta
+Editor/ReferenceSystem/Repair/ReferenceProviderMetadataMutation.cs
+Editor/ReferenceSystem/Repair/ReferenceProviderMetadataMutation.cs.meta
 Editor/ReferenceSystem/Repair/ReferenceRemediationProjection.cs
 Editor/ReferenceSystem/Repair/ReferenceRemediationProjection.cs.meta
 Editor/ReferenceSystem/Repair/ReferenceRepairExecutor.cs
@@ -1504,16 +1547,22 @@ Editor/UI/Components/MolcaButtons.cs
 Editor/UI/Components/MolcaButtons.cs.meta
 Editor/UI/Components/MolcaEditorComponents.uss
 Editor/UI/Components/MolcaEditorComponents.uss.meta
+Editor/UI/Components/MolcaFields.cs
+Editor/UI/Components/MolcaFields.cs.meta
 Editor/UI/Components/MolcaLinkRow.cs
 Editor/UI/Components/MolcaLinkRow.cs.meta
-Editor/UI/Components/MolcaRail.cs
-Editor/UI/Components/MolcaRail.cs.meta
+Editor/UI/Components/MolcaNavRail.cs
+Editor/UI/Components/MolcaNavRail.cs.meta
+Editor/UI/Components/MolcaNavRailNode.cs
+Editor/UI/Components/MolcaNavRailNode.cs.meta
 Editor/UI/Components/MolcaSearchField.cs
 Editor/UI/Components/MolcaSearchField.cs.meta
 Editor/UI/Components/MolcaSectionCard.cs
 Editor/UI/Components/MolcaSectionCard.cs.meta
 Editor/UI/Components/MolcaStatusKind.cs
 Editor/UI/Components/MolcaStatusKind.cs.meta
+Editor/UI/Components/MolcaValuePrompt.cs
+Editor/UI/Components/MolcaValuePrompt.cs.meta
 Editor/UI/Components/MolcaWorkbench.cs
 Editor/UI/Components/MolcaWorkbench.cs.meta
 Editor/UI/Fonts.meta

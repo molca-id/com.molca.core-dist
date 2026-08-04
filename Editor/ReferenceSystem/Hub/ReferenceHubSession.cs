@@ -1,4 +1,6 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using UnityEditor;
 using UnityEngine;
@@ -6,6 +8,12 @@ using UnityEngine;
 namespace Molca.Editor.ReferenceSystem.Hub
 {
     /// <summary>Which of the References workspace's primary views is showing.</summary>
+    /// <remarks>
+    /// There is no Graph member any more. The neighbourhood used to be a mode you left the table to enter,
+    /// which meant it had to hunt for a selection made in some other view; it is now a section of the detail
+    /// panel beside the row it describes. An older persisted preference naming it simply fails to parse and
+    /// falls back to <see cref="Issues"/>.
+    /// </remarks>
     public enum ReferenceHubViewKind
     {
         /// <summary>Findings. The default.</summary>
@@ -14,11 +22,11 @@ namespace Molca.Editor.ReferenceSystem.Hub
         /// <summary>Every reference site and its resolution state.</summary>
         References = 1,
 
-        /// <summary>Every provider and its inbound count.</summary>
-        Providers = 2,
-
-        /// <summary>The neighbourhood graph of the current selection.</summary>
-        Graph = 3,
+        /// <summary>
+        /// Every target, grouped by Ref Type, with the references that name it nested underneath. The
+        /// authoring view: the wiring, rather than the findings about it.
+        /// </summary>
+        Targets = 2,
 
         /// <summary>Live runtime registrations, in Play Mode.</summary>
         Runtime = 4,
@@ -150,7 +158,7 @@ namespace Molca.Editor.ReferenceSystem.Hub
             var rows = view switch
             {
                 ReferenceHubViewKind.References => tables.Sites,
-                ReferenceHubViewKind.Providers => tables.Providers,
+                ReferenceHubViewKind.Targets => tables.Providers,
                 _ => tables.Issues,
             };
             return Filter.Apply(rows);
@@ -164,7 +172,7 @@ namespace Molca.Editor.ReferenceSystem.Hub
             return view switch
             {
                 ReferenceHubViewKind.References => tables.Sites,
-                ReferenceHubViewKind.Providers => tables.Providers,
+                ReferenceHubViewKind.Targets => tables.Providers,
                 _ => tables.Issues,
             };
         }
@@ -180,22 +188,82 @@ namespace Molca.Editor.ReferenceSystem.Hub
             ViewStateChanged?.Invoke();
         }
 
-        /// <summary>The selected row key for a view, or empty.</summary>
+        /// <summary>The primary selected row key for a view, or empty.</summary>
         /// <param name="view">The view whose selection to read.</param>
-        internal string SelectedKey(ReferenceHubViewKind view) =>
-            MolcaEditorPrefs.GetString(SelectionKeyPrefix + view, string.Empty);
+        /// <remarks>
+        /// The first of <see cref="SelectedKeys"/>. The detail panel describes one row even when several are
+        /// selected for a batch, because a panel that tried to describe forty rows would describe none.
+        /// </remarks>
+        internal string SelectedKey(ReferenceHubViewKind view) => SelectedKeys(view).FirstOrDefault() ?? string.Empty;
+
+        /// <summary>Every selected row key for a view, in selection order.</summary>
+        /// <param name="view">The view whose selection to read.</param>
+        internal IReadOnlyList<string> SelectedKeys(ReferenceHubViewKind view)
+        {
+            var stored = MolcaEditorPrefs.GetString(SelectionKeyPrefix + view, string.Empty);
+            return string.IsNullOrEmpty(stored)
+                ? Array.Empty<string>()
+                : stored.Split(SelectionSeparator).Where(k => k.Length > 0).ToList();
+        }
 
         /// <summary>
-        /// Records the selected row for a view. Persisted per view so moving between Issues and Providers
-        /// and back does not lose the row the user was reading.
+        /// Records the selected rows for a view. Persisted per view so moving between Issues and Targets and
+        /// back does not lose what the user was reading — or the batch they were assembling.
         /// </summary>
         /// <param name="view">The view whose selection changed.</param>
-        /// <param name="key">The selected <see cref="ReferenceHubRow.Key"/>, or null to clear.</param>
-        internal void SetSelectedKey(ReferenceHubViewKind view, string key)
+        /// <param name="keys">The selected <see cref="ReferenceHubRow.Key"/> values, or null to clear.</param>
+        internal void SetSelectedKeys(ReferenceHubViewKind view, IEnumerable<string> keys)
         {
-            MolcaEditorPrefs.SetString(SelectionKeyPrefix + view, key ?? string.Empty);
+            // A row key can hold anything an author typed into an object name, so the separator is a
+            // character no serialized path or display name can contain.
+            var joined = keys == null
+                ? string.Empty
+                : string.Join(SelectionSeparator.ToString(), keys.Where(k => !string.IsNullOrEmpty(k)));
+
+            MolcaEditorPrefs.SetString(SelectionKeyPrefix + view, joined);
             ViewStateChanged?.Invoke();
         }
+
+        /// <summary>Records a single selected row.</summary>
+        /// <param name="view">The view whose selection changed.</param>
+        /// <param name="key">The selected key, or null to clear.</param>
+        internal void SetSelectedKey(ReferenceHubViewKind view, string key) =>
+            SetSelectedKeys(view, key == null ? null : new[] { key });
+
+        /// <summary>
+        /// Tree node keys the Targets view has expanded.
+        /// </summary>
+        /// <remarks>
+        /// Lives on the session rather than on the tree control so an audit — which rebuilds every node —
+        /// does not collapse the group the author was working inside.
+        /// </remarks>
+        internal HashSet<string> ExpandedTreeKeys { get; } = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Stable integer ids for tree nodes, keyed by node key.
+        /// </summary>
+        /// <remarks>
+        /// <c>TreeViewItemData</c> is identified by an int, and the control tracks expansion by that id. Ids
+        /// are therefore handed out once per key and reused for the life of the session: deriving them from a
+        /// row's position would move every expansion one row down the first time a finding disappeared.
+        /// </remarks>
+        internal int TreeIdFor(string nodeKey)
+        {
+            if (string.IsNullOrEmpty(nodeKey))
+                return -1;
+
+            if (_treeIds.TryGetValue(nodeKey, out var id))
+                return id;
+
+            id = _treeIds.Count + 1;
+            _treeIds[nodeKey] = id;
+            return id;
+        }
+
+        /// <summary>ASCII unit separator: no serialized path, id or display name holds it.</summary>
+        private const char SelectionSeparator = '\u001F';
+
+        private readonly Dictionary<string, int> _treeIds = new Dictionary<string, int>(StringComparer.Ordinal);
 
         /// <summary>Notifies subscribers that the filter changed.</summary>
         internal void NotifyFilterChanged() => ViewStateChanged?.Invoke();

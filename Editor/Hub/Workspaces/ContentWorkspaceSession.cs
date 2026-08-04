@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Molca.ContentPackage;
 using Molca.ContentPackage.Editor;
 using Molca.Editor.UI;
@@ -25,6 +27,44 @@ namespace Molca.Editor.Hub.Workspaces
         private const string ChangelogKey = "Molca.Content.Changelog";
         private const string MinAppKey = "Molca.Content.MinAppVersion";
         private const string MaxAppKey = "Molca.Content.MaxAppVersion";
+        private const string NodeKey = "Molca.Content.SelectedNode";
+        private const string PackageKey = "Molca.Content.SelectedPackage";
+        private const string ExpandedKey = "Molca.Content.RailExpanded";
+
+        /// <summary>The rail node id showing in the detail pane.</summary>
+        public static string SelectedNode
+        {
+            get => MolcaEditorPrefs.GetString(NodeKey, ContentWorkspaceNodes.Packages);
+            set => MolcaEditorPrefs.SetString(NodeKey, value ?? ContentWorkspaceNodes.Packages);
+        }
+
+        /// <summary>
+        /// The package whose detail page is showing, or empty.
+        /// </summary>
+        /// <remarks>
+        /// Kept beside <see cref="SelectedNode"/> rather than parsed back out of it, because a package
+        /// can be renamed while it is selected — the node id is stale the moment that happens, and this
+        /// is what the view re-points before it rebuilds the rail.
+        /// </remarks>
+        public static string SelectedPackageId
+        {
+            get => MolcaEditorPrefs.GetString(PackageKey, "");
+            set => MolcaEditorPrefs.SetString(PackageKey, value ?? "");
+        }
+
+        /// <summary>Reads the rail's persisted expanded-category ids.</summary>
+        /// <returns>The expanded ids; empty means first run, which the rail reads as "open everything".</returns>
+        public static HashSet<string> ReadExpanded() =>
+            new HashSet<string>(
+                MolcaEditorPrefs.GetString(ExpandedKey, "")
+                    .Split('|')
+                    .Where(id => !string.IsNullOrEmpty(id)),
+                StringComparer.Ordinal);
+
+        /// <summary>Persists the rail's expanded-category ids.</summary>
+        /// <param name="ids">The ids to remember.</param>
+        public static void WriteExpanded(IEnumerable<string> ids) =>
+            MolcaEditorPrefs.SetString(ExpandedKey, string.Join("|", ids ?? Enumerable.Empty<string>()));
 
         /// <summary>The content version being authored.</summary>
         public static string ContentVersion

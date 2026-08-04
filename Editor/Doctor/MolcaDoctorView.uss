@@ -69,6 +69,12 @@
     color: var(--molca-heading);
 }
 
+/* Pressed: a wash, which works because the resting fill is transparent. The dim base opacity is left
+   alone on purpose — it is what makes a switched-off check recede, and hover must not undo that. */
+.molca-doctor__chip:hover:active {
+    background-color: var(--molca-pressed-wash);
+}
+
 .molca-doctor__chip-head {
     flex-direction: row;
     align-items: center;

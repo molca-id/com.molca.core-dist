@@ -27,7 +27,7 @@ re-implement these components per window:
   `OnInspectorGUI`) and GraphView code, which cannot read USS `var()`. Use a token here instead of a
   hex literal.
 - **`Editor/UI/Components/`** — reusable `VisualElement` components styled by
-  `MolcaEditorComponents.uss`: `MolcaSectionCard` (+ `MolcaStatusKind`), `MolcaRail`,
+  `MolcaEditorComponents.uss`: `MolcaSectionCard` (+ `MolcaStatusKind`), `MolcaNavRail` (+ `MolcaNavRailNode`),
   `MolcaSearchField`, `MolcaLinkRow`, `MolcaWorkspaceHeader`, `MolcaWorkspaceToolbar`,
   `MolcaListGroup`, `MolcaListRow`, `MolcaStatusBadge`, and the `MolcaButtons` factory. The Hub's
   `MolcaHubSectionCard`/`MolcaHubStatusKind` remain as `[Obsolete]` aliases over these.
@@ -69,7 +69,7 @@ suppress an intentional case with a `doctor:ignore` comment.
 Use this layout for multi-section tools:
 
 - Top workspace toolbar: compact tabs, optional right-aligned action.
-- Left rail: fixed 188px width for primary navigation.
+- Left rail: `MolcaNavRail`, 188px wide, for primary navigation. One implementation everywhere.
 - Detail area: scrollable content with 14px padding.
 - Section pages: one header band or title area, then full-width cards.
 
@@ -81,7 +81,7 @@ Canonical dimensions:
 | Left rail width | 188px |
 | Rail vertical padding | 8px |
 | Rail search horizontal margin | 9px |
-| Rail row min height | 29px |
+| Rail row height | 24px |
 | Rail row horizontal padding | 12px |
 | Rail selected border | 2px left |
 | Card margin bottom | 14px |
@@ -167,6 +167,23 @@ for any new editor UI:
 | `--molca-control` | `77, 77, 77` | `#4d4d4d` | Neutral (non-primary) button/segment/chip fill |
 | `--molca-on-row-selected` | `245, 245, 245` | `#f5f5f5` | Text on a `--molca-row-selected` row |
 
+Interaction-state tokens (see "Interaction States" under Buttons). Hover lifts a fill, pressed sinks it,
+in both skins:
+
+| Token | RGB | Hex | Usage |
+|---|---:|---:|---|
+| `--molca-control-hover` | `92, 92, 92` | `#5c5c5c` | Hover fill for a `--molca-control` surface |
+| `--molca-control-pressed` | `64, 64, 64` | `#404040` | Pressed fill for a `--molca-control` surface |
+| `--molca-control-disabled` | `58, 58, 58` | `#3a3a3a` | Disabled fill (pair with `--molca-muted` text) |
+| `--molca-primary-hover` | `72, 121, 174` | `#4879ae` | Hover fill for a `--molca-primary` surface |
+| `--molca-primary-pressed` | `46, 84, 124` | `#2e547c` | Pressed fill for a `--molca-primary` surface |
+| `--molca-hover-wash` | `rgba(255,255,255,0.07)` | — | Hover for a surface with **no** fill of its own |
+| `--molca-pressed-wash` | `rgba(0,0,0,0.16)` | — | Pressed for a surface with **no** fill of its own |
+| `--molca-focus-ring` | `103, 152, 208` | `#6798d0` | Keyboard-focus border |
+
+Each has a `--hub-*` alias like the tokens above. The light skin overrides all of them; note the hover
+wash inverts to black there, because a white wash on a light surface is invisible.
+
 Status colors:
 
 - OK: `#57c84a`
@@ -220,6 +237,28 @@ Rails are for switching the primary detail context. They should be stable-width 
 - no rounded card treatment for each row;
 - no descriptive paragraphs inside row buttons unless the design explicitly needs a two-line row.
 
+**Use `MolcaNavRail`. Do not write another rail.** It is a `TreeView` of `MolcaNavRailNode`s with an
+optional search box, label filtering, and id-keyed expansion that persists. A flat rail is a tree whose
+nodes have no children — there is no separate flat component, and adding one is how the editor ended up
+with two rails that disagreed about nesting, search and selection.
+
+- A node is a **category** (owns rows, renders nothing, selecting it toggles it open), a **leaf** (renders
+  detail), or a **command leaf** (runs an action; deliberately never reported as a location, so an owner
+  cannot persist a jump as the row to restore).
+- Pass `searchPlaceholder: null` when the owner already has a richer search of its own. Two search boxes
+  in one rail is worse than either.
+- **The owner sizes the rail.** The component carries surface, border and vertical padding but no width,
+  because a draggable `TwoPaneSplitView` pane owns that. A container that also draws rail chrome will
+  double the border and squeeze the rail inside its own padding.
+- **The rail is the pane.** Wrap it in a container holding anything else and its surface and border span
+  only the part of the pane the rail occupies — a border that starts below whatever sits above it.
+- **A railed workspace pads its header and content, not its root.** The rail has to reach the panel edge;
+  inset, it reads as a box floating in the workspace rather than the window's own navigation. Shared
+  workspaces opt in with `.molca-workspace--railed`.
+- **Every rail lives in a `TwoPaneSplitView`**, so its width is draggable everywhere. Where a workspace
+  flips to a stacked layout in a cramped dock, flip the split's `orientation` — never `flex-direction` in
+  USS, or the panes and the drag handle end up on different axes.
+
 ### Workbench Lists
 
 Use workbench lists for catalogs, findings, packages, and other repeated records. They are a hierarchy,
@@ -248,6 +287,49 @@ placeholder if the Unity version does not support native placeholders.
 - Mini/action buttons: compact height around 20px, small font, 2px radius.
 - Toolbar buttons: grey, compact, restrained.
 - Use icon buttons where a known Unity/lucide-style icon is available and the action is familiar.
+- Build buttons through `MolcaButtons` (`Primary` / `Mini` / `Toolbar`) where possible. Those variants
+  carry the interaction states below already; a hand-rolled `Button` with a bespoke class does not.
+
+#### Interaction States
+
+**A clickable surface that sets its own `background-color` must also declare its own states.** This is
+not a polish item, it is a correctness one: Unity's built-in `Button:hover` is *more specific* than a
+single-class Molca rule, so a Molca-filled button with no hover rule of its own hands the surface back to
+the editor's default grey under the pointer — a blue primary action turning grey mid-hover. Every button
+family in the Hub had that behaviour until the states were declared.
+
+The vocabulary, all token-driven (so it tracks both skins) and all defined once in `MolcaEditorTokens.uss`:
+
+| State | Selector | Treatment |
+|---|---|---|
+| Hover | `:hover` | lift the fill — `--molca-control-hover` / `--molca-primary-hover` / `--molca-hover-wash` |
+| Pressed | `:hover:active` | sink the fill — `--molca-control-pressed` / `--molca-primary-pressed` / `--molca-pressed-wash` |
+| Focus | `:focus` | border only — `--molca-focus-ring` |
+| Disabled | `:disabled` | `--molca-control-disabled` fill with `--molca-muted` text |
+
+Rules that are easy to get wrong, each already paid for once:
+
+- **Pressed is `:hover:active`, never bare `:active`.** Dragging the pointer off a held button should
+  release the pressed look, which is what Unity's own controls do.
+- **A `*-wash` token only works where the resting background is transparent.** A translucent fill
+  *replaces* an opaque one instead of layering over it, so a wash on a filled button reads as the button
+  briefly disappearing. Filled surfaces take the opaque hover/pressed tokens.
+- **Every fill variant needs its own state pair, declared after the base's.** A pseudo-class counts
+  toward specificity exactly like a class, so `.x:hover` already outranks `.x--primary`; and because
+  `.x--primary:hover` ties with `.x:hover`, the variant has to come later in the sheet to win. The same
+  applies to `--selected` / `--active` rows and chips: without a `--selected:hover` rule, the row under
+  the pointer looks deselected exactly while it is being pointed at.
+- **Focus is a border, not a fill or glow.** Unity keeps focus on a button after a click, so anything
+  louder leaves the last-clicked button looking permanently armed.
+- **Disabled uses a flat fill, not `opacity`.** Opacity compounds — a disabled button inside an already
+  dimmed card body (`.molca-card__body--disabled`) can fade past legibility.
+- **Where state is carried by text/border rather than fill** (the Doctor / Reference / Runtime chip
+  walls, where opacity and label colour encode on/off), hover must recolor only the border. A hover that
+  also brightens the label makes a hovered *off* chip indistinguishable from an *on* one.
+
+The Hub keeps its state rules in one block at the end of `MolcaHubWindow.uss` so the ordering constraint
+holds regardless of where in the sheet each component is defined, and so the set stays auditable in one
+place.
 
 ### Links
 
@@ -289,6 +371,9 @@ Before finishing an editor UI refactor:
 - Dark skin: primary buttons, selected rows, and outlines match the tokens.
 - Light skin: controls remain legible, even when exact colors need skin-aware adjustment.
 - Keyboard/mouse: buttons have clear hit targets; readonly links and copy/open actions work.
+- Interaction: every clickable answers hover and press, and does so in its own palette — no surface
+  reverting to the editor's default grey, and no selected row or active tab losing its state under the
+  pointer. Check the light skin too; a hover that reads on the dark skin can be invisible there.
 - State: navigation choices survive a domain reload where applicable.
 - Tests: add EditMode coverage for state keys, registry/routing, binding paths, and non-duplicated
   hosted tool state where practical.

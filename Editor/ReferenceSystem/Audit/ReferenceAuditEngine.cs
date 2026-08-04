@@ -504,6 +504,18 @@ namespace Molca.Editor.ReferenceSystem
                 "Scenes (open)", ReferenceCoverageStatus.Scanned, scanned));
         }
 
+        /// <summary>
+        /// The coverage category for scenes that were not already open, under every outcome.
+        /// </summary>
+        /// <remarks>
+        /// One name regardless of what happened, because <see cref="ReferenceCoverageEntry.Category"/> is an
+        /// identity: the Hub lists entries by category and <see cref="UpdateIncrementally"/> carries them
+        /// forward by category, so a phase that renamed itself according to its own outcome could not be
+        /// compared across two runs. What happened belongs in the status and reason, as it does for every
+        /// other phase.
+        /// </remarks>
+        private const string ClosedSceneCoverageCategory = "Scenes (closed)";
+
         private static IEnumerable<WorkStep> EnumerateExplicitScenes(
             RunState state, CancellationToken cancellationToken)
         {
@@ -520,9 +532,8 @@ namespace Molca.Editor.ReferenceSystem
                 // open scenes" and "we looked at the project" are different guarantees, and the reader has
                 // to be able to tell which one they were given.
                 state.Coverage.Add(new ReferenceCoverageEntry(
-                    "Scenes (closed)", ReferenceCoverageStatus.Skipped, 0,
-                    "only open scenes were scanned; enable Comprehensive Scene Scanning and run a project "
-                    + "audit to include closed scenes",
+                    ClosedSceneCoverageCategory, ReferenceCoverageStatus.Skipped, 0,
+                    "only open scenes were scanned; run a Full audit to include closed scenes",
                     isRequired: false));
                 yield break;
             }
@@ -543,22 +554,29 @@ namespace Molca.Editor.ReferenceSystem
             if (toOpen.Count == 0)
             {
                 state.Coverage.Add(new ReferenceCoverageEntry(
-                    "Scenes (declared)", ReferenceCoverageStatus.Scanned, wanted.Count));
+                    ClosedSceneCoverageCategory, ReferenceCoverageStatus.Scanned, wanted.Count));
                 yield break;
             }
 
             if (!scope.MayOpenScenes)
             {
                 state.Coverage.Add(new ReferenceCoverageEntry(
-                    "Scenes (declared)", ReferenceCoverageStatus.Skipped, wanted.Count - toOpen.Count,
+                    ClosedSceneCoverageCategory, ReferenceCoverageStatus.Skipped, wanted.Count - toOpen.Count,
                     $"{toOpen.Count} scene(s) are closed and this audit is not permitted to open them"));
                 yield break;
             }
 
             if (!ReferenceSceneScanSession.TryBegin(out var session, out var reason))
             {
+                // Skipped, not Failed. Failed means "attempted and could not finish", which sets
+                // IsStale and blocks every repair until a later run succeeds. A refused session
+                // attempted nothing: the audit declined to disturb the editor, which is a limitation of
+                // this run's coverage — reported, still enough to withhold Clean — and not a reason to
+                // treat the whole snapshot as untrustworthy. Recording it as Failed left anyone with an
+                // unsaved scene open unable to repair anything at all.
                 state.Coverage.Add(new ReferenceCoverageEntry(
-                    "Scenes (declared)", ReferenceCoverageStatus.Failed, wanted.Count - toOpen.Count, reason));
+                    ClosedSceneCoverageCategory, ReferenceCoverageStatus.Skipped, wanted.Count - toOpen.Count,
+                    reason));
                 yield break;
             }
 
@@ -598,9 +616,9 @@ namespace Molca.Editor.ReferenceSystem
             }
 
             state.Coverage.Add(scanned == wanted.Count
-                ? new ReferenceCoverageEntry("Scenes (declared)", ReferenceCoverageStatus.Scanned, scanned)
+                ? new ReferenceCoverageEntry(ClosedSceneCoverageCategory, ReferenceCoverageStatus.Scanned, scanned)
                 : new ReferenceCoverageEntry(
-                    "Scenes (declared)", ReferenceCoverageStatus.Failed, scanned,
+                    ClosedSceneCoverageCategory, ReferenceCoverageStatus.Failed, scanned,
                     $"{wanted.Count - scanned} of {wanted.Count} declared scene(s) could not be scanned"));
         }
 

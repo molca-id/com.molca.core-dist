@@ -57,9 +57,17 @@ namespace Molca.ContentPackage.Editor
     ///
     /// It deliberately owns no judgment. Operations that would resolve an ambiguity (which duplicate
     /// package id is the real one, which dependency edge is wrong) are absent, because the caller
-    /// that wants them would be guessing and the guess belongs to a human.
+    /// that wants them would be guessing and the guess belongs to a human. For the same reason a
+    /// setter accepts a value that merely <em>validates</em> badly — a non-semantic version, an id the
+    /// server would reject — and leaves saying so to <see cref="ContentValidation"/>. It refuses only
+    /// what would make the definition set incoherent: a duplicate id, a self-dependency, a trusted key
+    /// that cannot verify.
+    ///
+    /// Split across two files: this one owns the structural operations and the release-protocol
+    /// configuration; <c>ContentPackageEditingService.Fields.cs</c> owns the per-field setters the
+    /// authoring surfaces bind to.
     /// </remarks>
-    public sealed class ContentPackageEditingService
+    public sealed partial class ContentPackageEditingService
     {
         private readonly ContentPackageSettings _settings;
 

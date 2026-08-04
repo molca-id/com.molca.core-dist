@@ -18,19 +18,45 @@ namespace Molca.ColorID.Editor
         public IReadOnlyDictionary<string, Color> Values { get; }
 
         /// <summary>The alias each variant resolves through, or <c>null</c> for a literal.</summary>
+        /// <remarks>
+        /// Covers <see cref="ColorExpression.Kind.AliasWithAlpha"/> as well as a plain alias. Both are
+        /// aliases, and a caller that treats an alpha-scaled alias as a literal offers a colour picker over
+        /// a relationship — the first drag then writes a literal and severs the link to the primitive.
+        /// </remarks>
         public IReadOnlyDictionary<string, string> Sources { get; }
 
         /// <summary>How many references the audit found to this token.</summary>
         public int UsageCount { get; }
 
+        /// <summary>
+        /// The authored expression per variant — literal, alias, or alias with an alpha multiplier.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Values"/> says what colour the token ends up; this says how it was authored, which is
+        /// what an editor needs in order to offer the control that matches the expression instead of
+        /// flattening every cell to a colour picker. A variant with no authored value is absent.
+        /// </remarks>
+        public IReadOnlyDictionary<string, ColorExpression> Expressions { get; }
+
         /// <summary>Creates a row.</summary>
         public ColorThemeTokenRow(ColorTokenDefinition definition, IReadOnlyDictionary<string, Color> values,
             IReadOnlyDictionary<string, string> sources, int usageCount)
+            : this(definition, values, sources, usageCount, null)
+        {
+        }
+
+        /// <summary>Creates a row that also carries the authored expression per variant.</summary>
+        public ColorThemeTokenRow(ColorTokenDefinition definition, IReadOnlyDictionary<string, Color> values,
+            IReadOnlyDictionary<string, string> sources, int usageCount,
+            IReadOnlyDictionary<string, ColorExpression> expressions)
         {
             Definition = definition;
             Values = values;
             Sources = sources;
             UsageCount = usageCount;
+            Expressions = expressions
+                          ?? (IReadOnlyDictionary<string, ColorExpression>)
+                          new Dictionary<string, ColorExpression>(StringComparer.Ordinal);
         }
 
         /// <summary>Variants that do not resolve this token.</summary>
@@ -111,6 +137,25 @@ namespace Molca.ColorID.Editor
         /// <summary>Why the model could not be built fully, or empty.</summary>
         public IReadOnlyList<string> Problems { get; }
 
+        /// <summary>
+        /// Whether the values here are newer than the scan the usage counts and findings came from.
+        /// </summary>
+        /// <remarks>
+        /// Set by <see cref="WithRefreshedValues"/>. A value edit changes what every token resolves to but
+        /// cannot change who references it, so re-resolving without re-scanning is correct — as long as the
+        /// window says which half is live. Reporting a carried-over usage count as current is the failure
+        /// this flag exists to prevent.
+        /// </remarks>
+        public bool ValuesAreNewerThanScan { get; private set; }
+
+        /// <summary>Primitive token ID to the semantic tokens that alias it, in any variant.</summary>
+        /// <remarks>
+        /// The dependency direction an author needs when editing the palette: a primitive's real blast
+        /// radius is the set of semantic tokens pointing at it, and editing one without seeing that set is
+        /// how a palette tweak silently moves a status colour.
+        /// </remarks>
+        public IReadOnlyDictionary<string, IReadOnlyList<string>> AliasDependents { get; }
+
         private ColorThemeWorkspaceModel(ColorThemeAuditSnapshot audit, ColorThemeSet themeSet,
             string themeSetPath, IReadOnlyList<string> variantIds, string defaultVariantId,
             IReadOnlyList<ColorThemeTokenRow> tokens, IReadOnlyList<ColorThemeContrastRow> contrast,
@@ -124,6 +169,7 @@ namespace Molca.ColorID.Editor
             Tokens = tokens ?? Array.Empty<ColorThemeTokenRow>();
             Contrast = contrast ?? Array.Empty<ColorThemeContrastRow>();
             Problems = problems ?? Array.Empty<string>();
+            AliasDependents = MapAliasDependents(Tokens);
         }
 
         /// <summary>Whether a V2 theme set is installed at all.</summary>
@@ -165,24 +211,7 @@ namespace Molca.ColorID.Editor
             }
 
             var variantIds = themeSet.GetVariantIds().ToList();
-
-            // Resolved once per variant and shared by every row. Resolving per token would repeat the whole
-            // alias walk for each of them, and — worse — a mid-loop edit could give two rows values from
-            // different states of the same variant.
-            var resolved = new Dictionary<string, ResolvedColorTheme>();
-            foreach (string variantId in variantIds)
-            {
-                if (ColorThemeResolver.TryResolve(themeSet, variantId, 0, out var theme, out var diagnostics)
-                    == ColorThemeActivation.Activated)
-                {
-                    resolved[variantId] = theme;
-                }
-                else
-                {
-                    problems.Add($"Variant '{variantId}' did not resolve: {string.Join("; ", diagnostics)}");
-                }
-            }
-
+            var resolved = ResolveVariants(themeSet, variantIds, problems);
             var usageCounts = CountUsage(audit);
 
             var tokens = themeSet.TokenDefinitions
@@ -195,6 +224,100 @@ namespace Molca.ColorID.Editor
 
             return new ColorThemeWorkspaceModel(audit, themeSet, themeSetPath, variantIds,
                 ResolveDefaultVariantId(), tokens, contrast, problems);
+        }
+
+        /// <summary>
+        /// Re-resolves every variant against the asset as it stands now, without re-scanning the project.
+        /// </summary>
+        /// <returns>A fresh model, or <c>this</c> when there is no theme set to re-resolve.</returns>
+        /// <remarks>
+        /// This is the refresh a value edit needs, and the reason the authoring loop does not have to be
+        /// slow. The expensive half of <see cref="Build"/> is the usage index — a walk over project assets,
+        /// package assets and closed scenes (<see cref="ColorThemeAuditRequest.DefaultInputs"/>) — and a
+        /// colour change cannot affect it: editing what <c>text/primary</c> resolves to does not change
+        /// which prefabs name <c>text/primary</c>. So the usage counts and findings are carried across
+        /// verbatim and flagged with <see cref="ValuesAreNewerThanScan"/>, while values and contrast — both
+        /// pure functions of the asset, see <see cref="BuildContrastRow"/> — are recomputed.
+        /// <para/>
+        /// Cheap enough to call on every frame of a colour-picker drag, which is what it is for.
+        /// </remarks>
+        public ColorThemeWorkspaceModel WithRefreshedValues()
+        {
+            if (ThemeSet == null) return this;
+
+            var problems = new List<string>();
+            var resolved = ResolveVariants(ThemeSet, VariantIds, problems);
+
+            // Carried from the scan this model was built on, not recounted — see the remarks.
+            var usageCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var token in Tokens)
+            {
+                if (token.UsageCount > 0) usageCounts[token.Definition.Id] = token.UsageCount;
+            }
+
+            var tokens = ThemeSet.TokenDefinitions
+                .Select(definition => BuildTokenRow(definition, ThemeSet, resolved, usageCounts))
+                .ToList();
+
+            var contrast = ThemeSet.AccessibilityRequirements
+                .Select(requirement => BuildContrastRow(requirement, ThemeSet, resolved))
+                .ToList();
+
+            return new ColorThemeWorkspaceModel(Audit, ThemeSet, ThemeSetPath, VariantIds, DefaultVariantId,
+                tokens, contrast, problems)
+            {
+                ValuesAreNewerThanScan = true
+            };
+        }
+
+        /// <summary>Resolves every variant once, recording the ones that could not resolve.</summary>
+        private static Dictionary<string, ResolvedColorTheme> ResolveVariants(ColorThemeSet themeSet,
+            IEnumerable<string> variantIds, List<string> problems)
+        {
+            // Resolved once per variant and shared by every row. Resolving per token would repeat the whole
+            // alias walk for each of them, and — worse — a mid-loop edit could give two rows values from
+            // different states of the same variant.
+            var resolved = new Dictionary<string, ResolvedColorTheme>(StringComparer.Ordinal);
+            foreach (string variantId in variantIds)
+            {
+                if (ColorThemeResolver.TryResolve(themeSet, variantId, 0, out var theme, out var diagnostics)
+                    == ColorThemeActivation.Activated)
+                {
+                    resolved[variantId] = theme;
+                }
+                else
+                {
+                    problems.Add($"Variant '{variantId}' did not resolve: {string.Join("; ", diagnostics)}");
+                }
+            }
+            return resolved;
+        }
+
+        private static IReadOnlyDictionary<string, IReadOnlyList<string>> MapAliasDependents(
+            IReadOnlyList<ColorThemeTokenRow> tokens)
+        {
+            var dependents = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+            foreach (var token in tokens)
+            {
+                foreach (string aliasId in token.Sources.Values.Distinct(StringComparer.Ordinal))
+                {
+                    if (string.IsNullOrEmpty(aliasId)) continue;
+
+                    if (!dependents.TryGetValue(aliasId, out var list))
+                    {
+                        list = new List<string>();
+                        dependents[aliasId] = list;
+                    }
+
+                    // Distinct per token, not per variant: a token that aliases the same primitive in Light
+                    // and Dark is one dependent, not two.
+                    if (!list.Contains(token.Definition.Id)) list.Add(token.Definition.Id);
+                }
+            }
+
+            return dependents.ToDictionary(pair => pair.Key,
+                pair => (IReadOnlyList<string>)pair.Value, StringComparer.Ordinal);
         }
 
         private static Dictionary<string, int> CountUsage(ColorThemeAuditSnapshot audit)
@@ -215,6 +338,7 @@ namespace Molca.ColorID.Editor
         {
             var values = new Dictionary<string, Color>(StringComparer.Ordinal);
             var sources = new Dictionary<string, string>(StringComparer.Ordinal);
+            var expressions = new Dictionary<string, ColorExpression>(StringComparer.Ordinal);
 
             foreach (var pair in resolved)
             {
@@ -229,14 +353,23 @@ namespace Molca.ColorID.Editor
                 foreach (var value in variant.Values)
                 {
                     if (value.TokenId != definition.Id) continue;
-                    if (value.Expression.ExpressionKind == ColorExpression.Kind.Alias)
+
+                    expressions[pair.Key] = value.Expression;
+
+                    // AliasWithAlpha counts as an alias. It is still a link to a primitive — the alpha is a
+                    // modifier on the link, not a replacement for it — so treating it as a literal would
+                    // offer a colour picker over a relationship and sever it on the first drag.
+                    if (value.Expression.ExpressionKind == ColorExpression.Kind.Alias
+                        || value.Expression.ExpressionKind == ColorExpression.Kind.AliasWithAlpha)
+                    {
                         sources[pair.Key] = value.Expression.AliasTokenId;
+                    }
                     break;
                 }
             }
 
             usageCounts.TryGetValue(definition.Id, out int usage);
-            return new ColorThemeTokenRow(definition, values, sources, usage);
+            return new ColorThemeTokenRow(definition, values, sources, usage, expressions);
         }
 
         private static ColorThemeContrastRow BuildContrastRow(ColorContrastRequirement requirement,

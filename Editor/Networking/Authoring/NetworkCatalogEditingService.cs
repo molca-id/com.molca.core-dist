@@ -21,8 +21,13 @@ namespace Molca.Editor.Networking.Authoring
     /// Instance-based and cheap to construct; holds no static state and does not depend on a Hub
     /// window existing.
     /// </para>
+    /// <para>
+    /// Split across two files: this one owns creation, deletion, ID refactors, and the
+    /// <see cref="SerializedProperty"/> helpers; <c>NetworkCatalogEditingService.Fields.cs</c> owns the
+    /// per-field setters the Hub's authoring controls call.
+    /// </para>
     /// </remarks>
-    public sealed class NetworkCatalogEditingService
+    public sealed partial class NetworkCatalogEditingService
     {
         // Serialized field names. Kept as constants so a field rename breaks compilation here rather
         // than silently no-op'ing a SerializedObject lookup at runtime.

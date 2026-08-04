@@ -4,6 +4,7 @@ using System.Linq;
 using Molca.Editor.ReferenceSystem.Repair;
 using Molca.Editor.UI;
 using Molca.Editor.UI.Components;
+using Molca.ReferenceSystem;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -11,13 +12,19 @@ using UnityEngine.UIElements;
 namespace Molca.Editor.ReferenceSystem.Hub
 {
     /// <summary>
-    /// The References Hub workspace: continuous, navigable reference health with previewed repair.
+    /// The References Hub workspace: continuous, navigable reference health, and the surface where the
+    /// wiring is authored.
     /// </summary>
     /// <remarks>
-    /// <para>A projection of <see cref="ReferenceAuditSnapshot"/> and nothing else. The view holds no scan
-    /// logic, no resolution rule and no repair decision of its own — those live in the audit engine and the
-    /// repair planner, so what the workspace shows and what a build enforces cannot drift apart. Everything
-    /// this class contributes is presentation, filtering, and navigation.</para>
+    /// <para>A projection of <see cref="ReferenceAuditSnapshot"/> for everything it shows, and a client of
+    /// <see cref="ReferenceAuthoringPlanner"/> for everything it changes. The view holds no scan logic, no
+    /// resolution rule and no repair decision of its own — those live in the audit engine and the planners,
+    /// so what the workspace shows and what a build enforces cannot drift apart.</para>
+    ///
+    /// <para><b>Why authoring lives here.</b> A Ref Id is a name other objects have written down, so
+    /// renaming one is a refactor over an inbound set that only a surface holding the whole audit knows.
+    /// Every edit offered here becomes a previewed plan through the same executor a repair uses; there is no
+    /// control on this workspace that writes without showing the change first.</para>
     ///
     /// <para>Run state lives in <see cref="ReferenceHubSession"/>, not here, so a long audit survives a Hub
     /// tab switch: this view subscribes on <see cref="AttachToPanelEvent"/> and unsubscribes on
@@ -34,57 +41,47 @@ namespace Molca.Editor.ReferenceSystem.Hub
         /// <summary>Width below which the table and detail panel stack instead of sitting side by side.</summary>
         private const float NarrowWidth = 780f;
 
-        /// <summary>Row height of the virtualized tables.</summary>
+        /// <summary>Row height of the virtualized table.</summary>
         private const int RowHeight = 22;
 
-        /// <summary>Number of text columns in a table row, after the severity dot.</summary>
-        internal const int ColumnCount = 6;
+        /// <summary>Number of columns in the table.</summary>
+        public const int ColumnCount = 5;
 
         /// <summary>
-        /// The USS width class of each column, in order. Shared by the header and the rows so the two cannot
-        /// drift out of alignment — a header that does not sit over its column is worse than none.
+        /// Stable column names, in display order. Shared by the column definitions and the per-view
+        /// retitling so a heading can never end up over the wrong column.
         /// </summary>
-        internal static readonly string[] ColumnClasses =
-        {
-            "molca-references__cell--code",
-            "molca-references__cell--title",
-            "molca-references__cell--owner",
-            "molca-references__cell--target",
-            "molca-references__cell--state",
-            "molca-references__cell--repair",
-        };
+        internal static readonly string[] ColumnIds = { "name", "identity", "source", "state", "note" };
 
         /// <summary>
-        /// Column headings per view. The columns hold different things in each table — a site's "title" is its
-        /// property path, a provider's is its display name — so naming them once globally would mislabel two
-        /// tables out of three.
+        /// Column headings per view. The columns hold different things in each view — a reference's "name"
+        /// is its property path, a target's is its display name — so naming them once globally would
+        /// mislabel two views out of three.
         /// </summary>
+        /// <param name="kind">The view being displayed.</param>
         internal static (string Heading, string Tooltip)[] Columns(ReferenceHubViewKind kind) => kind switch
         {
             ReferenceHubViewKind.References => new[]
             {
-                ("", ""),
                 ("Property", "The serialized field that holds the reference."),
+                ("Stored target", "The RefType:RefId this field asks for. '<unset>' means no reference is assigned."),
                 ("Source", "The asset and the object that declares the field."),
-                ("Stored target", "The serialized RefType:RefId this field asks for. '<unset>' means no reference is assigned."),
                 ("Resolves to", "What the runtime would do with this reference — see the detail panel for why."),
-                ("", ""),
+                ("Notes", "'legacy fallback' means the reference stores no Ref Type, so it depends on the ID-only compatibility path — which refuses to resolve the moment a second object carries the same Ref Id."),
             },
-            ReferenceHubViewKind.Providers => new[]
+            ReferenceHubViewKind.Targets => new[]
             {
-                ("", ""),
-                ("Provider", "The target's display name. Presentation only — never its identity."),
-                ("Source", "The asset and the object that provides the reference."),
-                ("Identity · inbound", "The provider's RefType:RefId, and how many references resolve to it. A count of 0 next to a duplicated id means nothing reaches it."),
-                ("Runtime", "Whether the runtime registry ever holds this provider. A prefab or ScriptableObject provider is never registered, so it cannot answer a lookup."),
-                ("", ""),
+                ("Target", "Ref Type, then the targets under it, then the references that reach each one."),
+                ("Identity", "The target's RefType:RefId. Renaming it here moves every inbound reference with it."),
+                ("Source", "The asset and the object that provides the target."),
+                ("Runtime", "Whether the runtime registry ever holds this target. A prefab or ScriptableObject provider is never registered, so it cannot answer a lookup."),
+                ("Inbound", "How many references resolve here. A second number means more references claim the id than reach it, which is the duplicate symptom."),
             },
             _ => new[]
             {
-                ("Code", "The stable REFnnn finding code. It reads the same in Doctor, build errors and MCP payloads."),
-                ("Finding", "What is wrong, in one line. The full explanation is in the detail panel."),
-                ("Source", "The asset and the object the finding is anchored to."),
+                ("Finding", "The stable REFnnn code and what is wrong, in one line."),
                 ("Stored target", "The RefType:RefId involved."),
+                ("Source", "The asset and the object the finding is anchored to."),
                 ("Resolution", "What resolution would do at runtime."),
                 ("Repair", "'automatic' is covered by Preview safe repairs. 'needs a decision' means the data does not record what was intended, so you choose the target."),
             },
@@ -107,9 +104,12 @@ namespace Molca.Editor.ReferenceSystem.Hub
         private Label _staleLabel;
         private Button _refreshButton;
         private Button _fullAuditButton;
+        private Button _safeRepairButton;
+        private Button _policyButton;
         private Button _cancelButton;
         private ProgressBar _progressBar;
         private VisualElement _progressRow;
+        private VisualElement _policyPanel;
 
         // Views
         private VisualElement _viewTabs;
@@ -126,16 +126,28 @@ namespace Molca.Editor.ReferenceSystem.Hub
         // Content
         private VisualElement _split;
         private VisualElement _tablePane;
-        private VisualElement _tableHeader;
-        private readonly Label[] _headerCells = new Label[ColumnCount];
-        private ListView _table;
+        private MultiColumnTreeView _tree;
         private VisualElement _detailPane;
-        private VisualElement _detail;
+        private ScrollView _detail;
         private Label _emptyNote;
 
         private IReadOnlyList<ReferenceHubRow> _rows = Array.Empty<ReferenceHubRow>();
-        private ReferenceHubRow _selected;
+        private IReadOnlyList<ReferenceHubTreeNode> _roots = Array.Empty<ReferenceHubTreeNode>();
+        private readonly Dictionary<int, ReferenceHubTreeNode> _nodesById = new();
+        private List<ReferenceHubRow> _selectedRows = new();
+        private ReferenceHubTreeNode _selectedNode;
         private bool _isNarrow;
+        private bool _suppressSelectionEvents;
+
+        // In-progress identity edits, kept outside the panel that renders them.
+        //
+        // The detail panel is rebuilt on any hierarchy selection change, because "point these at the
+        // selection" has to know what the selection is. Clicking the intended target in the hierarchy is
+        // therefore the single most likely thing to happen between typing a new Ref Id and pressing
+        // Rename — and it would have discarded what was typed.
+        private string _draftProviderKey;
+        private string _draftRefId;
+        private string _draftRefType;
 
         /// <summary>Builds the workspace.</summary>
         public ReferenceHubView()
@@ -195,6 +207,10 @@ namespace Molca.Editor.ReferenceSystem.Hub
             Session.SnapshotChanged += Refresh;
             Session.ViewStateChanged += Refresh;
             EditorApplication.playModeStateChanged += OnPlayModeChanged;
+
+            // A hierarchy selection is an input to this workspace now — "point these references at the
+            // selection" has to know what the selection is without the user clicking Refresh.
+            Selection.selectionChanged += RefreshDetail;
         }
 
         private void Unsubscribe()
@@ -205,6 +221,7 @@ namespace Molca.Editor.ReferenceSystem.Hub
             Session.SnapshotChanged -= Refresh;
             Session.ViewStateChanged -= Refresh;
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+            Selection.selectionChanged -= RefreshDetail;
         }
 
         private void OnRunStarted() => Refresh();
@@ -301,11 +318,22 @@ namespace Molca.Editor.ReferenceSystem.Hub
                 + "ScriptableObjects. Does not open any scene.";
             actions.Add(_refreshButton);
 
-            _fullAuditButton = MolcaButtons.Primary("Full audit", () => Session.Run(wholeProject: true));
+            _fullAuditButton = MolcaButtons.Toolbar("Full audit", () => Session.Run(wholeProject: true));
             _fullAuditButton.tooltip =
-                "Audit the whole configured project, opening closed scenes to read them and restoring your "
-                + "scene setup afterwards. Reads only — nothing is modified.";
+                "Audit the whole project, opening every closed scene to read it and restoring your scene "
+                + "setup afterwards. Reads only — nothing is modified.";
             actions.Add(_fullAuditButton);
+
+            // The safe batch is a property of the snapshot, not of whichever row happens to be selected. It
+            // used to be rebuilt under every row in the detail panel, alongside a ten-row severity editor.
+            _safeRepairButton = MolcaButtons.Primary("Preview safe repairs", PreviewSafeRepairs);
+            actions.Add(_safeRepairButton);
+
+            _policyButton = MolcaButtons.Mini("Policy ▾", TogglePolicyPanel);
+            _policyButton.tooltip =
+                "Editor severities for this project. Builds always use the production policy, so an override "
+                + "here cannot make a broken project build.";
+            actions.Add(_policyButton);
 
             _cancelButton = MolcaButtons.Mini("Cancel", () => Session.Cancel());
             _cancelButton.style.display = DisplayStyle.None;
@@ -319,6 +347,11 @@ namespace Molca.Editor.ReferenceSystem.Hub
             _progressBar = new ProgressBar();
             _progressBar.AddToClassList("molca-references__progress-bar");
             _progressRow.Add(_progressBar);
+
+            _policyPanel = new VisualElement();
+            _policyPanel.AddToClassList("molca-references__policy-panel");
+            _policyPanel.style.display = DisplayStyle.None;
+            Add(_policyPanel);
         }
 
         private void RefreshHeader()
@@ -338,7 +371,10 @@ namespace Molca.Editor.ReferenceSystem.Hub
             var when = health.CompletedAt.HasValue
                 ? $"last audit {health.CompletedAt.Value:HH:mm:ss}"
                 : "no audit yet this session";
-            _metaLabel.text = $"{when} · {health.Mode} Mode · policy: {ReferenceHubPolicyStore.Describe()}";
+            var repair = Session.RepairIndex;
+            _metaLabel.text =
+                $"{when} · {health.Mode} Mode · repair: {repair.Describe()} · "
+                + $"policy: {ReferenceHubPolicyStore.Describe()}";
 
             _staleLabel.style.display = string.IsNullOrEmpty(health.StaleReason)
                 ? DisplayStyle.None
@@ -352,6 +388,49 @@ namespace Molca.Editor.ReferenceSystem.Hub
             _fullAuditButton.SetEnabled(!running);
             _cancelButton.style.display = running ? DisplayStyle.Flex : DisplayStyle.None;
             _progressRow.style.display = running ? DisplayStyle.Flex : DisplayStyle.None;
+
+            RefreshSafeRepairButton(repair, running);
+
+            if (_policyPanel.style.display == DisplayStyle.Flex)
+                BuildPolicyPanel();
+        }
+
+        /// <summary>
+        /// Keeps the safe-repair button honest about what it would do right now.
+        /// </summary>
+        /// <remarks>
+        /// Narrowed to the selection when there is one. A batch button that silently means "and forty other
+        /// assets you cannot see" is the affordance this workspace is built to avoid, so the label says which
+        /// of the two it currently is.
+        /// </remarks>
+        private void RefreshSafeRepairButton(ReferenceHubRepairIndex repair, bool running)
+        {
+            var scoped = SelectedOwnerKeys();
+            var enabled = !running && !Session.IsStale && repair.AutomaticCount > 0;
+
+            _safeRepairButton.text = scoped.Count > 0
+                ? $"Preview safe repairs in selection ({scoped.Count} object{(scoped.Count == 1 ? "" : "s")})"
+                : $"Preview safe repairs ({repair.AutomaticCount})";
+
+            _safeRepairButton.tooltip = Session.IsStale
+                ? "The snapshot is stale, so no plan can be built from it. Re-run the audit first."
+                : scoped.Count > 0
+                    ? "Build the plan for the unambiguous repairs that touch the selected objects only. "
+                      + "Nothing is written until you approve it."
+                    : "Build the plan for every unambiguous repair and show it in full. Nothing is written "
+                      + "until you approve it.";
+
+            _safeRepairButton.SetEnabled(enabled);
+        }
+
+        private void PreviewSafeRepairs()
+        {
+            var scoped = SelectedOwnerKeys();
+            ReferenceHubAuthoring.PreviewAndApply(
+                () => scoped.Count > 0
+                    ? ReferenceAuthoringPlanner.PlanSafeRepairsWithin(Session.Snapshot, scoped)
+                    : ReferenceRepairPlanner.PlanSafeRepairs(Session.Snapshot),
+                "Apply Reference Repairs?");
         }
 
         private static string DotClass(ReferenceHubHealthState state) => state switch
@@ -363,6 +442,81 @@ namespace Molca.Editor.ReferenceSystem.Hub
             ReferenceHubHealthState.Stale => "molca-status-dot--warn",
             _ => "molca-status-dot--idle",
         };
+
+        private void TogglePolicyPanel()
+        {
+            var showing = _policyPanel.style.display == DisplayStyle.Flex;
+            _policyPanel.style.display = showing ? DisplayStyle.None : DisplayStyle.Flex;
+            _policyButton.text = showing ? "Policy ▾" : "Policy ▴";
+
+            if (!showing)
+                BuildPolicyPanel();
+        }
+
+        /// <summary>
+        /// The severity-policy editor.
+        /// </summary>
+        /// <remarks>
+        /// Behind a header control rather than appended under every selected row. It is project
+        /// configuration — the same ten rows regardless of what is selected — and rebuilding it beneath each
+        /// finding pushed the finding's own detail off the top of the panel.
+        /// </remarks>
+        private void BuildPolicyPanel()
+        {
+            _policyPanel.Clear();
+
+            var card = new MolcaSectionCard(
+                "Policy", subtitle: "Editor severities for this project · builds always use the production policy");
+            _policyPanel.Add(card);
+
+            foreach (var code in ReferenceHubPolicyStore.AllCodes)
+            {
+                var row = new VisualElement();
+                row.AddToClassList("molca-references__policy-row");
+                card.Body.Add(row);
+
+                var fixedSeverity = ReferenceSeverityPolicy.IsNonLowerable(code);
+                var effective = ReferenceHubPolicyStore.Effective(code);
+                var baseline = ReferenceHubPolicyStore.Baseline(code);
+
+                var label = new Label($"REF{(int)code:D3}  {code}");
+                label.AddToClassList("molca-references__policy-label");
+                row.Add(label);
+
+                if (fixedSeverity)
+                {
+                    var locked = new Label($"{effective} (fixed)");
+                    locked.AddToClassList("molca-references__policy-locked");
+                    locked.tooltip =
+                        "This code describes a reference that fails at runtime. Lowering it would let a build "
+                        + "pass over a project that is already broken, so it cannot be configured.";
+                    row.Add(locked);
+                    continue;
+                }
+
+                var field = new EnumField(effective);
+                field.AddToClassList("molca-references__policy-field");
+                field.tooltip = $"Baseline: {baseline}";
+                field.RegisterValueChangedCallback(evt =>
+                {
+                    ReferenceHubPolicyStore.SetOverride(code, (ReferenceFindingSeverity)evt.newValue);
+                    Refresh();
+                });
+                row.Add(field);
+            }
+
+            if (ReferenceHubPolicyStore.HasOverrides)
+            {
+                card.Body.Add(MolcaButtons.Mini("Reset to production severities", () =>
+                {
+                    ReferenceHubPolicyStore.ClearOverrides();
+                    Refresh();
+                }));
+                card.Body.Add(Note(
+                    "Overridden severities apply to editor audits only. The build gate always uses the "
+                    + "production policy, so a machine-local override cannot make a broken project build."));
+            }
+        }
 
         #endregion
 
@@ -389,8 +543,7 @@ namespace Molca.Editor.ReferenceSystem.Hub
         {
             ReferenceHubViewKind.Issues => "Issues",
             ReferenceHubViewKind.References => "References",
-            ReferenceHubViewKind.Providers => "Providers",
-            ReferenceHubViewKind.Graph => "Graph",
+            ReferenceHubViewKind.Targets => "Targets",
             ReferenceHubViewKind.Runtime => "Runtime",
             _ => "Coverage",
         };
@@ -399,8 +552,9 @@ namespace Molca.Editor.ReferenceSystem.Hub
         {
             ReferenceHubViewKind.Issues => "Findings, most severe first.",
             ReferenceHubViewKind.References => "Every reference site and what it resolves to.",
-            ReferenceHubViewKind.Providers => "Every target and how many references reach it.",
-            ReferenceHubViewKind.Graph => "The neighbourhood of the selected row — not the whole project.",
+            ReferenceHubViewKind.Targets =>
+                "The wiring: Ref Type, the targets under it, and the references that reach each one. "
+                + "Renaming and re-pointing happen here.",
             ReferenceHubViewKind.Runtime => "Live registrations, compared against the audit. Play Mode only.",
             _ => "What was scanned, skipped and failed. 'Clean' requires this to be complete.",
         };
@@ -417,7 +571,7 @@ namespace Molca.Editor.ReferenceSystem.Hub
                 {
                     ReferenceHubViewKind.Issues => $"Issues ({counts.Issues.Count})",
                     ReferenceHubViewKind.References => $"References ({counts.Sites.Count})",
-                    ReferenceHubViewKind.Providers => $"Providers ({counts.Providers.Count})",
+                    ReferenceHubViewKind.Targets => $"Targets ({counts.Providers.Count})",
                     _ => Label(pair.Key),
                 };
             }
@@ -591,19 +745,23 @@ namespace Molca.Editor.ReferenceSystem.Hub
                 return;
 
             var total = Session.AllRows(Session.View).Count;
-            _filterSummary.text = filter.IsDefault
+            var selected = _selectedRows.Count;
+
+            var summary = filter.IsDefault
                 ? $"{total} row{(total == 1 ? "" : "s")}"
                 : $"{_rows.Count} of {total} · {filter.Describe()}";
+
+            _filterSummary.text = selected > 1 ? $"{summary} · {selected} selected" : summary;
         }
 
         private static bool IsTableView(ReferenceHubViewKind kind) =>
             kind == ReferenceHubViewKind.Issues
             || kind == ReferenceHubViewKind.References
-            || kind == ReferenceHubViewKind.Providers;
+            || kind == ReferenceHubViewKind.Targets;
 
         #endregion
 
-        #region Content
+        #region Table
 
         private void BuildContent()
         {
@@ -615,26 +773,11 @@ namespace Molca.Editor.ReferenceSystem.Hub
             _tablePane.AddToClassList("molca-references__table-pane");
             _split.Add(_tablePane);
 
-            BuildTableHeader();
-
             _emptyNote = new Label();
             _emptyNote.AddToClassList("molca-references__empty");
             _tablePane.Add(_emptyNote);
 
-            // A virtualized ListView rather than a column of built rows: the plan budgets a 10,000-row
-            // snapshot, and building 10,000 elements to show 30 of them is the one way to miss it outright.
-            _table = new ListView
-            {
-                fixedItemHeight = RowHeight,
-                selectionType = SelectionType.Single,
-                showBorder = false,
-                virtualizationMethod = CollectionVirtualizationMethod.FixedHeight,
-                makeItem = MakeRow,
-                bindItem = BindRow,
-            };
-            _table.AddToClassList("molca-references__table");
-            _table.selectionChanged += OnSelectionChanged;
-            _tablePane.Add(_table);
+            BuildTree();
 
             _detailPane = new VisualElement();
             _detailPane.AddToClassList("molca-references__detail-pane");
@@ -644,6 +787,217 @@ namespace Molca.Editor.ReferenceSystem.Hub
             _detail.AddToClassList("molca-references__detail");
             _detailPane.Add(_detail);
         }
+
+        /// <summary>
+        /// Builds the one table control every view renders into.
+        /// </summary>
+        /// <remarks>
+        /// <para>A <see cref="MultiColumnTreeView"/> rather than the hand-rolled header plus fixed-basis cell
+        /// classes it replaces. Column widths, resizing, reordering and sort indicators are the control's
+        /// job; the previous implementation kept a shared array of USS width classes solely so the header
+        /// could not drift out of alignment with the rows, which is a problem this control does not have.</para>
+        ///
+        /// <para>Flat views set root items with no children, so Issues and References keep reading exactly as
+        /// they did. Targets nests the same rows, which is the whole point of the view.</para>
+        /// </remarks>
+        private void BuildTree()
+        {
+            _tree = new MultiColumnTreeView
+            {
+                fixedItemHeight = RowHeight,
+                selectionType = SelectionType.Multiple,
+                virtualizationMethod = CollectionVirtualizationMethod.FixedHeight,
+                showBorder = false,
+                sortingMode = ColumnSortingMode.Default,
+            };
+            _tree.AddToClassList("molca-references__table");
+
+            for (var index = 0; index < ColumnCount; index++)
+            {
+                var position = index;
+                var column = new Column
+                {
+                    name = ColumnIds[position],
+                    stretchable = true,
+                    resizable = true,
+                    sortable = true,
+                    minWidth = position == 0 ? 140 : 60,
+                    width = ColumnWidth(position),
+                    makeCell = () => MakeCell(position),
+                    bindCell = (element, rowIndex) => BindCell(element, rowIndex, position),
+                    comparison = (left, right) => CompareRows(left, right, position),
+                };
+                _tree.columns.Add(column);
+            }
+
+            // Fully qualified: this class has its own Columns(view) method, which otherwise shadows the
+            // UIElements type in this expression.
+            _tree.columns.stretchMode = UnityEngine.UIElements.Columns.StretchMode.GrowAndFill;
+            _tree.selectionChanged += _ => OnSelectionChanged();
+            _tablePane.Add(_tree);
+        }
+
+        private static float ColumnWidth(int position) => position switch
+        {
+            0 => 240f,
+            1 => 190f,
+            2 => 190f,
+            3 => 140f,
+            _ => 110f,
+        };
+
+        /// <summary>
+        /// One cell. The first column carries the severity dot, so colour and text travel together.
+        /// </summary>
+        private static VisualElement MakeCell(int position)
+        {
+            if (position != 0)
+            {
+                var text = new Label();
+                text.AddToClassList("molca-references__cell");
+                if (position == 1)
+                    text.AddToClassList("molca-references__cell--identity");
+                return text;
+            }
+
+            var cell = new VisualElement();
+            cell.AddToClassList("molca-references__name-cell");
+
+            var dot = new VisualElement();
+            dot.AddToClassList("molca-status-dot");
+            dot.AddToClassList("molca-references__row-dot");
+            cell.Add(dot);
+
+            var label = new Label();
+            label.AddToClassList("molca-references__cell");
+            label.AddToClassList("molca-references__cell--name");
+            cell.Add(label);
+
+            return cell;
+        }
+
+        private void BindCell(VisualElement element, int rowIndex, int position)
+        {
+            var node = NodeAt(rowIndex);
+            if (node == null)
+                return;
+
+            var text = position switch
+            {
+                0 => node.Label,
+                1 => node.Identity,
+                2 => node.Source,
+                3 => node.State,
+                _ => node.Note,
+            };
+
+            if (position == 0)
+            {
+                var dot = element[0];
+                dot.RemoveFromClassList("molca-status-dot--ok");
+                dot.RemoveFromClassList("molca-status-dot--warn");
+                dot.RemoveFromClassList("molca-status-dot--error");
+                dot.RemoveFromClassList("molca-status-dot--idle");
+                dot.AddToClassList(SeverityDot(node));
+
+                var label = (Label)element[1];
+                label.text = text;
+                label.EnableInClassList("molca-references__cell--group", !node.IsActionable);
+                element.tooltip = node.Tooltip;
+                return;
+            }
+
+            ((Label)element).text = text;
+        }
+
+        private static string SeverityDot(ReferenceHubTreeNode node) => node.Severity switch
+        {
+            ReferenceFindingSeverity.Error => "molca-status-dot--error",
+            ReferenceFindingSeverity.Warning => "molca-status-dot--warn",
+            _ => "molca-status-dot--idle",
+        };
+
+        /// <summary>
+        /// Orders two rows by the clicked column.
+        /// </summary>
+        /// <remarks>
+        /// Guarded because the control hands over source indices during a sort and a stale index throws;
+        /// losing the ordering is a far better outcome than losing the workspace to an exception raised
+        /// inside a comparison.
+        /// </remarks>
+        private int CompareRows(int left, int right, int position)
+        {
+            try
+            {
+                var a = NodeAt(left);
+                var b = NodeAt(right);
+                if (a == null || b == null)
+                    return 0;
+
+                var text = position switch
+                {
+                    0 => string.CompareOrdinal(a.Label, b.Label),
+                    1 => string.CompareOrdinal(a.Identity, b.Identity),
+                    2 => string.CompareOrdinal(a.Source, b.Source),
+                    3 => string.CompareOrdinal(a.State, b.State),
+                    _ => string.CompareOrdinal(a.Note, b.Note),
+                };
+
+                // Ties break on severity so a sort by asset still puts the broken row of that asset first.
+                return text != 0 ? text : b.Severity.CompareTo(a.Severity);
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
+        }
+
+        private ReferenceHubTreeNode NodeAt(int index)
+        {
+            try
+            {
+                var id = _tree.GetIdForIndex(index);
+                return _nodesById.TryGetValue(id, out var node) ? node : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private void OnSelectionChanged()
+        {
+            if (_suppressSelectionEvents)
+                return;
+
+            var nodes = _tree.selectedIndices.Select(NodeAt).Where(n => n != null).ToList();
+
+            _selectedNode = nodes.FirstOrDefault();
+            _selectedRows = nodes.Where(n => n.Row != null).Select(n => n.Row).ToList();
+
+            // The group node a click landed on has no row of its own, but the batch below it does — selecting
+            // "Not assigned" and pressing Point at Selection should mean its children, which is the only
+            // reading of that gesture that is not a no-op.
+            if (_selectedRows.Count == 0 && _selectedNode != null)
+            {
+                _selectedRows = ReferenceHubTargetTree.Flatten(_selectedNode.Children)
+                    .Where(n => n.Row != null)
+                    .Select(n => n.Row)
+                    .ToList();
+            }
+
+            Session.SetSelectedKeys(Session.View, nodes.Select(n => n.Key));
+            RefreshDetail();
+            RefreshFilters();
+            RefreshSafeRepairButton(Session.RepairIndex, Session.IsRunning);
+        }
+
+        /// <summary>The locator keys of everything currently selected, for narrowing a plan.</summary>
+        private IReadOnlyCollection<string> SelectedOwnerKeys() =>
+            _selectedRows.Select(r => r.OwnerKey)
+                .Where(k => !string.IsNullOrEmpty(k))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
 
         private void ApplyResponsiveLayout(float width)
         {
@@ -655,136 +1009,6 @@ namespace Molca.Editor.ReferenceSystem.Hub
             _split.EnableInClassList("molca-references__split--narrow", narrow);
             _viewTabs.EnableInClassList("molca-references__views--narrow", narrow);
             _filterRow.EnableInClassList("molca-references__filters--narrow", narrow);
-        }
-
-        /// <summary>
-        /// Builds the column-heading row above the table.
-        /// </summary>
-        /// <remarks>
-        /// The severity dot has no heading — a colour needs no label, and the header cell would only push the
-        /// text columns out of line with the rows. A spacer of the dot's exact footprint stands in its place.
-        /// </remarks>
-        private void BuildTableHeader()
-        {
-            _tableHeader = new VisualElement();
-            _tableHeader.AddToClassList("molca-references__table-header");
-            _tablePane.Add(_tableHeader);
-
-            var dotSpacer = new VisualElement();
-            dotSpacer.AddToClassList("molca-references__header-dot-spacer");
-            _tableHeader.Add(dotSpacer);
-
-            for (int i = 0; i < ColumnCount; i++)
-            {
-                var cell = Cell(ColumnClasses[i]);
-                cell.AddToClassList("molca-references__header-cell");
-                _headerCells[i] = cell;
-                _tableHeader.Add(cell);
-            }
-        }
-
-        private void RefreshTableHeader(ReferenceHubViewKind view)
-        {
-            var columns = Columns(view);
-            for (int i = 0; i < ColumnCount; i++)
-            {
-                _headerCells[i].text = columns[i].Heading;
-                _headerCells[i].tooltip = columns[i].Tooltip;
-            }
-        }
-
-        private static VisualElement MakeRow()
-        {
-            var row = new VisualElement();
-            row.AddToClassList("molca-references__row");
-
-            var dot = new VisualElement();
-            dot.AddToClassList("molca-status-dot");
-            dot.AddToClassList("molca-references__row-dot");
-            row.Add(dot);
-
-            foreach (var columnClass in ColumnClasses)
-                row.Add(Cell(columnClass));
-
-            return row;
-        }
-
-        private static Label Cell(string className)
-        {
-            var label = new Label();
-            label.AddToClassList("molca-references__cell");
-            label.AddToClassList(className);
-            return label;
-        }
-
-        private void BindRow(VisualElement element, int index)
-        {
-            if (index < 0 || index >= _rows.Count)
-                return;
-
-            var row = _rows[index];
-
-            var dot = element[0];
-            dot.RemoveFromClassList("molca-status-dot--ok");
-            dot.RemoveFromClassList("molca-status-dot--warn");
-            dot.RemoveFromClassList("molca-status-dot--error");
-            dot.RemoveFromClassList("molca-status-dot--idle");
-            dot.AddToClassList(SeverityDot(row));
-
-            ((Label)element[1]).text = row.Code;
-            ((Label)element[2]).text = row.Title;
-            ((Label)element[3]).text = Compact(row.AssetPath, row.Owner);
-            ((Label)element[4]).text = row.Kind == ReferenceHubRowKind.Provider
-                ? $"{row.StoredTarget}  ({row.InboundCount} in)"
-                : row.StoredTarget;
-            ((Label)element[5]).text = row.ResolutionState;
-            ((Label)element[6]).text = RepairLabel(row.Repair);
-
-            element.tooltip = string.IsNullOrEmpty(row.Summary) ? row.Title : row.Summary;
-        }
-
-        private static string RepairLabel(ReferenceHubRepairAvailability availability) => availability switch
-        {
-            ReferenceHubRepairAvailability.Automatic => "automatic",
-            ReferenceHubRepairAvailability.RequiresChoice => "needs a decision",
-            _ => string.Empty,
-        };
-
-        private static string SeverityDot(ReferenceHubRow row)
-        {
-            if (row.Kind != ReferenceHubRowKind.Issue)
-            {
-                // Site and provider rows are facts, not judgements — except for the one fact that reads as a
-                // problem on sight: a set reference that resolves to nothing.
-                var unresolved = row.IsAssigned
-                    && !row.ResolutionState.StartsWith("Resolved", StringComparison.Ordinal)
-                    && row.Kind == ReferenceHubRowKind.Site;
-                return unresolved ? "molca-status-dot--error" : "molca-status-dot--idle";
-            }
-
-            return row.Severity switch
-            {
-                ReferenceFindingSeverity.Error => "molca-status-dot--error",
-                ReferenceFindingSeverity.Warning => "molca-status-dot--warn",
-                _ => "molca-status-dot--idle",
-            };
-        }
-
-        private static string Compact(string assetPath, string owner)
-        {
-            var asset = string.IsNullOrEmpty(assetPath)
-                ? string.Empty
-                : System.IO.Path.GetFileNameWithoutExtension(assetPath);
-            if (string.IsNullOrEmpty(owner))
-                return asset;
-            return string.IsNullOrEmpty(asset) ? owner : $"{asset} :: {owner}";
-        }
-
-        private void OnSelectionChanged(IEnumerable<object> selection)
-        {
-            _selected = selection?.OfType<ReferenceHubRow>().FirstOrDefault();
-            Session.SetSelectedKey(Session.View, _selected?.Key);
-            RefreshDetail();
         }
 
         #endregion
@@ -800,59 +1024,144 @@ namespace Molca.Editor.ReferenceSystem.Hub
             var view = Session.View;
             if (IsTableView(view))
             {
+                CaptureExpansion();
+
                 _rows = Session.FilteredRows(view);
-                _table.itemsSource = (System.Collections.IList)_rows;
-                _table.style.display = DisplayStyle.Flex;
-                _table.Rebuild();
-                RestoreSelection(view);
+                _roots = view == ReferenceHubViewKind.Targets
+                    ? ReferenceHubTargetTree.Targets(Session.Tables, Session.Filter)
+                    : ReferenceHubTargetTree.Flat(_rows);
 
                 RefreshTableHeader(view);
-                _tableHeader.style.display = DisplayStyle.Flex;
+                PopulateTree();
 
-                _emptyNote.style.display = _rows.Count == 0 ? DisplayStyle.Flex : DisplayStyle.None;
+                _tree.style.display = DisplayStyle.Flex;
+                _emptyNote.style.display = _roots.Count == 0 ? DisplayStyle.Flex : DisplayStyle.None;
                 _emptyNote.text = EmptyMessage(view);
             }
             else
             {
                 _rows = Array.Empty<ReferenceHubRow>();
-                _table.itemsSource = null;
-                _table.style.display = DisplayStyle.None;
-                _tableHeader.style.display = DisplayStyle.None;
+                _roots = Array.Empty<ReferenceHubTreeNode>();
+                _selectedRows = new List<ReferenceHubRow>();
+                _selectedNode = null;
+                _tree.style.display = DisplayStyle.None;
                 _emptyNote.style.display = DisplayStyle.None;
             }
 
             RefreshFilters();
             RefreshDetail();
+
+            // Again, after the tree has restored its selection: RefreshHeader ran before that and would
+            // otherwise leave the button describing the previous selection's scope.
+            RefreshSafeRepairButton(Session.RepairIndex, Session.IsRunning);
         }
 
-        private void RestoreSelection(ReferenceHubViewKind view)
+        private void RefreshTableHeader(ReferenceHubViewKind view)
         {
-            var key = Session.SelectedKey(view);
-            var index = string.IsNullOrEmpty(key)
-                ? -1
-                : IndexOfKey(key);
-
-            if (index >= 0)
+            var columns = Columns(view);
+            for (var index = 0; index < ColumnCount; index++)
             {
-                _table.SetSelectionWithoutNotify(new[] { index });
-                _selected = _rows[index];
-            }
-            else
-            {
-                _selected = null;
-            }
-        }
+                var column = _tree.columns[ColumnIds[index]];
+                column.title = columns[index].Heading;
 
-        private int IndexOfKey(string key)
-        {
-            for (int i = 0; i < _rows.Count; i++)
-                if (string.Equals(_rows[i].Key, key, StringComparison.Ordinal))
-                    return i;
-            return -1;
+                // An always-empty column would still take width and still be sortable, which reads as data
+                // the view is failing to show rather than as a column this view has no use for.
+                column.visible = !string.IsNullOrEmpty(columns[index].Heading);
+            }
         }
 
         /// <summary>
-        /// The message shown when a table is empty, which has to distinguish "nothing to report" from
+        /// Hands the node tree to the control, restoring expansion and selection by key.
+        /// </summary>
+        /// <remarks>
+        /// Ids come from the session and are keyed by node key rather than by position, so an audit that
+        /// removes one finding does not move every expanded group one row down.
+        /// </remarks>
+        private void PopulateTree()
+        {
+            _nodesById.Clear();
+
+            var items = _roots.Select(BuildItem).ToList();
+
+            _suppressSelectionEvents = true;
+            try
+            {
+                _tree.SetRootItems(items);
+                _tree.Rebuild();
+
+                var expanded = false;
+                foreach (var pair in _nodesById)
+                {
+                    if (!Session.ExpandedTreeKeys.Contains(pair.Value.Key))
+                        continue;
+
+                    // refresh: false per item — refreshing once per expanded group would rebuild the
+                    // viewport N times for one repopulate.
+                    _tree.ExpandItem(pair.Key, expandAllChildren: false, refresh: false);
+                    expanded = true;
+                }
+
+                if (expanded)
+                    _tree.Rebuild();
+
+                RestoreSelection();
+            }
+            finally
+            {
+                _suppressSelectionEvents = false;
+            }
+        }
+
+        private TreeViewItemData<ReferenceHubTreeNode> BuildItem(ReferenceHubTreeNode node)
+        {
+            var id = Session.TreeIdFor(node.Key);
+            _nodesById[id] = node;
+
+            return node.Children.Count == 0
+                ? new TreeViewItemData<ReferenceHubTreeNode>(id, node)
+                : new TreeViewItemData<ReferenceHubTreeNode>(
+                    id, node, node.Children.Select(BuildItem).ToList());
+        }
+
+        /// <summary>Records which groups are open before the tree is thrown away and rebuilt.</summary>
+        private void CaptureExpansion()
+        {
+            if (_nodesById.Count == 0)
+                return;
+
+            foreach (var pair in _nodesById)
+            {
+                if (pair.Value.Children.Count == 0)
+                    continue;
+
+                try
+                {
+                    if (_tree.IsExpanded(pair.Key))
+                        Session.ExpandedTreeKeys.Add(pair.Value.Key);
+                    else
+                        Session.ExpandedTreeKeys.Remove(pair.Value.Key);
+                }
+                catch (Exception)
+                {
+                    // An id the control no longer knows: the node is gone, so its expansion is moot.
+                }
+            }
+        }
+
+        private void RestoreSelection()
+        {
+            var keys = new HashSet<string>(Session.SelectedKeys(Session.View), StringComparer.Ordinal);
+            var ids = _nodesById.Where(p => keys.Contains(p.Value.Key)).Select(p => p.Key).ToList();
+
+            _tree.SetSelectionByIdWithoutNotify(ids);
+
+            var nodes = ids.Select(id => _nodesById[id]).ToList();
+            _selectedNode = nodes.FirstOrDefault();
+            _selectedRows = nodes.Where(n => n.Row != null).Select(n => n.Row).ToList();
+        }
+
+        /// <summary>
+        /// The message shown when a view is empty, which has to distinguish "nothing to report" from
         /// "your filter hides everything" from "no audit has run".
         /// </summary>
         private string EmptyMessage(ReferenceHubViewKind view)
@@ -870,7 +1179,8 @@ namespace Molca.Editor.ReferenceSystem.Hub
                     : $"No findings, but coverage is incomplete ({Session.Snapshot.Coverage.DescribeGaps()}), "
                       + "so this is not a clean result.",
                 ReferenceHubViewKind.References => "No reference sites were found in the audited scope.",
-                _ => "No providers were found in the audited scope.",
+                _ => "No targets were found in the audited scope. Select a GameObject and use "
+                     + "'Make selection referenceable' in the detail panel to author one.",
             };
         }
 
@@ -890,20 +1200,40 @@ namespace Molca.Editor.ReferenceSystem.Hub
                 case ReferenceHubViewKind.Runtime:
                     BuildRuntimeDetail();
                     return;
-                case ReferenceHubViewKind.Graph:
-                    BuildGraphDetail();
-                    return;
             }
 
-            if (_selected == null)
+            if (_selectedRows.Count > 1)
             {
-                _detail.Add(Note("Select a row to see its full locator, candidates and available repairs."));
-                BuildRepairCard();
+                BuildBatchCard();
                 return;
             }
 
-            BuildRowDetail(_selected);
-            BuildRepairCard();
+            if (_selectedNode == null)
+            {
+                _detail.Add(Note(
+                    "Select a row to see its full locator, its candidates, and the changes available to it. "
+                    + "Select several to act on them together."));
+                BuildCreateTargetCard();
+                return;
+            }
+
+            if (_selectedNode.Kind == ReferenceHubTreeNodeKind.RefTypeGroup)
+            {
+                BuildRefTypeCard(_selectedNode);
+                return;
+            }
+
+            var row = _selectedRows.FirstOrDefault();
+            if (row == null)
+            {
+                _detail.Add(Note(_selectedNode.Tooltip));
+                return;
+            }
+
+            BuildRowDetail(row);
+            BuildAuthoringCard(row);
+            BuildConnectionsCard(row);
+            BuildActionsCard(row);
         }
 
         private void BuildRowDetail(ReferenceHubRow row)
@@ -933,7 +1263,7 @@ namespace Molca.Editor.ReferenceSystem.Hub
             }
 
             if (row.IsReadOnly)
-                card.Body.Add(Note("This asset is read-only, so no repair can write to it."));
+                card.Body.Add(Note("This asset is read-only, so nothing here can write to it."));
 
             if (row.IsLegacyFallback)
             {
@@ -943,17 +1273,14 @@ namespace Molca.Editor.ReferenceSystem.Hub
             }
 
             AddSeverityExplanation(card.Body, row);
-            AddCandidates(card.Body, row);
-            AddActions(card.Body, row);
         }
 
         /// <summary>
         /// States why the row has the severity it has, and whether that severity is configurable.
         /// </summary>
         /// <remarks>
-        /// Required by the plan's detail panel, and it earns its space: a user who can see that REF002 is
-        /// fixed at error <i>because the runtime refuses an ambiguous lookup</i> stops looking for the setting
-        /// that would turn it off.
+        /// A user who can see that REF002 is fixed at error <i>because the runtime refuses an ambiguous
+        /// lookup</i> stops looking for the setting that would turn it off.
         /// </remarks>
         private static void AddSeverityExplanation(VisualElement parent, ReferenceHubRow row)
         {
@@ -970,8 +1297,348 @@ namespace Molca.Editor.ReferenceSystem.Hub
                   + "cannot configure it down to a warning."
                 : $"Severity {row.Severity} for {row.Code} comes from the audit policy "
                   + $"(baseline {ReferenceHubPolicyStore.Baseline(code)}). Editor severities are configurable "
-                  + "in Policy below; builds always use the production policy.";
+                  + "behind Policy in the header; builds always use the production policy.";
             parent.Add(Note(text));
+        }
+
+        #endregion
+
+        #region Authoring
+
+        /// <summary>
+        /// The identity editor for whichever target the selected row concerns.
+        /// </summary>
+        /// <remarks>
+        /// <para>Offered on a reference row as well as on a target row, pointed at what the reference
+        /// reaches. "Rename the thing this points at" is the same act from either end, and making the author
+        /// navigate to the target first would only make it likelier they rename it in the Inspector instead,
+        /// which is the change that breaks the inbound set.</para>
+        ///
+        /// <para>Every button here builds a plan naming every reference it would move and shows it before
+        /// anything is written.</para>
+        /// </remarks>
+        private void BuildAuthoringCard(ReferenceHubRow row)
+        {
+            var providerKey = row.ProviderKey;
+            if (string.IsNullOrEmpty(providerKey))
+                return;
+
+            var provider = Session.Snapshot.FindProvider(providerKey);
+            if (provider == null)
+                return;
+
+            var inbound = ReferenceAuthoringPlanner.InboundSites(Session.Snapshot, provider);
+            var card = new MolcaSectionCard(
+                "Identity",
+                subtitle: $"'{provider.DisplayName}' · {inbound.Count} inbound reference(s) move with it");
+            _detail.Add(card);
+
+            if (Session.IsStale)
+            {
+                card.Body.Add(Note(
+                    "The snapshot is stale, so the inbound set cannot be trusted and no identity change can "
+                    + "be planned from it. Re-run the audit first."));
+                return;
+            }
+
+            if (provider.IsReadOnly)
+            {
+                card.Body.Add(Note("This target lives in a read-only asset, so its identity cannot change."));
+                return;
+            }
+
+            if (!string.Equals(_draftProviderKey, providerKey, StringComparison.Ordinal))
+            {
+                _draftProviderKey = providerKey;
+                _draftRefId = provider.RefId;
+                _draftRefType = provider.RefType;
+            }
+
+            var refTypeField = new TextField("Ref Type") { value = _draftRefType };
+            refTypeField.AddToClassList("molca-references__authoring-field");
+            refTypeField.RegisterValueChangedCallback(evt => _draftRefType = evt.newValue);
+            card.Body.Add(refTypeField);
+
+            var retype = MolcaButtons.Mini("Change type…", () =>
+                ReferenceHubAuthoring.PreviewAndApply(
+                    () => ReferenceAuthoringPlanner.PlanRetype(
+                        Session.Snapshot, providerKey, refTypeField.value),
+                    "Change Ref Type?"));
+            retype.tooltip =
+                "Rewrite this target's Ref Type and every reference that stores the old one, in one plan.";
+            card.Body.Add(retype);
+
+            var refIdField = new TextField("Ref Id") { value = _draftRefId };
+            refIdField.AddToClassList("molca-references__authoring-field");
+            refIdField.RegisterValueChangedCallback(evt => _draftRefId = evt.newValue);
+            card.Body.Add(refIdField);
+
+            var idActions = new VisualElement();
+            idActions.AddToClassList("molca-references__actions");
+            card.Body.Add(idActions);
+
+            var suggest = MolcaButtons.Mini("Suggest readable id", () =>
+                refIdField.value = ReferenceIdSuggestion.Suggest(
+                    provider.DisplayName,
+                    provider.RefType,
+                    Session.Snapshot.Providers
+                        .Where(p => p.RefType == provider.RefType && p.ProviderKey != providerKey)
+                        .Select(p => p.RefId)));
+            suggest.tooltip =
+                "Propose a kebab-case id from the display name, per the framework naming convention. "
+                + "Generated ref_<guid> ids are collision-safe and unreadable in a diff or a duplicate report.";
+            idActions.Add(suggest);
+
+            var rename = MolcaButtons.Mini("Rename…", () =>
+                ReferenceHubAuthoring.PreviewAndApply(
+                    () => ReferenceAuthoringPlanner.PlanRename(
+                        Session.Snapshot, providerKey, refIdField.value),
+                    "Rename Target?"));
+            rename.tooltip =
+                "Rewrite this target's Ref Id and every reference that names it, in one plan. Refused when "
+                + "the id is already duplicated: nothing then records which references meant this target.";
+            idActions.Add(rename);
+
+            BuildScopeControl(card.Body, provider);
+        }
+
+        /// <summary>
+        /// The scope selector, offered only for a component that actually declares a scope.
+        /// </summary>
+        private void BuildScopeControl(VisualElement parent, ReferenceProviderRecord provider)
+        {
+            var current = ReferenceHubAuthoring.TryReadScope(provider.Locator);
+            if (current == null)
+                return;
+
+            var field = new EnumField("Scope", current.Value);
+            field.AddToClassList("molca-references__authoring-field");
+            field.tooltip =
+                "Which space this id must be unique in. Scope is part of identity, so moving a target "
+                + "between scopes changes what the runtime registers it as.";
+            parent.Add(field);
+
+            parent.Add(MolcaButtons.Mini("Change scope…", () =>
+                ReferenceHubAuthoring.PreviewAndApply(
+                    () => ReferenceAuthoringPlanner.PlanScope(
+                        Session.Snapshot, provider.ProviderKey,
+                        current.Value, (ReferenceScopeKind)field.value),
+                    "Change Reference Scope?")));
+        }
+
+        /// <summary>
+        /// The Ref Type group's own editor: fold this vocabulary entry into another one.
+        /// </summary>
+        /// <remarks>
+        /// Ref Type is free text on the component, so a project accumulates <c>valve</c> beside
+        /// <c>Valve</c> and each near-duplicate is a REF005 waiting for a reference to store the wrong
+        /// spelling. Nothing in the editor previously showed the vocabulary as a thing that could be tidied.
+        /// </remarks>
+        private void BuildRefTypeCard(ReferenceHubTreeNode group)
+        {
+            var refType = group.Label;
+            var card = new MolcaSectionCard($"Ref Type \"{refType}\"", subtitle: group.Identity);
+            _detail.Add(card);
+            card.Body.Add(Note(group.Tooltip));
+
+            if (Session.IsStale || refType == ReferenceHubTargetTree.NoRefTypeLabel)
+            {
+                card.Body.Add(Note(Session.IsStale
+                    ? "The snapshot is stale, so nothing can be planned from it. Re-run the audit first."
+                    : "These targets declare no Ref Type at all, so there is no vocabulary entry to merge. "
+                      + "Give each one a type from its own row."));
+                return;
+            }
+
+            var others = Session.Snapshot.Providers
+                .Select(p => p.RefType)
+                .Where(t => !string.IsNullOrEmpty(t) && t != refType)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(t => t, StringComparer.Ordinal)
+                .ToList();
+
+            if (others.Count == 0)
+            {
+                card.Body.Add(Note("This is the only Ref Type in the project, so there is nothing to merge into."));
+                return;
+            }
+
+            var destination = new DropdownField("Merge into", others, 0);
+            destination.AddToClassList("molca-references__authoring-field");
+            card.Body.Add(destination);
+
+            var merge = MolcaButtons.Mini("Merge…", () =>
+                ReferenceHubAuthoring.PreviewAndApply(
+                    () => ReferenceAuthoringPlanner.PlanMergeRefType(
+                        Session.Snapshot, refType, destination.value),
+                    "Merge Ref Types?"));
+            merge.tooltip =
+                "Move every target with this Ref Type onto the chosen one, carrying their inbound references. "
+                + "Refused wholesale if any id would then be duplicated.";
+            card.Body.Add(merge);
+        }
+
+        /// <summary>Batch actions for a multi-row selection.</summary>
+        private void BuildBatchCard()
+        {
+            var references = _selectedRows.Where(r => !string.IsNullOrEmpty(r.SiteKey)).ToList();
+            var card = new MolcaSectionCard(
+                $"{_selectedRows.Count} rows selected",
+                subtitle: $"{references.Count} of them are references");
+            _detail.Add(card);
+
+            if (Session.IsStale)
+            {
+                card.Body.Add(Note(
+                    "The snapshot is stale, so no plan can be built from it. Re-run the audit first."));
+                return;
+            }
+
+            card.Body.Add(Note(
+                "Preview safe repairs in the header is narrowed to this selection while it is active."));
+
+            if (references.Count == 0)
+                return;
+
+            var siteKeys = references.Select(r => r.SiteKey).ToList();
+            AddPointAtSelection(card.Body, siteKeys);
+
+            var clear = MolcaButtons.Mini($"Clear {references.Count} reference(s)…", () =>
+                ReferenceHubAuthoring.PreviewAndApply(
+                    () => ReferenceAuthoringPlanner.PlanClearMany(Session.Snapshot, siteKeys),
+                    "Clear References?"));
+            clear.tooltip =
+                "Build a plan that unsets these references. Never part of a batch repair: an unset reference "
+                + "passes validation without anything being fixed.";
+            card.Body.Add(clear);
+        }
+
+        /// <summary>
+        /// "Point these at whatever is selected in the hierarchy", which closes the loop back from the scene.
+        /// </summary>
+        /// <remarks>
+        /// The property drawer has always been able to send the user here; nothing sent them back. Without
+        /// this, re-pointing a reference from the workspace meant finding its owner in the Inspector and
+        /// using the picker — the round trip that made the workspace read-only in practice.
+        /// </remarks>
+        private void AddPointAtSelection(VisualElement parent, IReadOnlyList<string> siteKeys)
+        {
+            var providerKey = ReferenceHubAuthoring.SelectionProviderKey(Session.Snapshot);
+            var described = ReferenceHubAuthoring.DescribeSelection();
+
+            if (string.IsNullOrEmpty(providerKey))
+            {
+                parent.Add(Note(string.IsNullOrEmpty(described)
+                    ? "Select a referenceable object in the hierarchy to point these at it."
+                    : $"'{described}' is not a discovered target, so nothing can point at it yet. Give it a "
+                      + "Referenceable component, or re-audit if you just added one."));
+                return;
+            }
+
+            var provider = Session.Snapshot.FindProvider(providerKey);
+            var point = MolcaButtons.Mini(
+                $"Point {siteKeys.Count} reference(s) at '{provider?.DisplayName ?? described}'…",
+                () => ReferenceHubAuthoring.PreviewAndApply(
+                    () => ReferenceAuthoringPlanner.PlanRewire(Session.Snapshot, siteKeys, providerKey),
+                    "Re-point References?"));
+            point.tooltip =
+                "Build a plan pointing these references at the hierarchy selection. References whose declared "
+                + "type cannot accept it are left alone and named in the plan.";
+            parent.Add(point);
+        }
+
+        /// <summary>Creates targets from the hierarchy selection.</summary>
+        private void BuildCreateTargetCard()
+        {
+            var described = ReferenceHubAuthoring.DescribeSelection();
+            if (string.IsNullOrEmpty(described))
+                return;
+
+            var card = new MolcaSectionCard("Author a target", subtitle: described);
+            _detail.Add(card);
+
+            var typeField = new TextField("Ref Type") { value = "Referenceable" };
+            typeField.AddToClassList("molca-references__authoring-field");
+            card.Body.Add(typeField);
+
+            card.Body.Add(Note(
+                "Adds a Referenceable component to each selected GameObject that has none, with a kebab-case "
+                + "id derived from its name. No plan is shown because nothing can reference an object that is "
+                + "not yet a target, so this cannot re-point anything."));
+
+            card.Body.Add(MolcaButtons.Mini("Make selection referenceable", () =>
+            {
+                var created = ReferenceHubAuthoring.MakeSelectionReferenceable(
+                    Session.Snapshot, typeField.value);
+
+                if (created == 0)
+                {
+                    Debug.Log("[ReferenceSystem] Every selected object is already referenceable.");
+                    return;
+                }
+
+                Debug.Log($"[ReferenceSystem] {created} object(s) are now referenceable. Re-audit to see them.");
+                Refresh();
+            }));
+        }
+
+        #endregion
+
+        #region Connections
+
+        /// <summary>What this row reaches, what reaches it, and the neighbourhood around it.</summary>
+        private void BuildConnectionsCard(ReferenceHubRow row)
+        {
+            var snapshot = Session.Snapshot;
+            var card = new MolcaSectionCard("Connections");
+            _detail.Add(card);
+
+            if (!string.IsNullOrEmpty(row.SiteKey))
+                AddPointAtSelection(card.Body, new[] { row.SiteKey });
+
+            AddCandidates(card.Body, row);
+
+            if (row.Kind == ReferenceHubRowKind.Issue && !string.IsNullOrEmpty(row.SiteKey)
+                && row.IsAssigned && !row.IsReadOnly && !Session.IsStale)
+            {
+                var clear = MolcaButtons.Mini("Clear reference…", () =>
+                    ReferenceHubAuthoring.PreviewAndApply(
+                        () => ReferenceAuthoringPlanner.PlanClearMany(snapshot, new[] { row.SiteKey }),
+                        "Clear Reference?"));
+                clear.tooltip =
+                    "Build a plan that unsets this reference. Never part of a batch: an unset reference "
+                    + "passes validation without anything being fixed.";
+                card.Body.Add(clear);
+            }
+
+            // The neighbourhood used to be a whole tab, which meant leaving the table to see it and hunting
+            // for the selection once you got there. It is a peek, so it lives beside the row.
+            var graph = new Foldout { text = "Neighbourhood", value = false };
+            graph.AddToClassList("molca-references__graph");
+            card.Body.Add(graph);
+
+            graph.RegisterValueChangedCallback(evt =>
+            {
+                if (!evt.newValue || graph.contentContainer.childCount > 0)
+                    return;
+
+                var source = ReferenceHubGraph.BuildMermaid(snapshot, row);
+                try
+                {
+                    graph.Add(new MolcaMermaidView(MolcaMermaid.ParseFlowchart(source)));
+                }
+                catch (Exception e)
+                {
+                    // A graph that will not lay out must not cost the user the workspace; the source is
+                    // still useful, so it is offered as text.
+                    Debug.LogWarning($"[ReferenceSystem] Neighbourhood graph could not be drawn: {e.Message}");
+                    graph.Add(Note(source));
+                }
+
+                graph.Add(Note(
+                    $"One hop from this row, at most {ReferenceHubGraph.MaxNeighbours} neighbours per side. "
+                    + "A solid arrow is what the runtime resolves; a dashed one is a match that does not win."));
+            });
         }
 
         private void AddCandidates(VisualElement parent, ReferenceHubRow row)
@@ -997,30 +1664,35 @@ namespace Molca.Editor.ReferenceSystem.Hub
                 label.tooltip = provider.Locator.ToString();
                 line.Add(label);
 
-                var select = MolcaButtons.Mini("Select", () =>
-                    ReferenceHubNavigation.SelectAndPing(provider.Locator, "candidate"));
-                line.Add(select);
+                line.Add(MolcaButtons.Mini("Select", () =>
+                    ReferenceHubNavigation.SelectAndPing(provider.Locator, "candidate")));
 
-                // Redirecting is offered only where it is a real repair: the site is known, the snapshot is
-                // current, and the asset can be written. Everything else would build a plan the executor is
-                // going to refuse anyway.
-                if (row.Kind == ReferenceHubRowKind.Issue && !string.IsNullOrEmpty(row.SiteKey)
-                    && !row.IsReadOnly && !Session.IsStale)
+                // Offered on a healthy row too. "Actually, point this at the other valve" is an ordinary
+                // authoring act, and restricting it to findings meant the only way to perform it was the
+                // Inspector picker — which cannot see the other references sharing this target.
+                if (!string.IsNullOrEmpty(row.SiteKey) && !row.IsReadOnly && !Session.IsStale)
                 {
-                    var use = MolcaButtons.Mini("Point here…", () => PreviewRedirect(row.SiteKey, key));
+                    var use = MolcaButtons.Mini("Point here…", () =>
+                        ReferenceHubAuthoring.PreviewAndApply(
+                            () => ReferenceAuthoringPlanner.PlanRewire(
+                                snapshot, new[] { row.SiteKey }, key),
+                            "Re-point Reference?"));
                     use.tooltip =
-                        "Build a repair plan pointing this reference at this provider. You approve the plan "
+                        "Build a repair plan pointing this reference at this target. You approve the plan "
                         + "before anything is written.";
                     line.Add(use);
                 }
             }
         }
 
-        private void AddActions(VisualElement parent, ReferenceHubRow row)
+        private void BuildActionsCard(ReferenceHubRow row)
         {
+            var card = new MolcaSectionCard("Go to");
+            _detail.Add(card);
+
             var actions = new VisualElement();
             actions.AddToClassList("molca-references__actions");
-            parent.Add(actions);
+            card.Body.Add(actions);
 
             var snapshot = Session.Snapshot;
             var ownerLocator = OwnerLocatorFor(row, snapshot);
@@ -1046,16 +1718,6 @@ namespace Molca.Editor.ReferenceSystem.Hub
 
             actions.Add(MolcaButtons.Mini("Copy diagnostic",
                 () => ReferenceHubNavigation.Copy(ReferenceHubNavigation.BuildDiagnostic(row, snapshot))));
-
-            if (row.Kind == ReferenceHubRowKind.Issue && !string.IsNullOrEmpty(row.SiteKey)
-                && row.IsAssigned && !row.IsReadOnly && !Session.IsStale)
-            {
-                var clear = MolcaButtons.Mini("Clear reference…", () => PreviewClear(row.SiteKey));
-                clear.tooltip =
-                    "Build a plan that unsets this reference. Never part of a batch: an unset reference "
-                    + "passes validation without anything being fixed.";
-                actions.Add(clear);
-            }
         }
 
         private static ReferenceObjectLocator OwnerLocatorFor(ReferenceHubRow row, ReferenceAuditSnapshot snapshot)
@@ -1070,191 +1732,7 @@ namespace Molca.Editor.ReferenceSystem.Hub
 
         #endregion
 
-        #region Repair
-
-        /// <summary>
-        /// The repair card: what the safe batch would do, what needs a decision, and the policy editor.
-        /// </summary>
-        /// <remarks>
-        /// There is no button here that changes anything without first showing a plan. That is the whole
-        /// contract of the repair system, and the workspace is the surface where it would be most tempting to
-        /// add a convenient "fix all" — which is exactly the affordance that used to point references at the
-        /// wrong objects.
-        /// </remarks>
-        private void BuildRepairCard()
-        {
-            var repair = Session.RepairIndex;
-            var card = new MolcaSectionCard("Repair", subtitle: repair.Describe());
-            _detail.Add(card);
-
-            if (Session.IsStale)
-            {
-                card.Body.Add(Note(
-                    "The snapshot is stale, so no plan can be built from it — a repair applied to unreviewed "
-                    + "data is worse than no repair. Re-run the audit first."));
-                return;
-            }
-
-            if (repair.AutomaticCount == 0 && repair.Choices.Count == 0)
-            {
-                card.Body.Add(Note("Nothing in this snapshot can be repaired automatically."));
-                BuildPolicyCard();
-                return;
-            }
-
-            if (repair.AutomaticCount > 0)
-            {
-                var preview = MolcaButtons.Primary(
-                    $"Preview safe repairs ({repair.AutomaticCount})", PreviewSafeRepairs);
-                preview.tooltip =
-                    "Build the plan for every unambiguous repair and show it in full. Nothing is written "
-                    + "until you approve it.";
-                card.Body.Add(preview);
-            }
-
-            if (repair.Choices.Count > 0)
-            {
-                card.Body.Add(FieldLabel($"Needs a decision ({repair.Choices.Count})"));
-                foreach (var choice in repair.Choices.Take(6))
-                {
-                    var note = Note($"{choice.Finding.CodeString} — {choice.Question}");
-                    note.tooltip = choice.Finding.Summary;
-                    card.Body.Add(note);
-                }
-                if (repair.Choices.Count > 6)
-                    card.Body.Add(Note($"… +{repair.Choices.Count - 6} more in the Issues table."));
-            }
-
-            BuildPolicyCard();
-        }
-
-        /// <summary>
-        /// The severity-policy editor, moved here from the settings Inspector.
-        /// </summary>
-        /// <remarks>
-        /// It lives next to the findings it governs rather than in an Inspector two navigations away, and it
-        /// says plainly which severities it can and cannot change: the codes that describe runtime failures
-        /// are not configurable, and nothing authored here reaches a build (see
-        /// <see cref="ReferenceHubPolicyStore"/>).
-        /// </remarks>
-        private void BuildPolicyCard()
-        {
-            var card = new MolcaSectionCard(
-                "Policy", subtitle: "Editor severities for this project · builds always use the production policy");
-            _detail.Add(card);
-
-            foreach (var code in ReferenceHubPolicyStore.AllCodes)
-            {
-                var row = new VisualElement();
-                row.AddToClassList("molca-references__policy-row");
-                card.Body.Add(row);
-
-                var fixedSeverity = ReferenceSeverityPolicy.IsNonLowerable(code);
-                var effective = ReferenceHubPolicyStore.Effective(code);
-                var baseline = ReferenceHubPolicyStore.Baseline(code);
-
-                var label = new Label($"REF{(int)code:D3}  {code}");
-                label.AddToClassList("molca-references__policy-label");
-                row.Add(label);
-
-                if (fixedSeverity)
-                {
-                    var locked = new Label($"{effective} (fixed)");
-                    locked.AddToClassList("molca-references__policy-locked");
-                    locked.tooltip =
-                        "This code describes a reference that fails at runtime. Lowering it would let a build "
-                        + "pass over a project that is already broken, so it cannot be configured.";
-                    row.Add(locked);
-                    continue;
-                }
-
-                var field = new EnumField(effective);
-                field.AddToClassList("molca-references__policy-field");
-                field.tooltip = $"Baseline: {baseline}";
-                field.RegisterValueChangedCallback(evt =>
-                {
-                    ReferenceHubPolicyStore.SetOverride(code, (ReferenceFindingSeverity)evt.newValue);
-                    Refresh();
-                });
-                row.Add(field);
-            }
-
-            if (ReferenceHubPolicyStore.HasOverrides)
-            {
-                var reset = MolcaButtons.Mini("Reset to production severities", () =>
-                {
-                    ReferenceHubPolicyStore.ClearOverrides();
-                    Refresh();
-                });
-                card.Body.Add(reset);
-                card.Body.Add(Note(
-                    "Overridden severities apply to editor audits only. The build gate always uses the "
-                    + "production policy, so a machine-local override cannot make a broken project build."));
-            }
-        }
-
-        private void PreviewSafeRepairs() =>
-            PreviewAndApply(() => ReferenceRepairPlanner.PlanSafeRepairs(Session.Snapshot));
-
-        private void PreviewRedirect(string siteKey, string providerKey) =>
-            PreviewAndApply(() => ReferenceRepairPlanner.PlanRedirect(Session.Snapshot, siteKey, providerKey));
-
-        private void PreviewClear(string siteKey) =>
-            PreviewAndApply(() => ReferenceRepairPlanner.PlanClear(Session.Snapshot, siteKey));
-
-        /// <summary>
-        /// Builds a plan, shows it in full, and applies it only on explicit approval.
-        /// </summary>
-        /// <remarks>
-        /// <c>async void</c> because this is a UI command entry point; the body is a try/catch shim per the
-        /// async contract.
-        /// </remarks>
-        private static async void PreviewAndApply(Func<ReferenceRepairPlan> build) // doctor:ignore async-void is intentional: UI command entry point wrapped in try/catch
-        {
-            try
-            {
-                var plan = build();
-
-                if (plan.IsEmpty)
-                {
-                    EditorUtility.DisplayDialog(
-                        "No Repair Available",
-                        "Nothing can be changed without guessing what was intended.\n\n" + plan.Preview(),
-                        "OK");
-                    return;
-                }
-
-                // The preview is the approval, and logging it means the exact approved change survives the
-                // dialog being dismissed.
-                Debug.Log(plan.Preview());
-
-                if (!EditorUtility.DisplayDialog(
-                        "Apply Reference Repairs?",
-                        $"{plan.DescribeSummary()}.\n\nThe full plan is in the Console. Reversibility: "
-                        + $"{plan.Reversibility}.\n\n"
-                        + (plan.Warnings.Count > 0 ? "! " + string.Join("\n! ", plan.Warnings) + "\n\n" : string.Empty)
-                        + "Apply it?",
-                        "Apply", "Cancel"))
-                    return;
-
-                var result = await ReferenceRepairExecutor.ApplyAsync(plan);
-
-                if (result.Introduced.Count > 0)
-                    Debug.LogError(result.Describe());
-                else if (result.WasRejected || result.Skipped.Count > 0)
-                    Debug.LogWarning(result.Describe());
-                else
-                    Debug.Log(result.Describe());
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"[ReferenceSystem] Repair failed: {e}");
-            }
-        }
-
-        #endregion
-
-        #region Coverage / Runtime / Graph views
+        #region Coverage / Runtime views
 
         private void BuildCoverageDetail()
         {
@@ -1271,6 +1749,7 @@ namespace Molca.Editor.ReferenceSystem.Hub
                 card.Body.Add(Note(
                     "Coverage is what makes a clean result mean anything: it records what the audit looked at "
                     + "and what it did not. Run an audit to populate it."));
+                BuildLoadSetCard();
                 return;
             }
 
@@ -1356,20 +1835,21 @@ namespace Molca.Editor.ReferenceSystem.Hub
         }
 
         /// <summary>
-        /// Reports the declared scene load sets, which are what cross-scene availability is judged against.
+        /// The scene load sets, which are what cross-scene availability is judged against — and, now, an
+        /// editor for them.
         /// </summary>
         /// <remarks>
         /// Under Coverage because an inferred load set is a coverage limitation, not a setting: it means
-        /// nobody has told the tooling which scenes load together, so any cross-scene conclusion it
-        /// draws rests on a guess. Saying so here is the difference between a limitation and a lie.
+        /// nobody has told the tooling which scenes load together, so any cross-scene conclusion it draws
+        /// rests on a guess. Saying so here is the difference between a limitation and a lie — and pointing
+        /// at a JSON file to fix it was the difference between a limitation and a permanent one.
         /// </remarks>
         private void BuildLoadSetCard()
         {
-            var sets = ReferenceLoadSetStore.Sets;
             var card = new MolcaSectionCard("Scene load sets", subtitle: ReferenceLoadSetStore.Describe());
             _detail.Add(card);
 
-            foreach (var set in sets)
+            foreach (var set in ReferenceLoadSetStore.Sets)
                 card.Body.Add(Note($"• {set.Describe()}"));
 
             if (ReferenceLoadSetStore.IsInferred)
@@ -1377,9 +1857,17 @@ namespace Molca.Editor.ReferenceSystem.Hub
                 card.Body.Add(Note(
                     "The inferred set treats every enabled scene after the first as deferred, which is the "
                     + "honest reading of unknown load order — it never claims two scenes are loaded "
-                    + $"together. Author {ReferenceLoadSetStore.FilePath} to validate additive loading "
-                    + "properly."));
+                    + "together. Author explicit sets below to validate additive loading properly."));
             }
+
+            var editor = new Foldout { text = "Edit load sets", value = false };
+            card.Body.Add(editor);
+            editor.RegisterValueChangedCallback(evt =>
+            {
+                if (!evt.newValue || editor.contentContainer.childCount > 0)
+                    return;
+                editor.Add(new ReferenceHubLoadSetEditor(Refresh));
+            });
         }
 
         /// <summary>
@@ -1583,56 +2071,6 @@ namespace Molca.Editor.ReferenceSystem.Hub
 
             card.Body.Add(MolcaButtons.Mini("Copy events", () =>
                 ReferenceHubNavigation.Copy(string.Join("\n", state.Diagnostics.Select(d => d.ToString())))));
-        }
-
-        private void BuildGraphDetail()
-        {
-            var selected = SelectedRowAcrossViews();
-            var card = new MolcaSectionCard(
-                "Neighbourhood",
-                subtitle: selected == null
-                    ? "select a row in Issues, References or Providers"
-                    : selected.Title);
-            _detail.Add(card);
-
-            var source = ReferenceHubGraph.BuildMermaid(Session.Snapshot, selected);
-            try
-            {
-                card.Body.Add(new MolcaMermaidView(MolcaMermaid.ParseFlowchart(source)));
-            }
-            catch (Exception e)
-            {
-                // A graph that will not lay out must not cost the user the workspace; the source is still
-                // useful, so it is offered as text.
-                Debug.LogWarning($"[ReferenceSystem] Neighbourhood graph could not be drawn: {e.Message}");
-                card.Body.Add(Note(source));
-            }
-
-            card.Body.Add(Note(
-                $"One hop from the selection, at most {ReferenceHubGraph.MaxNeighbours} neighbours per side. "
-                + "A solid arrow is what the runtime resolves; a dashed one is a match that does not win."));
-        }
-
-        /// <summary>
-        /// The row the Graph view should focus: the selection of whichever table the user last used.
-        /// </summary>
-        private ReferenceHubRow SelectedRowAcrossViews()
-        {
-            foreach (var view in new[]
-                     {
-                         ReferenceHubViewKind.Issues, ReferenceHubViewKind.References, ReferenceHubViewKind.Providers,
-                     })
-            {
-                var key = Session.SelectedKey(view);
-                if (string.IsNullOrEmpty(key))
-                    continue;
-
-                var row = Session.AllRows(view).FirstOrDefault(r => r.Key == key);
-                if (row != null)
-                    return row;
-            }
-
-            return null;
         }
 
         #endregion

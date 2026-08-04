@@ -123,24 +123,47 @@ namespace Molca.Editor.Networking.Hub.Views
             bool isDefault = string.Equals(
                 environment.Id, _session.Catalog.DefaultEnvironmentId, StringComparison.Ordinal);
 
-            var card = NetworkHubUi.Card(environment.DisplayName, environment.Id);
+            string id = environment.Id;
+            var card = NetworkHubUi.Card(environment.DisplayName, id);
 
-            card.Body.Add(NetworkHubUi.Field("Stable ID", environment.Id,
+            card.Body.Add(NetworkHubFields.EditText(
+                "Display name",
+                environment.DisplayName,
+                value => _session.Apply(_session.Editing.SetEnvironmentDisplayName(id, value)),
+                "Shown throughout the workspace. Nothing references an environment by display name, so this " +
+                "is safe to change at any time."));
+
+            // The ID stays a read-out with a refactor action beside it: service bindings name it, so an
+            // inline text field would let a keystroke silently unbind every service.
+            card.Body.Add(NetworkHubUi.Field("Stable ID", id,
                 "Referenced by every service binding. Changing it is a refactor, not an edit — use Rename ID."));
-            card.Body.Add(NetworkHubUi.Field("Classification", environment.Classification.ToString()));
+
+            card.Body.Add(NetworkHubFields.EditEnum(
+                "Classification",
+                environment.Classification,
+                value => _session.Apply(_session.Editing.SetEnvironmentClassification(id, value)),
+                "Production enforces safety rules that cannot be relaxed per profile."));
+
             card.Body.Add(NetworkHubUi.Field("Runtime default", isDefault ? "Yes" : "No"));
-            card.Body.Add(NetworkHubUi.Field("Policy override",
-                string.IsNullOrEmpty(environment.PolicyProfileId) ? null : environment.PolicyProfileId,
+
+            card.Body.Add(NetworkHubFields.EditReference(
+                "Policy override",
+                environment.PolicyProfileId,
+                _session.PolicyProfileIds(),
+                value => _session.Apply(_session.Editing.SetEnvironmentPolicyProfile(id, value)),
+                NetworkHubFields.InheritLabel,
                 "Applied to every service in this environment unless the service or endpoint overrides it."));
 
-            if (!string.IsNullOrEmpty(environment.Notes))
-                card.Body.Add(NetworkHubUi.Field("Notes", environment.Notes));
+            card.Body.Add(NetworkHubFields.EditTextArea(
+                "Notes",
+                environment.Notes,
+                value => _session.Apply(_session.Editing.SetEnvironmentNotes(id, value))));
 
             var actions = NetworkHubUi.Actions(
-                isDefault ? null : MolcaButtons.Mini("Make default", () => MakeDefault(environment.Id)),
-                MolcaButtons.Mini("Preview under this", () => _session.PreviewEnvironmentId = environment.Id),
-                MolcaButtons.Mini("Rename ID…", () => RenameId(environment.Id)),
-                MolcaButtons.Mini("Delete…", () => Delete(environment.Id)));
+                isDefault ? null : MolcaButtons.Mini("Make default", () => MakeDefault(id)),
+                MolcaButtons.Mini("Preview under this", () => _session.PreviewEnvironmentId = id),
+                MolcaButtons.Mini("Rename ID…", () => RenameId(id)),
+                MolcaButtons.Mini("Delete…", () => Delete(id)));
 
             card.Body.Add(actions);
             return card;
@@ -148,18 +171,29 @@ namespace Molca.Editor.Networking.Hub.Views
 
         private VisualElement BuildSafety(NetworkEnvironmentProfile environment)
         {
+            string id = environment.Id;
+            bool forcedByProduction =
+                environment.Classification == NetworkEnvironmentClassification.Production;
+
             var card = NetworkHubUi.Card(
                 "Safety",
                 null,
                 environment.IsProductionSafetyEnforced ? MolcaStatusKind.Warning : MolcaStatusKind.None,
                 environment.IsProductionSafetyEnforced ? "Production rules apply" : null);
 
-            card.Body.Add(NetworkHubUi.Field(
+            var secureTransport = NetworkHubFields.EditToggle(
                 "Requires encrypted transport",
-                environment.RequireSecureTransport ? "Yes" : "No",
-                environment.Classification == NetworkEnvironmentClassification.Production
-                    ? "Forced on for Production regardless of the authored value."
-                    : "Every origin bound to this environment must use https or wss."));
+                environment.RequireSecureTransport,
+                value => _session.Apply(
+                    _session.Editing.SetEnvironmentRequireSecureTransport(id, value)),
+                forcedByProduction
+                    ? "Forced on for Production regardless of the authored value, so this control is disabled."
+                    : "Every origin bound to this environment must use https or wss.");
+
+            // Disabled rather than hidden on Production: the value still applies if the classification is
+            // lowered later, and a control that vanishes reads as "this setting does not exist".
+            secureTransport.SetEnabled(!forcedByProduction);
+            card.Body.Add(secureTransport);
 
             card.Body.Add(NetworkHubUi.Field(
                 "Production safety",
@@ -167,20 +201,27 @@ namespace Molca.Editor.Networking.Hub.Views
                 "Mutating console sends need per-send confirmation, TLS validation cannot be relaxed, and " +
                 "unencrypted origins are refused."));
 
-            card.Body.Add(NetworkHubUi.Field(
+            card.Body.Add(NetworkHubFields.EditStringList(
                 "Build targets",
-                environment.EnabledBuildTargets.Count == 0
-                    ? "Any"
-                    : string.Join(", ", environment.EnabledBuildTargets)));
+                environment.EnabledBuildTargets,
+                values => _session.Apply(_session.Editing.SetEnvironmentBuildTargets(id, values)),
+                "target",
+                "Selectable for any build target.",
+                "A build target name, for example StandaloneWindows64 or Android."));
 
-            card.Body.Add(NetworkHubUi.Field(
+            card.Body.Add(NetworkHubFields.EditStringList(
                 "Build profiles",
-                environment.EnabledBuildProfiles.Count == 0
-                    ? null
-                    : string.Join(", ", environment.EnabledBuildProfiles)));
+                environment.EnabledBuildProfiles,
+                values => _session.Apply(_session.Editing.SetEnvironmentBuildProfiles(id, values)),
+                "profile",
+                "Selectable for any build profile."));
 
-            if (environment.Labels.Count > 0)
-                card.Body.Add(NetworkHubUi.Field("Labels", string.Join(", ", environment.Labels)));
+            card.Body.Add(NetworkHubFields.EditStringList(
+                "Labels",
+                environment.Labels,
+                values => _session.Apply(_session.Editing.SetEnvironmentLabels(id, values)),
+                "label",
+                "No labels."));
 
             return card;
         }
@@ -264,19 +305,17 @@ namespace Molca.Editor.Networking.Hub.Views
                 "environment", candidate => _session.Catalog.FindEnvironment(candidate) != null);
 
             var result = _session.Editing.CreateEnvironment(id);
-            Report(result);
 
+            // Selection is recorded before the reload, because the reload is what rebuilds the views that
+            // read it.
             if (result.Success)
                 _session.SetSelection(NetworkHubViews.Environments, result.ResultId);
 
-            _session.Reload();
+            _session.Apply(result);
         }
 
-        private void MakeDefault(string environmentId)
-        {
-            Report(_session.Editing.SetDefaultEnvironment(environmentId));
-            _session.Reload();
-        }
+        private void MakeDefault(string environmentId) =>
+            _session.Apply(_session.Editing.SetDefaultEnvironment(environmentId));
 
         /// <summary>
         /// Renames an environment's stable ID, rewriting every reference to it.
@@ -297,12 +336,11 @@ namespace Molca.Editor.Networking.Hub.Views
                 return;
 
             var result = _session.Editing.RenameEnvironmentId(oldId, newId);
-            Report(result);
 
             if (result.Success)
                 _session.SetSelection(NetworkHubViews.Environments, newId);
 
-            _session.Reload();
+            _session.Apply(result);
         }
 
         private void Delete(string environmentId)
@@ -317,20 +355,11 @@ namespace Molca.Editor.Networking.Hub.Views
             }
 
             var result = _session.Editing.DeleteEnvironment(environmentId);
-            Report(result);
 
             if (result.Success)
                 _session.SetSelection(NetworkHubViews.Environments, string.Empty);
 
-            _session.Reload();
-        }
-
-        private static void Report(NetworkAuthoringResult result)
-        {
-            if (result.Success)
-                UnityEngine.Debug.Log($"[Network] {result.Message}");
-            else
-                UnityEngine.Debug.LogWarning($"[Network] {result.Message}");
+            _session.Apply(result);
         }
     }
 }
