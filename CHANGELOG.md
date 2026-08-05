@@ -2,6 +2,353 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [2.1.0] - 2026-08-05
+
+### Added
+- **The assistant composer works like a modern agent chat.** The input stays editable during a turn — a
+  message typed while the assistant works is staged as a queued row and auto-sends when the turn
+  finishes (cancel restores it to the input). Up/Down recall prompt history; typing `@` opens an
+  anchored picker over the context sources and a project-asset search; `/` at the start opens a command
+  palette (new/sessions/copy/transcript/clear). Assets and scene objects drag-drop onto the composer to
+  pin as context, textures and image files to stage as attachments (vision models). The action mode is
+  a segmented Ask · Auto · Plan · All control instead of a bare enum dropdown, and the session stats
+  (tokens, cost, cache hit-rate, reasoning tokens) are separate tooltipped segments with a click-for-
+  detail menu instead of one concatenated label.
+- **Fenced-block renderer registry in `MolcaMarkdown`.** The hardcoded `mermaid` special case is now a
+  registry keyed on the fence info string (`MolcaMarkdown.RegisterFenceRenderer`), the seam the
+  assistant canvas artifact kinds plug into. An info string with no registered renderer still renders
+  as a plain code block — an unknown artifact kind degrades to visible source, never an error.
+- **Tables and tool results grew copy affordances.** Rendered Markdown tables copy as tab-separated
+  text (spreadsheet-pasteable); each call in a transcript tool chain copies its redacted raw result
+  without opening the payload foldout.
+- **Workflows are proposed, run, and remediated in the canvas.** A `molca-workflow` artifact renders as an
+  interactive proposal: the kernel-aggregated facets in one line (kind, mode, revert path, whether it will
+  confirm), one row per step with the command's kind badge and a critical toggle, validation issues inline,
+  and Save / Save & Run / Revise-in-chat — the last two disabled until the composition validates. Editing
+  toggles a local copy, so the transcript artifact stays the record of what was proposed. Save & Run asks
+  for one confirmation when the facets require it, then swaps in a live run panel that polls the kernel run
+  store: status, progress, per-step outcomes, Cancel while active. Terminal states are reported as they
+  are, including `Refused` by policy and `Interrupted` when the editor reloaded mid-run.
+- **The remediation loop closes through the conversation, not through a panel.** A failed run offers
+  "Diagnose & fix", which prefills the composer with the failed steps and their stable diagnostic codes and
+  asks for a dry-run plan first; a findings row with a registered fix offers "Ask assistant to fix" for that
+  code and path. Neither button mutates anything — the assistant proposes and the fix runs through the
+  remediation pass under the normal action policy, so a destructive fix stays explicit. This is deliberate:
+  a canvas button must never become a second write path into the project.
+- **Workflow step hooks.** `MolcaWorkflowRunner.StepStarting` / `StepFinished` fire on the main thread
+  around each step body (workflow id, run id, step, result) so telemetry, audit, and add-ons can observe a
+  run without touching chat or canvas code. A throwing hook is swallowed and logged — an observer can never
+  fail the workflow it watches.
+- **Weak tool-calling models cannot author or launch workflows.** `molca_workflow_save` / `_run` /
+  `_delete` are withheld entirely (not merely confirmation-gated) when the configured model is flagged
+  `IsWeakToolModel`, mirroring the Hub's existing warning; the read-only workflow tools stay available.
+- **Composed workflows: a data-driven workflow an LLM (or a person, or a JSON file) can author.**
+  `MolcaComposedWorkflow` is an ordered list of registered-command invocations
+  (`{commandId, args, critical}`), compiled onto the existing `MolcaWorkflowRunner` by
+  `MolcaComposedWorkflowCompiler`. The composition's policy facets are always computed by the kernel
+  from its members — strongest kind, the single compatible mode, the union of resource claims, the
+  weakest Action revert path, and confirmation escalation when any member is confirmation-requiring or
+  irreversible — never declared by the author, so a composed workflow cannot route around policy.
+  Validation fails at propose time with per-step messages (unknown command ids, argument-schema
+  violations via a structural JSON-Schema subset, duplicate step ids, self-reference, Edit/Play mode
+  conflicts); nothing runs on a malformed plan. Saved compositions live as JSON under
+  `Assets/_Molca/AutomationWorkflows/` and are contributed to the kernel registry by
+  `SavedWorkflowCommandProvider`, so a saved workflow appears in Hub Automation, the CLI, MCP, and the
+  Assistant like any built-in workflow (facets stored at save time; the body re-validates against the
+  live registry at run time so member drift fails legibly). New MCP tools:
+  `molca_workflow_commands` / `_validate` / `_save` / `_delete` / `_list` / `_run` (fire-and-poll
+  through the kernel — policy and audit apply; refuses in batch mode where detached awaitables never
+  pump) / `_status` (progress, terminal result, cancel request).
+- **Run-resume contract, stated:** a domain reload mid-run does not resume the run — the persisted
+  journal reconciles it to `Interrupted`, and `molca_workflow_status` reports that truthfully. Any UI
+  binding to a run must rebind from the journal, never from live editor objects.
+- **The assistant chat is a split workspace: conversation left, artifact canvas right.** The canvas
+  hosts typed artifacts the assistant produces — mermaid diagrams, audit findings, and (with the
+  workflow runner) workflow proposals and runs — one tab per artifact, with the splitter and open
+  state persisted. `molca-*` fenced blocks render inline as compact cards with "Open in canvas"; the
+  findings panel shows severity/code/path/message rows and surfaces the registered `IMolcaFix` for
+  each code (id + facets, read-only). The canvas derives entirely from a transcript scan, so a domain
+  reload or session switch rebinds by re-scanning — it carries no state of its own. The system prompt
+  teaches the model the closed artifact vocabulary; `ASSISTANT_CANVAS.md` documents it for consumers.
+
+### Fixed
+- **Two docs shouted their titles in the Hub rail.** `COLOR_ID.md` and `COLOR_ID_MIGRATION.md` were the only
+  files in `Documentation~/reference/` with no YAML front matter, so `MolcaCoreDocsProvider` fell back to the
+  filename stem for the title ("COLOR ID") and to a placeholder `Reference` category. They now declare
+  `Colour Themes` and `Colour Migration (1.x -> 2.x)` under `UI & Presentation`, which also empties the
+  fallback `Reference` group out of the rail.
+- **The content-package docs described a publishing path that does not exist.**
+  `reference/CONTENT_PACKAGES.md` claimed Core ships storage-provider integrations for AWS S3, Cloudflare R2
+  and Google Cloud Storage under `Runtime/ContentPackage/Storage/` — there is no such directory and no such
+  type anywhere in Core. The assistant read that doc and repeated it, so its "upload the bundles to your CDN"
+  advice was a documentation defect rather than a model error. Publishing is the `contentRelease` 1 protocol:
+  an immutable `(projectId, channel, platform, contentVersion)` release, objects uploaded straight to the
+  project's private Railway-hosted bucket with short-lived presigned URLs (no CDN to host, no storage
+  credential in Unity), verified and signed by the control plane, promoted by an owner or manager, and
+  resolved by players with a release-scoped access ticket. Both docs now point at
+  `contracts/content-release-v1.md` and `docs/internal/CONTENT_RELEASE_OPERATIONS.md` as authoritative, and
+  note that the Railway *environment* is infrastructure isolation that never appears in a payload — not a
+  channel.
+- **`Runtime/ContentPackage/CONTENT_PACKAGE.md` contradicted itself.** Later sections described presigned
+  uploads to Molca-managed storage while earlier ones still said "bump this before each CDN push" and "set
+  Build & Load Paths to your remote CDN profile variables". `packages.json` is now labelled as the legacy
+  path retained only for the migration window the contract names, rather than presented as current practice.
+
+- **A saved workflow was missing from the one UI that lists workflows.** Hub → Automation → Workflows
+  filtered on the built-in `workflow` category, but a saved composed workflow registers under
+  `workflow-composed`, so it never appeared — leaving no way to run or inspect it outside the assistant.
+  Both names are now constants on `MolcaWorkflowCommandAdapter` behind `IsWorkflowCategory`, which every
+  workflow-listing surface uses (with a regression test, since the original slip was invisible to the
+  suite). A saved workflow shows in the list tagged **saved**, and an action workflow that is not
+  allowlisted says so on its own row with an **Authorize** button beside its Run button.
+- **"Click Continue to resume" had no Continue button.** A failed turn adds its error row *before* `IsBusy`
+  clears, and the Continue affordance is gated on not-busy — so the row was built without the button and the
+  transcript's row cache then served that stale copy after the turn ended. The cache now invalidates when the
+  busy state flips, which also restores Retry/Edit on user turns and Undo on tool rows (and the pre-existing
+  loop-break Continue, which the cache had been quietly breaking too).
+- **Transport errors are diagnosable again.** The turn reported only `Exception.Message`, so an
+  `HttpRequestException` surfaced as the useless "An error occurred while sending the request" with its real
+  cause — refused connection, DNS, TLS, reset — discarded along with the stack, and nothing written to the
+  log. The inner chain is now appended (`outer → inner`) and the exception is logged via `Debug.LogException`.
+  The appended resume guidance is also punctuated properly instead of running into the message.
+- **Code spans rendered as empty strips.** Inline code and code blocks were given a font built at runtime
+  with `Font.CreateDynamicFontFromOSFont`. That font is not an asset, so TextCore prunes the reference
+  ("Deleting invalid font reference." in the editor log) and every label pointing at it draws **zero glyphs** —
+  leaving only the chip's background and padding, a thin strip where the code should be. It went unnoticed
+  because it fails on a later domain reload rather than immediately, and no test can observe rendered glyphs.
+  Code now inherits the surface font (the chips are already distinguished by background and border in USS); a
+  project wanting true monospace supplies a real font asset via `MolcaMarkdown.SetCodeFont`, and nothing is
+  fabricated at runtime. Guarded by tests asserting a code span carries no font of its own by default and
+  honours one only when supplied.
+- **Long turns are no longer cut off mid-answer.** The model call was bounded by a hardcoded 120-second
+  `HttpClient.Timeout` with no setting to change it, so a reasoning model on a large context died with a bare
+  "The operation has timed out" and had to be resumed by hand. A *total* timeout cannot express "still
+  streaming, therefore still healthy", so deadlines now live in `AssistantHttp` (with `HttpClient.Timeout`
+  infinite) and are judged on **progress**: while streaming, `Request Timeout` bounds only the wait for the
+  first chunk and `Stream Stall Timeout` bounds the gap between chunks — a response that keeps producing
+  output never expires, however long it runs. Without streaming there is no progress signal, so the total
+  exchange stays bounded and the error says so. Both are configurable under Assistant → Advanced →
+  Resilience (defaults 180s / 90s; `0` disables stall detection). The deadline decision is a pure function of
+  elapsed times, so it is covered by tests rather than by sleeping.
+- **A timed-out or stalled turn is resumable in one click.** The catch-all built its error turn without
+  `CanContinue`, so recovery meant retyping "continue". Transport failures (timeout, stall, network) keep the
+  work so far and now offer **Continue**, like the loop-breaker already did. Our own deadline also had to be
+  added to the transport's error classifier — as a bare `TimeoutException` it was *not* retryable, so a single
+  stalled stream would have ended the turn while the retry cap sat unused.
+- **The workflow proposal's facet summary was clipped** ("confirms before runnin"); it now wraps.
+- **Canvas tab labels were drawn over by their close button.** A Unity `Button` derives from `TextElement`
+  and paints its own text rather than hosting it as a child, so the close affordance nested inside the tab
+  Button laid out over the label. Each tab is now a container with the label and close button as siblings;
+  the row selects on click unless the close button was the event target.
+- **The segmented action-mode control's end caps never rounded.** Its corner rules were keyed on
+  `:first-child` / `:last-child`, which **USS does not support** — the rules silently never matched (the
+  editor log had been reporting `Unknown pseudo class` since Sprint 91) and the control rendered with square
+  outer corners and no left border. Now keyed on `--first` / `--last` classes applied in C#, as USS also
+  lacks `:not()` and this codebase already documented that limitation.
+- **Canvas artifacts can be closed.** Each tab has a close affordance; closing hides the view and never
+  cancels work — a run keeps going, and the artifact's card in the conversation reopens it. Dismissals are
+  per-session and persisted, so a domain reload does not resurrect closed tabs, and a `+N closed` chip
+  restores them.
+- **A long turn no longer reads as a hang.** The progress row named the batch `"{count} tools"`, with no
+  elapsed time, so a slow-but-healthy sweep (a full Doctor run) looked identical to a wedged turn. It now
+  names the tools running (capped, with `+N more`) and shows elapsed time, ticked on its own schedule
+  because a long await raises no change event and the readout would otherwise freeze. Note that Stop is
+  cooperative: it cancels between tool calls and cannot interrupt one mid-execution.
+- **Tests can no longer touch the automation policy asset.** `MolcaAutomationPolicySettings.OverrideForTests`
+  injects an in-memory instance (with `Persist` guarded by `IsPersistent`), and `MolcaComposedWorkflowStore`
+  gained the same root override. The delete-plus-deauthorize invariant moved out of the MCP tool and into
+  the store, so every caller gets it and it is testable — six tests now cover it, including that a failed
+  delete revokes nothing, plus guards asserting the suite runs against the in-memory policy and a temp
+  directory. The global fixture is now `MolcaStoreIsolation`, covering five stores rather than the
+  assistant's three.
+- **Authorization can be revoked wherever it can be granted.** The new authorize affordances were
+  grant-only: they appeared when a workflow was not allowlisted and vanished once it was, so authorization
+  could be given from three places and taken back from only one (the Permissions toggle). The control is now
+  state-aware — **Authorize** when unauthorized, **Revoke** when authorized — on the Hub workflow row and the
+  canvas proposal panel, both of which now state the current authorization status. Granting asks for
+  confirmation; revoking does not, since it narrows permissions and is undone by the same button. A surface
+  that can only widen permissions is the wrong bias.
+- **Deleting a workflow drops its allowlist entry.** A stale entry was invisible — the Permissions rail lists
+  registered commands, and a deleted workflow is no longer one — so a workflow later saved under the same id
+  would have inherited an authorization nobody granted it. `molca_workflow_delete` now reports
+  `authorizationRemoved`.
+- **The authorization path pointed at a menu that does not exist.** The refusal message, the save tool's
+  note, the canvas dialog, and the reference guide all said "Hub → Settings → Automation"; the allowlist
+  lives in **Hub → Automation → Permissions**. Corrected everywhere, and the `molca-run` artifact now
+  carries its `commandId`, so a run that has left the run store can still offer the authorization step
+  instead of only explaining that it is gone.
+- **A saved workflow said nothing about why it would not run.** Saving a composed workflow does not
+  authorize it: an action workflow stays refused until its command id is on the automation action
+  allowlist, and the `UnattendedCi` profile's allowlist is *exact*, so raising the profile grants
+  nothing (it only drops the confirmation path). The run panel discarded the result's diagnostics and
+  showed a bare "Refused by policy" with no reason. Now: the panel renders the diagnostics with their
+  stable codes; the proposal panel warns before the run that a valid action workflow is not yet
+  authorized; both offer an **Authorize this workflow…** step that adds the id to the allowlist after an
+  explicit confirmation; `molca_workflow_save` reports `authorizedToRun` plus what to do about it; and
+  `molca_workflow_run` refuses up front with an actionable message instead of starting a run that comes
+  back refused. Authorization is never granted implicitly by save or run — that would let a model widen
+  its own permissions.
+- **Tests no longer write where the user's data lives.** The assistant session round-trip tests called
+  `AssistantSessionStore.Save`/`Clear` against the real path, so running the suite overwrote and then
+  deleted the developer's in-progress conversation (`Library/Molca/assistant-session.json`).
+  `AssistantSessionStore` and `AssistantSessionLibrary` gained the `OverrideRootForTests` seam
+  `AssistantMemoryStore` has had since Sprint 77, and a `[SetUpFixture]` in the root test namespace
+  redirects all three stores to a temp tree for the whole run — so the protection cannot be forgotten
+  per-fixture, and a fixture that fails before its teardown can no longer leak into real data.
+
+### Changed
+- **Fenced Markdown block bodies use platform-independent newlines.** They were accumulated with
+  `StringBuilder.AppendLine` (`Environment.NewLine`), so on Windows every fenced body carried CRLF
+  separators and a trailing `\r` — invisible in a code block, but fence bodies are now handed verbatim to
+  artifact renderers that parse them.
+- **The transcript streams markdown and stops yanking the scroll.** The live row renders completed
+  blocks through the shared Markdown renderer as they stream (the growing tail stays a plain label, so
+  per-token deltas never re-parse), instead of showing unformatted text until the turn commits. Rebuilds
+  reuse cached rows for turns that cannot change after commit, so a long session no longer re-parses
+  every turn on each refresh. The view force-scrolls only on your own send or when already at the
+  bottom; otherwise a floating "↓ New messages" chip offers the jump instead of moving the viewport.
+- **A build-step seam, with Addressables content as its first consumer.** `IMolcaBuildStep` +
+  `MolcaBuildStepRegistry` (`Editor/BuildSystem/`) is the extension point Doctor has in `IDoctorCheck`:
+  implement it in any Editor assembly, declare an `Order`, and the Molca build path runs it before the
+  player. `BuildManager` no longer names the content system in its own body — "build Addressables first"
+  is now `AddressablesContentBuildStep`, living with the system it belongs to. Facts a step records
+  travel on `MolcaBuildContext`, whose lifetime is one build (`MolcaBuildSession`), replacing the
+  `static bool` latch the localization gate held and every reader had to remember to clear. Three
+  systems had independently invented that latch, each with a comment warning that a stale one silently
+  weakens a gate.
+- **The Hub reports what a build did.** The Build & Version section dispatched a multi-minute operation
+  and then said nothing — the outcome went to the Console, the surface the Hub exists to replace, so a
+  build aborted by a pre-build gate looked exactly like one that was never clicked. There is now an
+  outcome strip: succeeded/failed/did-not-run, duration, size, output path. It also warns when the
+  authored version is invalid, which only the Inspector used to do.
+
+### Changed
+- **Build callbacks have declared ordering bands.** `MolcaBuildCallbackOrder` names them — version sync,
+  gates, observers, generated artifacts — and every Core build callback now uses a constant from it
+  instead of a literal. Unity discovers these by type, so the only coordination between a dozen
+  independent callbacks was a number each picked for itself, and Core's had drifted into two groups:
+  four gates in the negative range and two more (network catalog, colour theme) aborting at `+100`,
+  above the callback that writes the runtime build-info asset into `Assets/`. Since a throwing
+  preprocessor skips every postprocessor, those two aborts leaked a generated file into the project.
+  Both validators moved into the gate band; a test now fails any Core preprocessor that lands between
+  the bands. The colour-theme validator's old order was justified as running "late enough that content
+  generation has settled", but nothing in the build pipeline generates what it reads — its inputs are
+  authored assets, and its freshness check is precisely that they were *not* regenerated.
+- **The pre-build gate covers the network catalog.** `network-catalog` joins `MolcaBuildGate.CheckIds`,
+  so the gate a person waits on before a build covers the same ground as the build callback that would
+  otherwise have failed them minutes later. This adds a surface, not a policy: `NetworkCatalogCheck`
+  reports Error only when the catalog enables `FailBuildOnValidationError` — the same switch
+  `NetworkCatalogBuildValidator` reads — so a project still in the routed-pipeline rollout keeps its
+  warnings, and the gate and the build callback can never reach different verdicts about one catalog.
+- **One authoring surface for build profiles and versions.** `BuildSettingsEditor` and
+  `VersionSettingsEditor` were full authoring UIs duplicating the Hub's Build & Version section, and had
+  already drifted: only the Inspector warned about an invalid version, only the Hub could not clear
+  history, and the Hub reimplemented the SemVer bump rules in raw serialized-property arithmetic instead
+  of calling the model. Both are now slim pages — what the asset is, whether it is healthy, and a button
+  to the Hub — matching `ContentPackageSettings` and `Project Settings > Molca`.
+- **CI builds run the pre-build Doctor gate.** `CommandLineBuild` called the synchronous, ungated
+  `BuildManager.Build`, so `build-scenes-valid`, `version-settings-valid`, `build-profile-valid`,
+  `unresolvable-scene-reference` and `content-package-valid` ran when a developer clicked Build and
+  never when a release was cut. The command-line entry points now gate, and exit the editor themselves
+  with the build's exit code. **This means they must not be launched with `-quit`** (the same contract
+  `MolcaDoctor.RunCI` already had); a `-quit` command line is refused with exit 1 rather than exiting 0
+  having built nothing. Runners that bake in `-quit` (game-ci's `unity-builder`) can pass
+  `-molcaSkipBuildGate` to opt out deliberately and run `MolcaDoctor.RunCI` as a separate step — the
+  bundled CI examples do exactly that. A build deferred across a build-target switch is gated on resume
+  too; it used to resume through the ungated path.
+- **Which checks gate a build has one owner.** `MolcaBuildGate.CheckIds` replaces the list that existed
+  privately in `BuildManager` and again in the Build automation workflow, under a comment noting that it
+  mirrored the other — two copies of the policy deciding whether a build ships, neither failing when
+  they drift. A test now asserts every gate id names a check that exists.
+- **A release cut goes through the shared content build entry.** `ContentReleaseStaging` called
+  `AddressableAssetSettings.BuildPlayerContent` directly, making it the one content build that raised no
+  build-started/completed events — so anything observing content builds was blind to the build that
+  matters most. The build layout report it needs is now an option on the shared entry
+  (`AddressablesBuildUtility.BuildOptions.GenerateBuildLayout`) rather than a project setting toggled by
+  hand.
+- **`VersionSettings.autoSync` is gone.** It claimed to control whether a build syncs the asset into
+  `PlayerSettings`, but the build preprocessor always synced regardless, so the toggle changed nothing
+  and its tooltip described behaviour it did not have. This asset is the project's version of record.
+  `SyncToUnityPlayerSettings()` no longer takes a `force` parameter; old assets keep an orphaned
+  `autoSync` key that Unity ignores.
+
+### Fixed
+- **The changelog no longer records builds that never happened.** The entry was written from a build
+  *preprocessor* ordered before the reference and localization gates could abort, so a project whose
+  builds were failing accumulated one entry per attempt, each naming a version no artifact ever carried
+  — and because the writer advances its "commits since last build" marker as it writes, each failed
+  attempt also consumed the commit range the next real entry should have reported. History is now
+  written after a build succeeds, from `NotifyBuildComplete(notes)`, before the build number advances so
+  the entry names the version that was actually built. `PrepareForBuild` is removed rather than
+  deprecated: the bug was its contract.
+- **`build-info.json` no longer contradicts itself.** `buildNumber` was re-read after
+  `BuildPipeline.BuildPlayer` returned, by which point the post-build increment had already run — so
+  with the shipped default every manifest reported version *N* beside build number *N+1*. The number is
+  captured with the version string, before the build.
+- **Pre-release identifiers and build metadata reach the built player.** `GetBundleVersionString` ignored
+  both its `target` parameter and those two authored fields, always returning `Major.Minor.Patch`, so a
+  project could author `rc.1` in the Hub and ship a player that had never heard of it. Non-iOS targets
+  now get the full semantic version; iOS keeps the numeric form because Apple rejects anything else in
+  `CFBundleShortVersionString`, which is the reason the method takes a target at all.
+- **A new build profile no longer targets a retired console.** Both profile-add paths wrote a
+  `BuildTarget` value into `enumValueIndex`, which is a position in the enum's name list — and
+  `BuildTarget` is not contiguous, so `(int)StandaloneWindows64` selected whatever is declared 20th.
+- **The build number survives the editor.** The post-build increment was marked dirty and left for Unity
+  to flush eventually; a domain reload or a CI runner killing the editor dropped it. It is saved now.
+- **The generated build-info asset cannot be left behind by an aborted build.** Writing it moved out of
+  the `int.MinValue` preprocessor into its own callback ordered after the build gates, since a gate that
+  aborts by throwing skips every postprocessor — including the one that deletes the asset and the
+  `Assets/Resources` folder created to hold it.
+- **The Build & Version section stopped fighting its own fields.** A 250 ms timer called
+  `SerializedObject.Update()` on both bound objects, and a second 200 ms timer existed only to show or
+  hide the signing block. The signing block is driven by its toggle; the remaining poll refreshes only
+  state the view does not own.
+
+### Fixed
+- **A deep link into a cached Hub workspace worked once, then silently stopped.** A cached view is hidden
+  rather than detached, so `AttachToPanelEvent` fires exactly once in its life — but References and Network
+  both consumed their pending navigation target from that handler, so a link into an already-cached tab did
+  nothing. Both now implement `IMolcaHubCachedView` and consume the target on activation instead. Also in
+  this seam: Sequence, Automation and Sentry now declare a workspace group (Sequence had fallen into
+  General, despite being the Authoring group's own cited example); order collisions within a group resolve
+  by intent rather than an unintended id comparison; Onboarding gets its own icon instead of borrowing the
+  Hub's; raising the view-cache capacity above the number of opt-ins stops rotation from evicting the tab
+  you are about to return to; and hiding one tab no longer rebuilds every other cached view. The Settings
+  rail's "Network" leaf is renamed "Network Activity" so it stops naming the same thing as the Network
+  workspace.
+- **The license pill names the signed-in developer, not the licensee.** It showed the licensee id; a person
+  is identified by their account, not by the company the account belongs to. The id moves to the tooltip.
+
+### Fixed
+- **Registering a subsystem after bootstrap left it unshut-down.** `Shutdown` walks the init order frozen at
+  bootstrap, so a subsystem registered later was never cancelled or torn down. `RegisterSubsystem` now joins
+  that order; `DeregisterSubsystem` removes every container entry the subsystem resolves through (one per
+  concrete type and per interface), so a deregistered subsystem no longer stays resolvable via `GetService`
+  or `[Inject]` after teardown.
+- **A subsystem bootstrap deliberately excluded could re-enter the container through the fallback lookup**,
+  which readmitted it and cached the result — undoing the exclusion after one lookup.
+- **A skipped dependency was silently treated as satisfied.** The dependent now reports `DEGRADED`, which
+  was the common case (a Runtime-only subsystem in the editor) and the one nothing was reporting.
+  `BootstrapState.ShutDown` is now terminal like `Failed`, so `WaitForInitialization` throws instead of
+  polling a runtime that will never be ready again; a cancelled init no longer logs a phantom
+  "did not finish in 20 seconds" once the timeout monitor is released on settle.
+- **A base class's `[Inject]` private fields were silently skipped in every subclass.**
+  `GetFields(NonPublic)` never returns inherited private members, and subclassing is this framework's
+  extension model at every layer. The injection plan now walks the base chain.
+- **An ambiguous interface resolution let dictionary hash order pick the implementation, then cached it
+  permanently.** It now picks the lowest-ordinal implementation and warns, deterministically. Factory
+  registrations record their product type so they resolve by interface like eager singletons already did,
+  and `HasService` answers without instantiating.
+- **`GlobalSettings.main` throws instead of returning null** — every downstream null guard depending on it
+  was unreachable. `SettingModule.GetModule` now matches by assignability on both the cached and uncached
+  path, which previously disagreed; a new `DeInitialize` hook clears per-session state and subscriber
+  delegates on these session-shared assets, so a stale delegate can no longer invoke a destroyed listener
+  from a previous editor session. `SetQuality` notifies after its cancellation point instead of announcing
+  a change a cancelled call never made.
+- **A duplicate `RuntimeManager` in a loaded scene is adopted rather than left to race `Awake` ordering.**
+  `Awake` destroys a late duplicate; `GetInstance` adopts one already present, covering the ordering case
+  `Awake` cannot.
+
 ## [2.0.1] - 2026-08-04
 
 ### Added

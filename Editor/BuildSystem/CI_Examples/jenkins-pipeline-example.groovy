@@ -50,7 +50,6 @@ pipeline {
                     // Build the project
                     bat """
                         "${UNITY_PATH}" ^
-                        -quit ^
                         -batchmode ^
                         -nographics ^
                         -projectPath "${PROJECT_PATH}" ^

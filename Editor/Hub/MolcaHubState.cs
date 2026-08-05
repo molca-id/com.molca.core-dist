@@ -15,11 +15,9 @@ namespace Molca.Editor.Hub
     internal sealed class MolcaHubState
     {
         private const string WorkspaceKey = "Molca.Hub.Workspace";
-        private const string SectionKey = "Molca.Hub.Section";
         private const string BuildVersionViewKey = "Molca.Hub.BuildVersionView";
         private const string SelectedBuildProfileKey = "Molca.Hub.SelectedBuildProfile";
         private const string SelectedRuntimeModuleKey = "Molca.Hub.SelectedRuntimeModule";
-        private const string HiddenWorkspacesKey = "Molca.Hub.HiddenWorkspaces";
         private const string RailNodeKey = "Molca.Hub.RailNode";
         private const string RailExpandedKey = "Molca.Hub.RailExpanded";
         private const string WorkspaceMruKey = "Molca.Hub.WorkspaceMru";
@@ -33,7 +31,6 @@ namespace Molca.Editor.Hub
         /// enum-name values are migrated on load.
         /// </summary>
         internal string Workspace { get; private set; } = MolcaHubWorkspaceRegistry.SettingsId;
-        internal MolcaHubSection Section { get; private set; } = MolcaHubSection.Project;
         internal string BuildVersionView { get; private set; } = "Build";
         internal string SelectedBuildProfile { get; private set; } = string.Empty;
         internal string SelectedRuntimeModule { get; private set; } = string.Empty;
@@ -53,13 +50,10 @@ namespace Molca.Editor.Hub
 
         internal static MolcaHubState Load()
         {
-            EnsureHiddenWorkspacesKey();
-
             return new MolcaHubState
             {
                 Workspace = NormalizeStoredWorkspace(
                     MolcaEditorPrefs.GetString(WorkspaceKey, MolcaHubWorkspaceRegistry.SettingsId)),
-                Section = ReadEnum(SectionKey, MolcaHubSection.Project),
                 BuildVersionView = MolcaEditorPrefs.GetString(BuildVersionViewKey, "Build"),
                 SelectedBuildProfile = MolcaEditorPrefs.GetString(SelectedBuildProfileKey, string.Empty),
                 SelectedRuntimeModule = MolcaEditorPrefs.GetString(SelectedRuntimeModuleKey, string.Empty),
@@ -87,12 +81,6 @@ namespace Molca.Editor.Hub
             foreach (var part in raw.Split('\n'))
                 if (!string.IsNullOrEmpty(part)) set.Add(part);
             return set;
-        }
-
-        private static void EnsureHiddenWorkspacesKey()
-        {
-            if (!MolcaEditorPrefs.HasKey(HiddenWorkspacesKey))
-                MolcaEditorPrefs.SetString(HiddenWorkspacesKey, string.Empty);
         }
 
         internal void SetWorkspace(string workspaceId)
@@ -151,12 +139,6 @@ namespace Molca.Editor.Hub
             return Enum.TryParse<MolcaHubWorkspace>(stored, out var legacy) ? WorkspaceId(legacy) : stored;
         }
 
-        internal void SetSection(MolcaHubSection section)
-        {
-            Section = section;
-            MolcaEditorPrefs.SetString(SectionKey, section.ToString());
-        }
-
         /// <summary>Persists the active nested-rail node id.</summary>
         internal void SetRailNode(string nodeId)
         {
@@ -188,12 +170,6 @@ namespace Molca.Editor.Hub
             SelectedRuntimeModule = moduleName ?? string.Empty;
             MolcaEditorPrefs.SetString(SelectedRuntimeModuleKey, SelectedRuntimeModule);
         }
-
-        private static T ReadEnum<T>(string key, T defaultValue) where T : struct, Enum
-        {
-            var value = MolcaEditorPrefs.GetString(key, defaultValue.ToString());
-            return Enum.TryParse<T>(value, out var parsed) ? parsed : defaultValue;
-        }
     }
 
     internal enum MolcaHubWorkspace
@@ -204,6 +180,17 @@ namespace Molca.Editor.Hub
         Visualizer
     }
 
+    /// <summary>
+    /// The Settings-workspace rail sections Core owns. Each member has exactly one rail leaf
+    /// (<c>MolcaHubWindow.BuildRailNodes</c>) and one content factory
+    /// (<c>MolcaHubWindow.CreateSectionContent</c>); a member with no leaf is unreachable UI, so the two
+    /// lists are kept in step deliberately.
+    /// </summary>
+    /// <remarks>
+    /// Localization used to be a member here. It is a full authoring workspace tab now
+    /// (<c>LocalizationHubWorkspaceProvider</c>), and the leaf was removed when it moved — the enum member,
+    /// its descriptor and its factory case outlived it as dead code and were dropped in turn.
+    /// </remarks>
     internal enum MolcaHubSection
     {
         Project,
@@ -214,7 +201,6 @@ namespace Molca.Editor.Hub
         Tasks,
         Mcp,
         Network,
-        Localization,
         Assistant,
         AddOnsBrowse,
         AddOnsInstalled,

@@ -35,7 +35,6 @@ build:development:windows:
     - |
       xvfb-run --auto-servernum --server-args='-screen 0 640x480x24' \
       unity-editor \
-        -quit \
         -batchmode \
         -nographics \
         -silent-crashes \
@@ -54,7 +53,6 @@ build:development:android:
     - |
       xvfb-run --auto-servernum --server-args='-screen 0 640x480x24' \
       unity-editor \
-        -quit \
         -batchmode \
         -nographics \
         -silent-crashes \
@@ -75,7 +73,6 @@ build:staging:windows:
     - |
       xvfb-run --auto-servernum --server-args='-screen 0 640x480x24' \
       unity-editor \
-        -quit \
         -batchmode \
         -nographics \
         -silent-crashes \
@@ -95,7 +92,6 @@ build:production:windows:
     - |
       xvfb-run --auto-servernum --server-args='-screen 0 640x480x24' \
       unity-editor \
-        -quit \
         -batchmode \
         -nographics \
         -silent-crashes \
@@ -114,7 +110,6 @@ build:production:android:
     - |
       xvfb-run --auto-servernum --server-args='-screen 0 640x480x24' \
       unity-editor \
-        -quit \
         -batchmode \
         -nographics \
         -silent-crashes \

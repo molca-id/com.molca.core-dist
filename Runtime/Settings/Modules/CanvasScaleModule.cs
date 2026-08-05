@@ -49,6 +49,16 @@ namespace Molca.Settings
 
         public override SettingState CreateState() => new CanvasScaleState();
 
+        /// <inheritdoc/>
+        public override void DeInitialize()
+        {
+            // This asset is shared across every play session in the editor. A subscriber left here
+            // is a destroyed listener from the previous session that would be invoked again in the
+            // next one, holding its whole object graph alive in the meantime.
+            onUiScaleChanged = null;
+            base.DeInitialize();
+        }
+
         public override void SaveSettings()
         {
             if (State != null) TypedState.Save(this);

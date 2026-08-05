@@ -83,7 +83,12 @@ namespace Molca
                             _ = LoadAsync();
                         }
 
-                        if (loadHandle.IsDone)
+                        // IsValid() first: an AsyncOperationHandle that has not been assigned yet
+                        // reports IsDone == true (an invalid handle is trivially "done"), and reading
+                        // .Result on it throws — which surfaced as a bogus "not found at Addressable
+                        // key" error on the very first access, before the load had even started.
+                        // WebGL callers must use LoadAsync; this property can only report progress.
+                        if (loadHandle.IsValid() && loadHandle.IsDone)
                         {
                             instance = loadHandle.Result;
                         }
@@ -227,6 +232,12 @@ namespace Molca
         /// <summary>
         /// Async load for runtime platforms that cannot block (WebGL).
         /// </summary>
+        /// <remarks>
+        /// A load that failed is not cached: the completion source is cleared once it resolves with
+        /// no instance, so a later call retries. Holding the failed completion forever meant one
+        /// transient Addressables failure at startup permanently pinned the settings to <c>null</c>
+        /// for the rest of the process.
+        /// </remarks>
         public static Awaitable<MolcaProjectSettings> LoadAsync()
         {
             if (instance != null)
@@ -285,10 +296,18 @@ namespace Molca
                                $"Please ensure the asset at {ASSET_PATH} is marked as Addressable with key '{ADDRESSABLE_KEY}'.");
             }
 
-            if (loadCompletion != null)
+            var completion = loadCompletion;
+            if (instance == null)
             {
-                loadCompletion.SetResult(instance);
+                // Allow a retry. Both flags are the gate on starting another attempt, so leaving
+                // them set after a failure made the failure permanent for the process lifetime.
+                loadCompletion = null;
+#if UNITY_WEBGL
+                isLoading = false;
+#endif
             }
+
+            completion?.SetResult(instance);
 
             return instance;
         }

@@ -26,7 +26,15 @@ namespace Molca
         /// Bootstrap aborted with an unrecoverable error. <see cref="RuntimeManager.WaitForInitialization()"/>
         /// throws instead of waiting forever; subsystems may be partially registered.
         /// </summary>
-        Failed = 3
+        Failed = 3,
+        /// <summary>
+        /// The runtime completed bootstrap and has since shut down. Like
+        /// <see cref="Failed"/>, this is terminal for the session:
+        /// <see cref="RuntimeManager.IsReady"/> will never become true again, so
+        /// <see cref="RuntimeManager.WaitForInitialization()"/> throws rather than
+        /// polling forever.
+        /// </summary>
+        ShutDown = 4
     }
 
     /// <summary>
@@ -97,53 +105,108 @@ namespace Molca
             if (_injectionPlans.TryGetValue(type, out var plan))
                 return plan;
 
+            plan = BuildInjectionPlan(type);
+            _injectionPlans[type] = plan;
+            return plan;
+        }
+
+        /// <summary>
+        /// Collects every <see cref="InjectAttribute"/>-marked field and settable property on
+        /// <paramref name="type"/>, walking the whole base-class chain.
+        /// </summary>
+        /// <remarks>
+        /// The walk is not an optimization — it is required for correctness.
+        /// <c>GetFields</c>/<c>GetProperties</c> with <see cref="BindingFlags.NonPublic"/> return
+        /// inherited <c>protected</c> members but never inherited <b>private</b> ones, so a base class
+        /// declaring <c>[Inject] private</c> members was silently skipped in every subclass — and this
+        /// framework's extension model is subclassing at every layer (project → SDK → Core). The failure
+        /// mode was a null field and a downstream <see cref="NullReferenceException"/>, with no injection-time
+        /// signal at all.
+        /// <para>
+        /// Iterating with <see cref="BindingFlags.DeclaredOnly"/> per level is what makes private base
+        /// members visible. Properties are de-duplicated by name because an override and its base
+        /// declaration are the same logical member (attributes are inherited, so both levels match);
+        /// fields deliberately are not, since a shadowed field is genuinely separate storage.
+        /// </para>
+        /// </remarks>
+        private static InjectionPlan BuildInjectionPlan(Type type)
+        {
+            const BindingFlags DeclaredMembers = BindingFlags.Public | BindingFlags.NonPublic
+                | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+
             List<(FieldInfo, InjectAttribute)> fields = null;
-            foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-            {
-                var injectAttr = field.GetCustomAttribute<InjectAttribute>();
-                if (injectAttr != null)
-                    (fields ??= new List<(FieldInfo, InjectAttribute)>()).Add((field, injectAttr));
-            }
-
             List<(PropertyInfo, InjectAttribute)> properties = null;
-            foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+            HashSet<string> seenProperties = null;
+
+            for (var level = type; level != null && level != typeof(object); level = level.BaseType)
             {
-                var injectAttr = property.GetCustomAttribute<InjectAttribute>();
-                if (injectAttr != null && property.CanWrite)
+                foreach (var field in level.GetFields(DeclaredMembers))
+                {
+                    var injectAttr = field.GetCustomAttribute<InjectAttribute>();
+                    if (injectAttr != null)
+                        (fields ??= new List<(FieldInfo, InjectAttribute)>()).Add((field, injectAttr));
+                }
+
+                foreach (var property in level.GetProperties(DeclaredMembers))
+                {
+                    var injectAttr = property.GetCustomAttribute<InjectAttribute>();
+                    if (injectAttr == null || !property.CanWrite) continue;
+                    if (!(seenProperties ??= new HashSet<string>(StringComparer.Ordinal)).Add(property.Name))
+                        continue; // Already collected from a more-derived level.
+
                     (properties ??= new List<(PropertyInfo, InjectAttribute)>()).Add((property, injectAttr));
+                }
             }
 
-            plan = (fields == null && properties == null)
+            return (fields == null && properties == null)
                 ? InjectionPlan.Empty
                 : new InjectionPlan(
                     fields?.ToArray() ?? Array.Empty<(FieldInfo, InjectAttribute)>(),
                     properties?.ToArray() ?? Array.Empty<(PropertyInfo, InjectAttribute)>());
-
-            _injectionPlans[type] = plan;
-            return plan;
         }
 
         public static bool IsReady => _main != null && _main._isReady;
 
         /// <summary>
-        /// Current bootstrap phase. <see cref="BootstrapState.Failed"/> means bootstrap
-        /// aborted — waiters should surface the failure instead of retrying forever.
+        /// Current bootstrap phase. <see cref="BootstrapState.Failed"/> and
+        /// <see cref="BootstrapState.ShutDown"/> are terminal — waiters should surface them
+        /// instead of retrying forever.
         /// </summary>
         public static BootstrapState State
         {
             get
             {
                 if (_main != null) return _main._state;
-                return _lastState == BootstrapState.Failed ? BootstrapState.Failed : BootstrapState.NotStarted;
+                // Both terminal states must survive _main teardown. Reporting a shut-down
+                // runtime as NotStarted is what let WaitForInitialization poll forever after
+                // Shutdown(): IsReady is false, the state never reads Failed, and nothing
+                // will ever set it Ready again.
+                return _lastState == BootstrapState.Failed || _lastState == BootstrapState.ShutDown
+                    ? _lastState
+                    : BootstrapState.NotStarted;
             }
         }
 
-        // Survives _main teardown so waiters can still observe a Failed bootstrap
+        // Survives _main teardown so waiters can still observe a Failed or ShutDown bootstrap
         // (a failed InitializeAsync leaves _main alive, but belt-and-braces).
         private static BootstrapState _lastState = BootstrapState.NotStarted;
 
         private void Awake()
         {
+            // Singleton guard. Bootstrap instantiates the prefab itself, so a second live
+            // RuntimeManager means someone also placed it in a scene: that would duplicate
+            // every child subsystem and give two managers a claim on the service container.
+            // GetInstance handles the opposite order (scene copy awake FIRST) by adopting it.
+            if (_main != null && _main != this)
+            {
+                Debug.LogError(
+                    "[RuntimeManager] A second RuntimeManager was detected and destroyed. " +
+                    "RuntimeManager is instantiated during bootstrap from MolcaProjectSettings — " +
+                    "it must not also be placed in a scene.", this);
+                Destroy(gameObject);
+                return;
+            }
+
             _registeredSubsystems = new List<RuntimeSubsystem>();
             _mainThreadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
         }
@@ -172,27 +235,48 @@ namespace Molca
 
         private static async void GetInstance()
         {
-            try 
+            try
             {
-                var projectSettings = await GetProjectSettingsAsync();
-                if (projectSettings == null)
+                // A RuntimeManager already sitting in a loaded scene is adopted, not duplicated.
+                // Scene Awake runs before this AfterSceneLoad hook, so the Awake singleton guard
+                // cannot catch this ordering — instantiating the prefab on top would leave two
+                // managers each bootstrapping their own copy of every subsystem.
+                var existing = FindAnyObjectByType<RuntimeManager>(FindObjectsInactive.Include);
+                if (existing != null)
                 {
-                    Debug.LogError("MolcaProjectSettings failed to load. RuntimeManager cannot initialize.");
-                    return;
+                    Debug.LogWarning(
+                        "[RuntimeManager] A RuntimeManager is already present in the loaded scene(s); " +
+                        "adopting it instead of instantiating the prefab from MolcaProjectSettings. " +
+                        "Bootstrap normally owns this instance — placing one in a scene is not required.",
+                        existing);
+                    _main = existing;
+                }
+                else
+                {
+                    var projectSettings = await GetProjectSettingsAsync();
+                    if (projectSettings == null)
+                    {
+                        Debug.LogError("MolcaProjectSettings failed to load. RuntimeManager cannot initialize.");
+                        return;
+                    }
+
+                    if (projectSettings.RuntimeManager == null)
+                    {
+                        Debug.LogError("RuntimeManager prefab is not set in MolcaProjectSettings!");
+                        return;
+                    }
+
+                    _main = Instantiate(projectSettings.RuntimeManager);
                 }
 
-                if (projectSettings.RuntimeManager == null)
-                {
-                    Debug.LogError("RuntimeManager prefab is not set in MolcaProjectSettings!");
-                    return;
-                }
-
-                _main = Instantiate(projectSettings.RuntimeManager);
                 DontDestroyOnLoad(_main.gameObject);
                 await _main.InitializeAsync();
             }
             catch (Exception e)
             {
+                // InitializeAsync reports its own failures (and records BootstrapState.Failed),
+                // so anything surfacing here is a pre-bootstrap fault: settings load, prefab
+                // instantiation, or the adoption path above.
                 Debug.LogError($"Error initializing RuntimeManager: {e}");
             }
         }
@@ -225,8 +309,21 @@ namespace Molca
                 // here for layer-specific bootstrap config (e.g., XR rig prefabs).
                 await RunBootstrapExtensionsAsync();
 
-                GlobalSettings.main.Initialize();
-                GlobalSettings.main.LoadAllSettings();
+                // Named check rather than an NRE from the call below. The two bootstrap-critical
+                // references (settings asset, RuntimeManager prefab) are already reported by name
+                // in GetInstance; a missing GlobalSettings deserves the same treatment instead of
+                // a bare NullReferenceException from inside the try block.
+                var globalSettings = GlobalSettings.main;
+                if (globalSettings == null)
+                {
+                    throw new InvalidOperationException(
+                        "MolcaProjectSettings names no GlobalSettings asset (or the project settings " +
+                        "themselves failed to load), so no setting module can be initialized. " +
+                        "Assign one on the MolcaProjectSettings asset.");
+                }
+
+                globalSettings.Initialize();
+                globalSettings.LoadAllSettings();
 
                 _subsystems = GetComponentsInChildren<RuntimeSubsystem>().Where(x => x.enabled).ToArray();
 
@@ -277,32 +374,50 @@ namespace Molca
                     var initAwaitables = new List<Awaitable<bool>>();
                     foreach (var subsystem in wave)
                     {
-                        if (!subsystem.IsRuntimeValid) continue;
+                        if (!subsystem.IsRuntimeValid)
+                        {
+                            // Record the skip. Without an entry here the degraded check below
+                            // cannot distinguish "dependency satisfied" from "dependency was never
+                            // initialized at all" — and the latter is the COMMON case (a
+                            // Runtime-only subsystem in the editor), so it was the one silently
+                            // going unreported.
+                            initStates[subsystem] = new SubsystemInitState
+                            {
+                                Completed = true,
+                                Succeeded = false,
+                                Skipped = true
+                            };
+                            continue;
+                        }
 
-                        // Dependency failed in an earlier wave: still initialize (a
-                        // skipped subsystem would surprise consumers even harder), but
-                        // say so loudly — the subsystem is running degraded.
-                        var failedDeps = GetDeclaredDependencies(subsystem, allSubsystems)
+                        // Dependency failed or was skipped in an earlier wave: still initialize
+                        // (a skipped subsystem would surprise consumers even harder), but say so
+                        // loudly — the subsystem is running degraded.
+                        var unmetDeps = GetDeclaredDependencies(subsystem, allSubsystems)
                             .Where(d => initStates.TryGetValue(d, out var depState) && !depState.Succeeded)
-                            .Select(d => d.GetType().Name)
+                            .Select(d => initStates[d].Skipped
+                                ? $"{d.GetType().Name} (skipped — not valid in this runtime mode)"
+                                : $"{d.GetType().Name} (failed)")
                             .Distinct()
                             .ToList();
-                        if (failedDeps.Count > 0)
+                        if (unmetDeps.Count > 0)
                         {
                             Debug.LogWarning(
                                 $"[RuntimeManager] {subsystem.GetType().Name} initializes DEGRADED — " +
-                                $"declared dependency(ies) failed to initialize: {string.Join(", ", failedDeps)}");
+                                $"declared dependency(ies) unavailable: {string.Join(", ", unmetDeps)}",
+                                subsystem);
                         }
 
                         var completion = new AwaitableCompletionSource<bool>();
                         // Timeout (or bootstrap teardown) cancels this token so a stalled
-                        // InitializeAsync unwinds instead of running forever.
+                        // InitializeAsync unwinds instead of running forever. Ownership: the
+                        // monitor disposes it; the driver only cancels it once init settles.
                         var subsystemCts = System.Threading.CancellationTokenSource
                             .CreateLinkedTokenSource(_bootstrapCts.Token);
                         var state = new SubsystemInitState();
                         initStates[subsystem] = state;
                         _ = DriveSubsystemInitialization(
-                            subsystem, completion, state, subsystemCts.Token,
+                            subsystem, completion, state, subsystemCts,
                             () => Debug.Log($"[RuntimeManager] Initialize subsystem: {subsystem.GetType().Name} ({++completed}/{allSubsystems.Count})"));
                         initAwaitables.Add(completion.Awaitable);
                         _ = MonitorSubsystemInitialization(subsystem, state, completion, subsystemCts, SubsystemInitTimeoutSeconds);
@@ -351,7 +466,9 @@ namespace Molca
                 SetState(BootstrapState.Failed);
                 MolcaDiagnostics.CaptureException(e, new MolcaDiagnosticContext("runtime.bootstrap"));
                 Debug.LogError($"[RuntimeManager] Failed to initialize: {e}");
-                throw;
+                // Deliberately not rethrown. The failure is fully reported here and recorded in
+                // BootstrapState.Failed, which is the channel waiters actually consult; rethrowing
+                // only bounced the same exception into GetInstance's catch and logged it twice.
             }
         }
 
@@ -528,12 +645,34 @@ namespace Molca
 
             foreach (var subsystem in subsystemsList)
             {
-                subsystem.Shutdown();
+                // Fake-null: the subsystem's GameObject was destroyed during the session.
+                if (subsystem == null) continue;
+                // Init skipped runtime-invalid subsystems, so tearing one down here would run
+                // Teardown() against something that never initialized. IsRuntimeValid is constant
+                // for the session, so this matches the init-time filter exactly.
+                if (!subsystem.IsRuntimeValid) continue;
+
+                try
+                {
+                    subsystem.Shutdown();
+                }
+                catch (Exception e)
+                {
+                    // Per-subsystem isolation: one bad Teardown must not strand the rest of
+                    // shutdown (settings save included) the way an escaping exception would.
+                    Debug.LogError(
+                        $"[RuntimeManager] Subsystem {subsystem.GetType().Name} threw during shutdown: {e}",
+                        subsystem);
+                }
             }
-            
-            GlobalSettings.main.SaveAllSettings();
-            GlobalSettings.main.DeInitialize();
-            
+
+            var globalSettings = GlobalSettings.main;
+            if (globalSettings != null)
+            {
+                globalSettings.SaveAllSettings();
+                globalSettings.DeInitialize();
+            }
+
             // Clear service container
             _services.Clear();
             _resolvingTypes.Clear();
@@ -543,6 +682,11 @@ namespace Molca
             Debug.Log("[RuntimeManager] Shutdown complete.");
             _isReady = false;
             _isShuttingDown = false;
+            // Terminal state must be recorded BEFORE _main is dropped: once it is null the
+            // static _lastState is the only thing left telling waiters that IsReady will
+            // never become true again.
+            SetState(BootstrapState.ShutDown);
+            _bootstrapCts.Dispose();
             _main = null;
         }
         #endregion
@@ -577,6 +721,12 @@ namespace Molca
             }
 
             _main._registeredSubsystems.Add(subsystem);
+            // Join the resolved init order so Shutdown() tears this down too. Shutdown prefers
+            // _initOrder whenever bootstrap completed, and _initOrder is frozen at bootstrap —
+            // so without this a late registration never got Shutdown(), meaning ShutdownToken
+            // never cancelled and Teardown() never ran. Appending is also the correct LIFO
+            // answer: the newest registration is the first to tear down.
+            (_main._initOrder ??= new List<RuntimeSubsystem>()).Add(subsystem);
             Debug.Log($"Registered subsystem: {subsystem.GetType().Name}");
 
             try
@@ -604,6 +754,12 @@ namespace Molca
         /// <summary>
         /// Deregisters a subsystem that was previously registered
         /// </summary>
+        /// <remarks>
+        /// Removes every service-container entry resolving to <paramref name="subsystem"/> as well.
+        /// Registration writes one entry per concrete type <em>and</em> per implemented interface, so
+        /// dropping it from the subsystem list alone left it fully resolvable through
+        /// <see cref="GetService{T}"/> and <c>[Inject]</c> after it had been torn down.
+        /// </remarks>
         /// <param name="subsystem">The subsystem to deregister</param>
         public static void DeregisterSubsystem(RuntimeSubsystem subsystem)
         {
@@ -617,8 +773,10 @@ namespace Molca
 
             if (_main._registeredSubsystems.Remove(subsystem))
             {
+                _main._initOrder?.Remove(subsystem);
+                _main.UnregisterSubsystemServices(subsystem);
                 Debug.Log($"Deregistered subsystem: {subsystem.GetType().Name}");
-                
+
                 // If RuntimeManager is initialized, shutdown the subsystem
                 if (_main._isReady)
                 {
@@ -629,6 +787,34 @@ namespace Molca
             {
                 Debug.LogWarning($"Subsystem {subsystem.GetType().Name} was not registered.");
             }
+        }
+
+        /// <summary>
+        /// Removes every service-container registration whose instance is <paramref name="subsystem"/>.
+        /// </summary>
+        /// <remarks>
+        /// Matches on the instance rather than recomputing the type/interface list used at
+        /// registration time, so it also clears the entries <see cref="GetServiceInternal"/> caches
+        /// opportunistically (the subsystem fallback and the interface-scan fallback both call
+        /// <see cref="RegisterService(Type, object)"/> under the requested type).
+        /// </remarks>
+        /// <param name="subsystem">The subsystem whose registrations should be dropped.</param>
+        private void UnregisterSubsystemServices(RuntimeSubsystem subsystem)
+        {
+            List<Type> stale = null;
+            foreach (var kvp in _services)
+            {
+                if (ReferenceEquals(kvp.Value.Instance, subsystem))
+                    (stale ??= new List<Type>()).Add(kvp.Key);
+            }
+
+            if (stale == null) return;
+
+            // Collected first: removing during the enumeration above throws.
+            foreach (var serviceType in stale)
+                _services.Remove(serviceType);
+
+            Debug.Log($"[RuntimeManager] Removed {stale.Count} service registration(s) for {subsystem.GetType().Name}.");
         }
 
         /// <summary>
@@ -762,6 +948,13 @@ namespace Molca
         /// Register a factory for creating service instances.
         /// Factory is called each time the service is requested (transient lifetime).
         /// </summary>
+        /// <remarks>
+        /// <typeparamref name="T"/> is recorded as the registration's implementation type, so the
+        /// factory is also reachable through the implemented-interface fallback in
+        /// <see cref="GetService(Type)"/>. Without it, <c>RegisterService(new Foo())</c> was findable
+        /// as <c>IFoo</c> but <c>RegisterFactory(() =&gt; new Foo())</c> was not — an asymmetry between
+        /// two registration APIs documented as peers.
+        /// </remarks>
         public static void RegisterFactory<T>(Func<T> factory) where T : class
         {
             if (!AssertMainThread(nameof(RegisterFactory))) return;
@@ -779,9 +972,9 @@ namespace Molca
             }
             
             var serviceType = typeof(T);
-            var descriptor = new ServiceDescriptor(serviceType, () => factory());
+            var descriptor = new ServiceDescriptor(serviceType, () => factory(), serviceType);
             _main._services[serviceType] = descriptor;
-            
+
             Debug.Log($"[RuntimeManager] Registered factory for: {serviceType.Name}");
         }
         
@@ -866,16 +1059,36 @@ namespace Molca
                     }
                 }
                 
-                // 3. Try to find by implemented interfaces
+                // 3. Try to find by implemented interfaces.
+                // Deterministic tie-break: _services is a Dictionary, so taking the first match
+                // meant hash order decided the winner — the same project could resolve to a
+                // different implementation between runs, and step 1 below then cached that
+                // arbitrary choice permanently under serviceType.
                 ServiceDescriptor fallbackDescriptor = null;
+                int fallbackMatches = 0;
                 foreach (var kvp in _main._services)
                 {
-                    if (kvp.Value.ImplementationType != null &&
-                        serviceType.IsAssignableFrom(kvp.Value.ImplementationType))
+                    if (kvp.Value.ImplementationType == null ||
+                        !serviceType.IsAssignableFrom(kvp.Value.ImplementationType))
+                        continue;
+
+                    fallbackMatches++;
+                    if (fallbackDescriptor == null ||
+                        string.CompareOrdinal(
+                            kvp.Value.ImplementationType.FullName,
+                            fallbackDescriptor.ImplementationType.FullName) < 0)
                     {
                         fallbackDescriptor = kvp.Value;
-                        break;
                     }
+                }
+
+                if (fallbackMatches > 1)
+                {
+                    Debug.LogWarning(
+                        $"[RuntimeManager] {fallbackMatches} registered services implement {serviceType.Name}; " +
+                        $"resolving '{fallbackDescriptor.ImplementationType.Name}' (lowest ordinal type name) " +
+                        "and caching it under that type. Register the intended implementation explicitly to " +
+                        "make the choice deliberate.");
                 }
 
                 if (fallbackDescriptor != null)
@@ -938,12 +1151,33 @@ namespace Molca
         /// <summary>
         /// Check if a service is registered (non-generic).
         /// </summary>
+        /// <remarks>
+        /// Mirrors every lookup <see cref="GetService(Type)"/> performs — direct registration, the
+        /// <see cref="RuntimeSubsystem"/> fallback, and the implemented-interface scan. Checking only
+        /// the container dictionary made this report <c>false</c> for types <c>GetService</c> resolves
+        /// happily, which is exactly the case a caller uses it to rule out. Unlike <c>GetService</c>
+        /// this never instantiates, injects, or caches anything.
+        /// </remarks>
         public static bool HasService(Type serviceType)
         {
             if (_main == null || serviceType == null)
                 return false;
-            
-            return _main._services.ContainsKey(serviceType);
+
+            if (_main._services.ContainsKey(serviceType))
+                return true;
+
+            if (typeof(RuntimeSubsystem).IsAssignableFrom(serviceType)
+                && GetSubsystemInternal(serviceType) != null)
+                return true;
+
+            foreach (var kvp in _main._services)
+            {
+                if (kvp.Value.ImplementationType != null &&
+                    serviceType.IsAssignableFrom(kvp.Value.ImplementationType))
+                    return true;
+            }
+
+            return false;
         }
         
         /// <summary>
@@ -1305,28 +1539,37 @@ namespace Molca
         /// <summary>
         /// Internal method to get subsystem without service caching.
         /// </summary>
+        /// <remarks>
+        /// Only ever returns a subsystem that is valid in the current runtime mode. Bootstrap
+        /// deliberately keeps runtime-invalid subsystems out of the service container (they never
+        /// initialized, so handing one to a consumer just moves the failure downstream) — but this
+        /// path is a fallback <em>inside</em> resolution, and it used to re-admit them and then cache
+        /// the result permanently via <see cref="RegisterService(Type, object)"/>, undoing that filter
+        /// after a single lookup.
+        /// </remarks>
         private static RuntimeSubsystem GetSubsystemInternal(Type subsystemType)
         {
             if (_main == null)
                 return null;
-            
+
             // Search in child subsystems first
             if (_main._subsystems != null)
             {
                 for (int i = 0; i < _main._subsystems.Length; i++)
                 {
-                    if (subsystemType.IsInstanceOfType(_main._subsystems[i]))
+                    if (subsystemType.IsInstanceOfType(_main._subsystems[i])
+                        && _main._subsystems[i].IsRuntimeValid)
                         return _main._subsystems[i];
                 }
             }
-            
+
             // Search in registered subsystems
             foreach (var subsystem in _main._registeredSubsystems)
             {
-                if (subsystemType.IsInstanceOfType(subsystem))
+                if (subsystemType.IsInstanceOfType(subsystem) && subsystem.IsRuntimeValid)
                     return subsystem;
             }
-            
+
             return null;
         }
 
@@ -1351,8 +1594,9 @@ namespace Molca
         /// <param name="cancellationToken">Cancels the wait (e.g. a caller's
         /// <c>destroyCancellationToken</c>) — throws <see cref="OperationCanceledException"/>.</param>
         /// <exception cref="InvalidOperationException">
-        /// Thrown when bootstrap reaches <see cref="BootstrapState.Failed"/> — waiting
-        /// forever on a failed bootstrap was the old (silent soft-lock) behavior.
+        /// Thrown when bootstrap reaches a terminal state — <see cref="BootstrapState.Failed"/> or
+        /// <see cref="BootstrapState.ShutDown"/>. Waiting forever on either was the old (silent
+        /// soft-lock) behavior.
         /// </exception>
         public static async Awaitable WaitForInitialization(System.Threading.CancellationToken cancellationToken)
         {
@@ -1365,6 +1609,14 @@ namespace Molca
                     throw new InvalidOperationException(
                         "[RuntimeManager] Bootstrap FAILED — WaitForInitialization will never complete. " +
                         "See earlier '[RuntimeManager] Failed to initialize' error for the cause.");
+                }
+
+                if (State == BootstrapState.ShutDown)
+                {
+                    throw new InvalidOperationException(
+                        "[RuntimeManager] Runtime has SHUT DOWN — WaitForInitialization will never complete. " +
+                        "Nothing re-initializes the runtime within a session; a wait started after " +
+                        "shutdown must unwind rather than poll.");
                 }
 
                 await Awaitable.NextFrameAsync();
@@ -1477,17 +1729,23 @@ namespace Molca
         {
             var completion = new AwaitableCompletionSource<bool>();
             var completed = false;
+            // Set before this method throws: once we stop awaiting the completion source, a fault
+            // routed into it would never be observed by anyone. See AwaitAndSignalAsync.
+            var abandoned = false;
 
             // Explicit fire-and-forget: AwaitAndSignalAsync owns its exceptions
-            // (routes them into the completion source).
-            _ = AwaitAndSignalAsync(awaitable, completion, () => completed = true);
+            // (routes them into the completion source, or logs them once abandoned).
+            _ = AwaitAndSignalAsync(awaitable, completion, () => completed = true, () => abandoned);
 
             var startTime = Time.realtimeSinceStartup;
             while (!completed)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (Time.realtimeSinceStartup - startTime > timeoutSeconds)
+                if (cancellationToken.IsCancellationRequested ||
+                    Time.realtimeSinceStartup - startTime > timeoutSeconds)
                 {
+                    abandoned = true;
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     var message = string.IsNullOrEmpty(label)
                         ? $"Awaitable timed out after {timeoutSeconds} seconds."
                         : $"{label} timed out after {timeoutSeconds} seconds.";
@@ -1523,17 +1781,22 @@ namespace Molca
         {
             var completion = new AwaitableCompletionSource<T>();
             var completed = false;
+            // See the non-generic overload: marks the completion source as no longer observed.
+            var abandoned = false;
 
             // Explicit fire-and-forget: AwaitAndSignalAsync owns its exceptions
-            // (routes them into the completion source).
-            _ = AwaitAndSignalAsync(awaitable, completion, () => completed = true);
+            // (routes them into the completion source, or logs them once abandoned).
+            _ = AwaitAndSignalAsync(awaitable, completion, () => completed = true, () => abandoned);
 
             var startTime = Time.realtimeSinceStartup;
             while (!completed)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (Time.realtimeSinceStartup - startTime > timeoutSeconds)
+                if (cancellationToken.IsCancellationRequested ||
+                    Time.realtimeSinceStartup - startTime > timeoutSeconds)
                 {
+                    abandoned = true;
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     var message = string.IsNullOrEmpty(label)
                         ? $"Awaitable timed out after {timeoutSeconds} seconds."
                         : $"{label} timed out after {timeoutSeconds} seconds.";
@@ -1545,19 +1808,31 @@ namespace Molca
             return await completion.Awaitable;
         }
 
+        /// <summary>
+        /// Awaits <paramref name="awaitable"/> and forwards its outcome to <paramref name="completion"/>.
+        /// </summary>
+        /// <param name="isAbandoned">
+        /// Reports whether the waiter has already given up (timed out or cancelled). Once it has,
+        /// nobody will ever await <paramref name="completion"/>, so a fault stored there would be
+        /// silently lost — it is logged instead.
+        /// </param>
         private static async Awaitable AwaitAndSignalAsync(
             Awaitable awaitable,
             AwaitableCompletionSource<bool> completion,
-            Action onComplete)
+            Action onComplete,
+            Func<bool> isAbandoned = null)
         {
             try
             {
                 await awaitable;
-                completion.SetResult(true);
+                completion.TrySetResult(true);
             }
             catch (Exception ex)
             {
-                completion.SetException(ex);
+                if (isAbandoned != null && isAbandoned())
+                    Debug.LogException(ex);
+                else
+                    completion.TrySetException(ex);
             }
             finally
             {
@@ -1565,19 +1840,24 @@ namespace Molca
             }
         }
 
+        /// <inheritdoc cref="AwaitAndSignalAsync(Awaitable, AwaitableCompletionSource{bool}, Action, Func{bool})"/>
         private static async Awaitable AwaitAndSignalAsync<T>(
             Awaitable<T> awaitable,
             AwaitableCompletionSource<T> completion,
-            Action onComplete)
+            Action onComplete,
+            Func<bool> isAbandoned = null)
         {
             try
             {
                 var result = await awaitable;
-                completion.SetResult(result);
+                completion.TrySetResult(result);
             }
             catch (Exception ex)
             {
-                completion.SetException(ex);
+                if (isAbandoned != null && isAbandoned())
+                    Debug.LogException(ex);
+                else
+                    completion.TrySetException(ex);
             }
             finally
             {
@@ -1621,18 +1901,34 @@ namespace Molca
             public bool Completed;
             /// <summary>True only if InitializeAsync finished without fault/timeout.</summary>
             public bool Succeeded;
+            /// <summary>
+            /// True when the subsystem was never initialized because it is not valid in the
+            /// current runtime mode. Distinguishes "dependency failed" from "dependency was
+            /// never run at all" in the DEGRADED report.
+            /// </summary>
+            public bool Skipped;
         }
 
+        /// <summary>
+        /// Runs one subsystem's <see cref="RuntimeSubsystem.InitializeAsync"/> and resolves
+        /// <paramref name="completion"/> exactly once, however it ends.
+        /// </summary>
+        /// <remarks>
+        /// Cancellation-token-source ownership between this and
+        /// <see cref="MonitorSubsystemInitialization"/>: the monitor <b>disposes</b>
+        /// <paramref name="subsystemCts"/>, this method only <b>cancels</b> it once init settles so
+        /// the monitor can stop waiting early.
+        /// </remarks>
         private static async Awaitable DriveSubsystemInitialization(
             RuntimeSubsystem subsystem,
             AwaitableCompletionSource<bool> completion,
             SubsystemInitState state,
-            System.Threading.CancellationToken cancellationToken,
+            System.Threading.CancellationTokenSource subsystemCts,
             Action onInitialized)
         {
             try
             {
-                await subsystem.InitializeAsync(cancellationToken);
+                await subsystem.InitializeAsync(subsystemCts.Token);
                 state.Completed = true;
                 state.Succeeded = true;
                 // TrySet: the timeout monitor may have already failed this source.
@@ -1641,17 +1937,41 @@ namespace Molca
             }
             catch (OperationCanceledException)
             {
-                // Timeout or bootstrap teardown — the monitor/owner already logged.
+                // Timeout or bootstrap teardown — the monitor/owner already logged. Completed is
+                // still set: a cancelled init HAS settled, and leaving the flag false made the
+                // monitor report a phantom "did not finish within N seconds" for a subsystem that
+                // was simply torn down.
+                state.Completed = true;
                 completion.TrySetResult(false);
             }
             catch (Exception e)
             {
-                Debug.LogError($"[RuntimeManager] Subsystem {subsystem.GetType().Name} threw during initialization: {e}");
+                Debug.LogError($"[RuntimeManager] Subsystem {subsystem.GetType().Name} threw during initialization: {e}", subsystem);
                 state.Completed = true;
                 completion.TrySetResult(false);
             }
+            finally
+            {
+                // Release the timeout monitor as soon as init settles instead of leaving it parked
+                // on the full timeout — every subsystem otherwise held a live linked token
+                // registration on _bootstrapCts for the whole window, however fast it finished.
+                try
+                {
+                    subsystemCts.Cancel();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // The monitor already timed out, cancelled and disposed. Expected; it owns disposal.
+                }
+            }
         }
 
+        /// <summary>
+        /// Fails a subsystem's initialization if it has not settled within
+        /// <paramref name="timeoutSeconds"/>, so a stalled subsystem cannot soft-lock bootstrap.
+        /// </summary>
+        /// <remarks>Owns disposal of <paramref name="subsystemCts"/>; see
+        /// <see cref="DriveSubsystemInitialization"/> for the other half of that contract.</remarks>
         private static async Awaitable MonitorSubsystemInitialization(
             RuntimeSubsystem subsystem,
             SubsystemInitState state,
@@ -1659,20 +1979,30 @@ namespace Molca
             System.Threading.CancellationTokenSource subsystemCts,
             float timeoutSeconds)
         {
+            bool timedOut = false;
             try
             {
-                await Awaitable.WaitForSecondsAsync(timeoutSeconds);
-                if (!state.Completed)
+                // Token-aware wait: the driver cancels this source the moment init settles, so a
+                // subsystem that initializes in milliseconds no longer keeps a timer alive for the
+                // full timeout.
+                await Awaitable.WaitForSecondsAsync(timeoutSeconds, subsystemCts.Token);
+                timedOut = !state.Completed;
+            }
+            catch (OperationCanceledException)
+            {
+                // Init settled (or bootstrap was torn down) before the timeout elapsed.
+            }
+            finally
+            {
+                if (timedOut)
                 {
-                    Debug.LogError($"[RuntimeManager] Subsystem {subsystem.GetType().Name} did not finish initialization within {timeoutSeconds} seconds (InitializeAsync still pending / finishCallback never invoked). Failing its init so bootstrap can continue.");
+                    Debug.LogError($"[RuntimeManager] Subsystem {subsystem.GetType().Name} did not finish initialization within {timeoutSeconds} seconds (InitializeAsync still pending / finishCallback never invoked). Failing its init so bootstrap can continue.", subsystem);
                     // Cancel the stalled init and resolve its awaitable so WaitForAll
                     // in InitializeAsync can finish and the app doesn't soft-lock at boot.
                     subsystemCts.Cancel();
                     completion.TrySetResult(false);
                 }
-            }
-            finally
-            {
+
                 subsystemCts.Dispose();
             }
         }

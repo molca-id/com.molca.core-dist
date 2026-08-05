@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
@@ -14,6 +15,20 @@ namespace Molca.Editor.Automation
     /// </summary>
     public static class MolcaWorkflowRunner
     {
+        /// <summary>
+        /// Raised on the main thread just before a workflow step's body runs (Sprint 94.4): workflow id,
+        /// run id, and the step about to execute. A hook observes — it must not mutate the run; a throwing
+        /// hook is swallowed so observers can never fail a workflow.
+        /// </summary>
+        public static event Action<string, string, MolcaWorkflowStep> StepStarting;
+
+        /// <summary>
+        /// Raised on the main thread after a workflow step's body returned (or threw, already mapped to a
+        /// failed result): workflow id, run id, the step, and its outcome. Same observer contract as
+        /// <see cref="StepStarting"/>.
+        /// </summary>
+        public static event Action<string, string, MolcaWorkflowStep, MolcaStepResult> StepFinished;
+
         /// <summary>Runs the workflow and produces its aggregated result.</summary>
         /// <param name="workflow">The workflow to run.</param>
         /// <param name="context">The run context (arguments, cancellation, progress).</param>
@@ -34,6 +49,7 @@ namespace Molca.Editor.Automation
                 var step = workflow.Steps[i];
                 context.ReportProgress(new MolcaCommandProgress(
                     (float)i / workflow.Steps.Count, step.Description, i, workflow.Steps.Count, step.Id));
+                SafeHook(() => StepStarting?.Invoke(workflow.Id, context.RunId, step));
 
                 MolcaStepResult result;
                 try
@@ -48,6 +64,7 @@ namespace Molca.Editor.Automation
                 {
                     result = MolcaStepResult.Fail("step.exception", $"Step '{step.Id}' threw: {ex.Message}");
                 }
+                SafeHook(() => StepFinished?.Invoke(workflow.Id, context.RunId, step, result));
 
                 allDiagnostics.AddRange(result.Diagnostics);
                 stepsJson.Add(new JObject
@@ -89,6 +106,13 @@ namespace Molca.Editor.Automation
                     allDiagnostics.Count > 0 ? allDiagnostics
                         : new[] { new MolcaDiagnostic("workflow.failed", "The workflow did not pass.") },
                     null, verification, null);
+        }
+
+        /// <summary>An observer hook must never fail the run it observes.</summary>
+        private static void SafeHook(System.Action hook)
+        {
+            try { hook(); }
+            catch (System.Exception ex) { Debug.LogException(ex); }
         }
     }
 }

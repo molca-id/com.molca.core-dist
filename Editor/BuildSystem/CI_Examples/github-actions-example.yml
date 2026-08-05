@@ -45,6 +45,20 @@ jobs:
             Library-Windows-
       
       # Build
+      # Build correctness is checked here rather than inside the build, because game-ci passes
+      # '-quit' (see customParameters below). RunCI exits non-zero on any Error finding, so a
+      # project with an invalid build profile, version, scene list or content package never
+      # reaches the build step.
+      - name: Molca Doctor
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          buildMethod: Molca.Editor.Doctor.MolcaDoctor.RunCI
+          allowDirtyBuild: true
+
       - name: Build project
         uses: game-ci/unity-builder@v4
         env:
@@ -55,6 +69,10 @@ jobs:
           targetPlatform: StandaloneWindows64
           buildMethod: Molca.Editor.CommandLineBuild.BuildProduction
           versioning: None
+          # game-ci's builder bakes '-quit' into its command line, which would terminate Unity
+          # before Molca's asynchronous pre-build gate could run. The opt-out below acknowledges
+          # that; the Doctor step above runs the same checks as a separate job instead.
+          customParameters: -molcaSkipBuildGate
       
       # Upload build artifacts
       - name: Upload build
@@ -92,6 +110,20 @@ jobs:
           restore-keys: |
             Library-Android-
       
+      # Build correctness is checked here rather than inside the build, because game-ci passes
+      # '-quit' (see customParameters below). RunCI exits non-zero on any Error finding, so a
+      # project with an invalid build profile, version, scene list or content package never
+      # reaches the build step.
+      - name: Molca Doctor
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          buildMethod: Molca.Editor.Doctor.MolcaDoctor.RunCI
+          allowDirtyBuild: true
+
       - name: Build project
         uses: game-ci/unity-builder@v4
         env:
@@ -102,6 +134,10 @@ jobs:
           targetPlatform: Android
           buildMethod: Molca.Editor.CommandLineBuild.BuildProduction
           versioning: None
+          # game-ci's builder bakes '-quit' into its command line, which would terminate Unity
+          # before Molca's asynchronous pre-build gate could run. The opt-out below acknowledges
+          # that; the Doctor step above runs the same checks as a separate job instead.
+          customParameters: -molcaSkipBuildGate
       
       - name: Upload build
         uses: actions/upload-artifact@v3

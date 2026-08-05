@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Molca.Editor.UI;
 using Molca.Editor.UI.Components;
 using UnityEngine.UIElements;
 
@@ -82,6 +83,10 @@ namespace Molca.Editor.Remediation.Hub
         /// <summary>Builds the view.</summary>
         public RemediationWorkspaceView()
         {
+            // The Hub root already carries the design language, but a hostable view must not depend on its
+            // host for tokens — the editor design language explicitly allows the same VisualElement to be
+            // hosted standalone. Apply is idempotent, so doing it here costs nothing inside the Hub.
+            MolcaEditorUi.Apply(this);
             AddToClassList("molca-workspace");
 
             _header = BuildHeader();

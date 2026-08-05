@@ -1,12 +1,13 @@
-﻿com.molca.core@2.0.1
-Published: 2026-08-04 12:11:02Z
-Source commit: cf13c400
-Files: 3128
+﻿com.molca.core@2.1.0
+Published: 2026-08-05 15:57:15Z
+Source commit: 973dc4fc
+Files: 3156
 
 CHANGELOG.md
 CHANGELOG.md.meta
 Documentation~/README.md
 Documentation~/reference/ADDONS.md
+Documentation~/reference/ASSISTANT_CANVAS.md
 Documentation~/reference/ASSISTANT_MEMORY.md
 Documentation~/reference/ASSISTANT_MODEL_SWITCHER.md
 Documentation~/reference/ASSISTANT_PROMPT_CACHING.md
@@ -19,6 +20,7 @@ Documentation~/reference/ASYNC_CONTRACT.md
 Documentation~/reference/ATTRIBUTES.md
 Documentation~/reference/AUDIO.md
 Documentation~/reference/AUTOMATION.md
+Documentation~/reference/AUTOMATION_COMPOSED_WORKFLOWS.md
 Documentation~/reference/BUILD_SYSTEM.md
 Documentation~/reference/COLOR_ID.md
 Documentation~/reference/COLOR_ID_MIGRATION.md
@@ -281,6 +283,11 @@ Editor/Automation/Workflows/BuiltIn/PreflightWorkflow.cs
 Editor/Automation/Workflows/BuiltIn/PreflightWorkflow.cs.meta
 Editor/Automation/Workflows/BuiltIn/RuntimeSmokeWorkflow.cs
 Editor/Automation/Workflows/BuiltIn/RuntimeSmokeWorkflow.cs.meta
+Editor/Automation/Workflows/Composed.meta
+Editor/Automation/Workflows/Composed/MolcaComposedWorkflow.cs
+Editor/Automation/Workflows/Composed/MolcaComposedWorkflow.cs.meta
+Editor/Automation/Workflows/Composed/MolcaComposedWorkflowStore.cs
+Editor/Automation/Workflows/Composed/MolcaComposedWorkflowStore.cs.meta
 Editor/Automation/Workflows/MolcaWorkflowCommandAdapter.cs
 Editor/Automation/Workflows/MolcaWorkflowCommandAdapter.cs.meta
 Editor/Automation/Workflows/MolcaWorkflowDefinition.cs
@@ -321,6 +328,14 @@ Editor/BuildSystem/GitLogReader.cs
 Editor/BuildSystem/GitLogReader.cs.meta
 Editor/BuildSystem/LocalizationBuildGate.cs
 Editor/BuildSystem/LocalizationBuildGate.cs.meta
+Editor/BuildSystem/MolcaBuildCallbackOrder.cs
+Editor/BuildSystem/MolcaBuildCallbackOrder.cs.meta
+Editor/BuildSystem/MolcaBuildGate.cs
+Editor/BuildSystem/MolcaBuildGate.cs.meta
+Editor/BuildSystem/MolcaBuildStep.cs
+Editor/BuildSystem/MolcaBuildStep.cs.meta
+Editor/BuildSystem/MolcaBuildStepRegistry.cs
+Editor/BuildSystem/MolcaBuildStepRegistry.cs.meta
 Editor/BuildSystem/QUICK_REFERENCE.md
 Editor/BuildSystem/QUICK_REFERENCE.md.meta
 Editor/BuildSystem/README_GITHUB_ACTIONS.md
@@ -397,6 +412,8 @@ Editor/ColorID/Upgrade/LegacyColorContentRemediationFix.cs.meta
 Editor/ContentPackage.meta
 Editor/ContentPackage/AddressablesBuildUtility.cs
 Editor/ContentPackage/AddressablesBuildUtility.cs.meta
+Editor/ContentPackage/AddressablesContentBuildStep.cs
+Editor/ContentPackage/AddressablesContentBuildStep.cs.meta
 Editor/ContentPackage/ContentAuthoringClient.cs
 Editor/ContentPackage/ContentAuthoringClient.cs.meta
 Editor/ContentPackage/ContentBuildGraph.cs
@@ -685,6 +702,8 @@ Editor/Icons/molca-mcp.png
 Editor/Icons/molca-mcp.png.meta
 Editor/Icons/molca-networking.png
 Editor/Icons/molca-networking.png.meta
+Editor/Icons/molca-onboarding.png
+Editor/Icons/molca-onboarding.png.meta
 Editor/Icons/molca-references.png
 Editor/Icons/molca-references.png.meta
 Editor/Icons/molca-remediation.png
@@ -724,6 +743,8 @@ Editor/Icons/svg/molca-mcp.svg
 Editor/Icons/svg/molca-mcp.svg.meta
 Editor/Icons/svg/molca-networking.svg
 Editor/Icons/svg/molca-networking.svg.meta
+Editor/Icons/svg/molca-onboarding.svg
+Editor/Icons/svg/molca-onboarding.svg.meta
 Editor/Icons/svg/molca-references.svg
 Editor/Icons/svg/molca-references.svg.meta
 Editor/Icons/svg/molca-remediation.svg
@@ -876,10 +897,15 @@ Editor/MCP/Assistant/AssistantUserPrompt.cs
 Editor/MCP/Assistant/AssistantUserPrompt.cs.meta
 Editor/MCP/Assistant/AssistantWebAuth.cs
 Editor/MCP/Assistant/AssistantWebAuth.cs.meta
+Editor/MCP/Assistant/Canvas.meta
+Editor/MCP/Assistant/Canvas/AssistantCanvasView.cs
+Editor/MCP/Assistant/Canvas/AssistantCanvasView.cs.meta
 Editor/MCP/Assistant/EditorUpdateAwaiter.cs
 Editor/MCP/Assistant/EditorUpdateAwaiter.cs.meta
 Editor/MCP/Assistant/ILlmProvider.cs
 Editor/MCP/Assistant/ILlmProvider.cs.meta
+Editor/MCP/Assistant/LlmTimeouts.cs
+Editor/MCP/Assistant/LlmTimeouts.cs.meta
 Editor/MCP/Assistant/OpenAiCompatibleLlmProvider.cs
 Editor/MCP/Assistant/OpenAiCompatibleLlmProvider.cs.meta
 Editor/MCP/McpActionAuditLog.cs
@@ -1011,6 +1037,8 @@ Editor/MCP/Providers/CoreMcpToolProvider.ToolSchema.cs
 Editor/MCP/Providers/CoreMcpToolProvider.ToolSchema.cs.meta
 Editor/MCP/Providers/CoreMcpToolProvider.Web.cs
 Editor/MCP/Providers/CoreMcpToolProvider.Web.cs.meta
+Editor/MCP/Providers/CoreMcpToolProvider.Workflows.cs
+Editor/MCP/Providers/CoreMcpToolProvider.Workflows.cs.meta
 Editor/MCP/Providers/UnityMcpToolProvider.Addressables.cs
 Editor/MCP/Providers/UnityMcpToolProvider.Addressables.cs.meta
 Editor/MCP/Providers/UnityMcpToolProvider.Assets.cs

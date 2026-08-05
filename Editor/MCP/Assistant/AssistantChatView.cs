@@ -36,6 +36,17 @@ namespace Molca.Editor.Mcp.Assistant
         private AssistantComposer _composer;
         private AssistantModelPicker _modelPicker;
 
+        private const string CanvasOpenPrefKey = "Assistant.CanvasOpen";
+
+        private TwoPaneSplitView _split;
+        private AssistantCanvasView _canvas;
+        private bool _canvasOpen;
+
+        // Turn clock for the progress row (Sprint 94 follow-up): a long tool sweep raises no events, so the
+        // elapsed readout is ticked on a schedule rather than only on controller changes.
+        private double _turnStartedAt;
+        private IVisualElementScheduledItem _elapsedTick;
+
         private Label _status;
         private Label _lastQuestionBanner;
         private VisualElement _toolProgressRow;
@@ -74,8 +85,28 @@ namespace Molca.Editor.Mcp.Assistant
             var stylesheet = LoadAsset<StyleSheet>("AssistantChatWindow.uss");
             if (stylesheet != null) styleSheets.Add(stylesheet);
 
+            // Split host (Sprint 92.1): chat left, artifact canvas right. The canvas pane is the fixed one
+            // so dragging the splitter resizes it; collapsed until an artifact arrives or the user opens it.
+            AssistantCanvasView.EnsureFenceRenderersRegistered();
+            _split = new TwoPaneSplitView(1, 380, TwoPaneSplitViewOrientation.Horizontal)
+            {
+                viewDataKey = "molca-assistant-canvas-split"
+            };
+            _split.style.flexGrow = 1;
+            Add(_split);
+
+            var chatPane = new VisualElement { name = "chat-pane" };
+            chatPane.AddToClassList("chat-pane");
+            _split.Add(chatPane);
+
+            _canvas = new AssistantCanvasView();
+            _split.Add(_canvas);
+
+            _canvasOpen = MolcaEditorPrefs.GetInt(CanvasOpenPrefKey, 0) == 1;
+            ApplyCanvasVisibility();
+
             var layout = LoadAsset<VisualTreeAsset>("AssistantChatWindow.uxml");
-            if (layout != null) layout.CloneTree(this);
+            if (layout != null) layout.CloneTree(chatPane);
 
             _status = this.Q<Label>("status");
             _lastQuestionBanner = this.Q<Label>("last-question-banner");
@@ -86,6 +117,7 @@ namespace Molca.Editor.Mcp.Assistant
             var header = this.Q<VisualElement>("header");
             header.Add(CreateIconButton(ShowSessionsMenu, "d_UnityEditor.VersionControl", "Chat sessions"));
             header.Add(CreateIconButton(() => _controller.NewChat(), "d_Toolbar Plus", "New chat"));
+            header.Add(CreateIconButton(ToggleCanvas, "d_VerticalSplit", "Canvas"));
             header.Add(CreateIconButton(ShowOverflowMenu, "_Menu", "More actions"));
             header.Add(CreateIconButton(() => Molca.Editor.Hub.MolcaHubWindow.Open(Molca.Editor.Hub.MolcaHubWorkspace.Settings), "d_SettingsIcon", "Open Molca settings"));
 
@@ -93,12 +125,14 @@ namespace Molca.Editor.Mcp.Assistant
                 this.Q<ScrollView>("scroll"), _controller,
                 onRetry: () => RetryLast(),
                 onEdit: BeginEdit,
-                onRefresh: RefreshTranscript,
+                // Undo/plan edits mutate committed turns in place, so drop the cached rows before re-rendering.
+                onRefresh: () => { _transcript?.InvalidateCache(); RefreshTranscript(); },
                 onNotify: message => _notify?.Invoke(message),
                 onContinue: () => SendText("continue"));
 
             _composer = new AssistantComposer(this, _controller,
                 onSend: SendCurrent, onStop: StopCurrent, onAddContext: ShowAddContextMenu);
+            _composer.SlashCommands = BuildSlashCommands();
 
             // In-window provider + model switcher (Sprint 71). Sits at the top of the composer card so
             // switching backends never requires a Hub round-trip; it applies to the next turn and persists.
@@ -128,6 +162,10 @@ namespace Molca.Editor.Mcp.Assistant
                 _controller.Changed += RefreshTranscript;
                 _controller.PlanEditRequested -= BeginEdit;
                 _controller.PlanEditRequested += BeginEdit;
+                AssistantCanvasView.OpenRequested -= OnArtifactOpenRequested;
+                AssistantCanvasView.OpenRequested += OnArtifactOpenRequested;
+                AssistantCanvasView.ComposerPrefillRequested -= OnComposerPrefillRequested;
+                AssistantCanvasView.ComposerPrefillRequested += OnComposerPrefillRequested;
                 RefreshTranscript();
             });
             RegisterCallback<DetachFromPanelEvent>(_ => DetachFromHost());
@@ -141,6 +179,42 @@ namespace Molca.Editor.Mcp.Assistant
             _assetPicker.Dispose();
             _controller.Changed -= RefreshTranscript;
             _controller.PlanEditRequested -= BeginEdit;
+            AssistantCanvasView.OpenRequested -= OnArtifactOpenRequested;
+            AssistantCanvasView.ComposerPrefillRequested -= OnComposerPrefillRequested;
+        }
+
+        // ---- Canvas (Sprint 92) ---------------------------------------------------------------------
+
+        /// <summary>A canvas panel asked to re-enter the conversation (remediation, revision — Sprint 94.3).</summary>
+        private void OnComposerPrefillRequested(string text)
+        {
+            if (panel == null || string.IsNullOrWhiteSpace(text)) return;
+            _composer.Text = string.IsNullOrEmpty(_composer.Text) ? text : _composer.Text + "\n" + text;
+            _composer.FocusInput();
+        }
+
+        /// <summary>An inline artifact card asked for the canvas: open the pane and select its tab.</summary>
+        private void OnArtifactOpenRequested(AssistantArtifact artifact)
+        {
+            if (panel == null) return; // not attached — another host handles it
+            SetCanvasOpen(true);
+            _canvas.ShowArtifact(artifact);
+        }
+
+        private void ToggleCanvas() => SetCanvasOpen(!_canvasOpen);
+
+        private void SetCanvasOpen(bool open)
+        {
+            _canvasOpen = open;
+            MolcaEditorPrefs.SetInt(CanvasOpenPrefKey, open ? 1 : 0);
+            ApplyCanvasVisibility();
+        }
+
+        private void ApplyCanvasVisibility()
+        {
+            if (_split == null) return;
+            if (_canvasOpen) _split.UnCollapse();
+            else _split.CollapseChild(1);
         }
 
         private static T LoadAsset<T>(string fileName) where T : UnityEngine.Object =>
@@ -218,11 +292,20 @@ namespace Molca.Editor.Mcp.Assistant
 
         private void SendCurrent()
         {
-            if (_controller == null || _controller.IsBusy) return;
+            if (_controller == null) return;
+
+            // While a turn runs, Send stages the message instead (Sprint 91.1b); it auto-sends on completion.
+            if (_controller.IsBusy)
+            {
+                if (_composer.TryQueueCurrent()) _composer.UpdateTokenEstimate();
+                return;
+            }
+
             var text = _composer.Text;
             // A turn may carry only images (Sprint 73), so allow an empty message when at least one is staged.
-            var images = CollectAttachmentParts();
+            var images = CollectAttachmentParts(_composer.Attachments);
             if (string.IsNullOrWhiteSpace(text) && images == null) return;
+            _composer.RecordHistory(text);
             _composer.Text = string.Empty;
             _composer.ClearAttachments();
             SendText(text, images);
@@ -239,16 +322,25 @@ namespace Molca.Editor.Mcp.Assistant
             catch (Exception ex) { Debug.LogException(ex); }
         }
 
-        /// <summary>Snapshots the composer's staged image attachments as content parts, or <c>null</c> when none (Sprint 73).</summary>
-        private IReadOnlyList<LlmContentPart> CollectAttachmentParts()
+        /// <summary>Snapshots staged image attachments as content parts, or <c>null</c> when none (Sprint 73).</summary>
+        private static IReadOnlyList<LlmContentPart> CollectAttachmentParts(IReadOnlyList<AssistantImageAttachment> staged)
         {
-            var staged = _composer.Attachments;
             if (staged == null || staged.Count == 0) return null;
             var parts = new List<LlmContentPart>(staged.Count);
             foreach (var attachment in staged)
                 if (attachment != null) parts.Add(attachment.ToContentPart());
             return parts.Count > 0 ? parts : null;
         }
+
+        /// <summary>The chat-local verbs offered by the composer's slash palette (Sprint 91.1d).</summary>
+        private IReadOnlyList<AssistantComposerCommand> BuildSlashCommands() => new[]
+        {
+            new AssistantComposerCommand("new", "Start a new chat", () => _controller.NewChat()),
+            new AssistantComposerCommand("sessions", "Switch or delete saved chats", ShowSessionsMenu),
+            new AssistantComposerCommand("copy", "Copy the last answer", CopyLastAnswer),
+            new AssistantComposerCommand("transcript", "Copy the whole transcript", CopyTranscript),
+            new AssistantComposerCommand("clear", "Clear this conversation", () => _controller.Reset())
+        };
 
         private void StopCurrent()
         {
@@ -278,6 +370,10 @@ namespace Molca.Editor.Mcp.Assistant
             _transcript.Render();
             _composer.RebuildContextChips();
 
+            // The canvas derives from the transcript; a newly appeared artifact opens the pane (Sprint 92.1).
+            if (_canvas != null && _canvas.SyncFromTranscript(_controller) && !_canvasOpen)
+                SetCanvasOpen(true);
+
             var status = _settings.GetStatus(out var message);
             var busy = _controller.IsBusy;
             // The provider/model now live in the in-window picker (Sprint 71), so the header shows the chat
@@ -296,6 +392,14 @@ namespace Molca.Editor.Mcp.Assistant
             UpdateLastQuestionBanner(busy);
             UpdateToolProgress(busy);
             UpdatePromptBar();
+
+            // A message queued during the turn auto-sends once the controller goes idle (Sprint 91.1b).
+            // Scheduled so the send starts outside this Changed-event handler.
+            if (!busy && _composer.TryDequeue(out var queuedText, out var queuedImages))
+            {
+                var parts = CollectAttachmentParts(queuedImages);
+                schedule.Execute(() => SendText(queuedText, parts));
+            }
         }
 
         /// <summary>
@@ -330,6 +434,21 @@ namespace Molca.Editor.Mcp.Assistant
         private void UpdateToolProgress(bool busy)
         {
             if (_toolProgressRow == null) return;
+
+            // Elapsed time is the signal that distinguishes "working" from "wedged". Ticked on its own
+            // schedule, because a long await raises no Changed event and the label would otherwise freeze.
+            if (busy && _turnStartedAt <= 0) _turnStartedAt = EditorApplication.timeSinceStartup;
+            if (!busy) _turnStartedAt = 0;
+            if (busy && _elapsedTick == null)
+                _elapsedTick = schedule.Execute(() =>
+                {
+                    if (_controller.IsBusy) UpdateToolProgress(true);
+                }).Every(1000);
+            else if (!busy && _elapsedTick != null)
+            {
+                _elapsedTick.Pause();
+                _elapsedTick = null;
+            }
 
             var progress = busy ? _controller.ActiveToolProgress : null;
             var toolName = busy ? _controller.ActiveToolName : null;
@@ -366,6 +485,19 @@ namespace Molca.Editor.Mcp.Assistant
                 _toolProgressBar.value = 0f;
                 _toolProgressBar.title = "working…";
             }
+
+            _toolProgressLabel.text += ElapsedSuffix();
+        }
+
+        /// <summary>The turn's elapsed time as a compact suffix, or empty before the clock starts.</summary>
+        private string ElapsedSuffix()
+        {
+            if (_turnStartedAt <= 0) return string.Empty;
+            var seconds = EditorApplication.timeSinceStartup - _turnStartedAt;
+            if (seconds < 1) return string.Empty;
+            return seconds < 60
+                ? $"  ·  {seconds:0}s"
+                : $"  ·  {(int)(seconds / 60)}m {seconds % 60:00}s";
         }
 
         private void UpdatePromptBar()

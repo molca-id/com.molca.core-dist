@@ -150,7 +150,7 @@ namespace Molca.Editor
 
             var version = settings.GetVersionString();
 
-            settings.SyncToUnityPlayerSettings(force: true);
+            settings.SyncToUnityPlayerSettings();
             settings.SyncPlatformVersionCode(EditorUserBuildSettings.activeBuildTarget);
             EditorUtility.SetDirty(settings);
             AssetDatabase.SaveAssets();

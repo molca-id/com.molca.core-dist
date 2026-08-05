@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Molca.ColorID;
 using Molca.Editor.Upgrade;
+using Molca.Editor.UI;
 using Molca.Editor.UI.Components;
 using UnityEditor;
 // ColorField and the other editor-only controls live here, not in UnityEngine.UIElements.
@@ -102,6 +103,9 @@ namespace Molca.ColorID.Editor
         /// <summary>Creates the workspace.</summary>
         public ColorThemeWorkspaceView()
         {
+            // A hostable view carries its own design language rather than inheriting the Hub's: the editor
+            // design language allows this same element to be hosted standalone, and Apply is idempotent.
+            MolcaEditorUi.Apply(this);
             AddToClassList("molca-workspace");
             AddToClassList("molca-workspace--railed");
 

@@ -30,6 +30,7 @@ namespace Molca.Editor.Mcp.Assistant
         private readonly LlmProviderKind _kind;
         private readonly bool _requireApiKey;
         private readonly int _maxAttempts;
+        private readonly LlmTimeouts _timeouts;
         private readonly IReadOnlyDictionary<string, string> _additionalHeaders;
 
         /// <summary>
@@ -49,13 +50,16 @@ namespace Molca.Editor.Mcp.Assistant
         /// <param name="kind">The provider kind this instance reports as.</param>
         /// <param name="requireApiKey">When <c>true</c>, an empty key throws at send time.</param>
         /// <param name="maxAttempts">Maximum total HTTP attempts per call including the first (Sprint 68); <c>1</c> disables retry.</param>
+        /// <param name="additionalHeaders">Extra request headers, or null.</param>
+        /// <param name="timeouts">First-response and stall deadlines; <see cref="LlmTimeouts.Default"/> when omitted.</param>
         public OpenAiCompatibleLlmProvider(
             string baseUrl,
             string apiKey,
             LlmProviderKind kind,
             bool requireApiKey,
             int maxAttempts = 1,
-            IReadOnlyDictionary<string, string> additionalHeaders = null)
+            IReadOnlyDictionary<string, string> additionalHeaders = null,
+            LlmTimeouts? timeouts = null)
         {
             _baseUrl = (baseUrl ?? string.Empty).TrimEnd('/');
             _apiKey = apiKey;
@@ -63,6 +67,7 @@ namespace Molca.Editor.Mcp.Assistant
             _requireApiKey = requireApiKey;
             _maxAttempts = maxAttempts < 1 ? 1 : maxAttempts;
             _additionalHeaders = additionalHeaders;
+            _timeouts = timeouts ?? LlmTimeouts.Default;
         }
 
         /// <inheritdoc/>
@@ -92,9 +97,10 @@ namespace Molca.Editor.Mcp.Assistant
             var result = await AssistantHttp.PostAsync(
                 url, headers, body, streaming,
                 streaming ? (Action<string>)(line => accumulator.OnLine(line)) : null,
-                timeoutSeconds: 120, cancellationToken,
+                timeoutSeconds: _timeouts.FirstResponseSeconds, cancellationToken,
                 maxAttempts: _maxAttempts,
-                onStreamRestart: streaming ? () => accumulator = new OpenAiStreamAccumulator(onTextDelta) : null);
+                onStreamRestart: streaming ? () => accumulator = new OpenAiStreamAccumulator(onTextDelta) : null,
+                stallTimeoutSeconds: _timeouts.StallSeconds);
 
             if (!result.IsSuccess)
                 throw new Exception(ExtractError(result.Body, result.StatusCode));

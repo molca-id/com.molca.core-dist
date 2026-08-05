@@ -29,21 +29,6 @@ namespace Molca.Editor.Automation.BuiltIn
         /// <summary>The stable command id of the Build workflow.</summary>
         public const string Id = "molca.build";
 
-        /// <summary>
-        /// The build-correctness Doctor checks that gate a build. Mirrors
-        /// <c>BuildManager.PreBuildCheckIds</c> so the gate's evidence matches the gate BuildManager
-        /// would otherwise run; kept here so the gate runs exactly once (Build is invoked with its own
-        /// pre-build checks disabled).
-        /// </summary>
-        private static readonly HashSet<string> PreBuildCheckIds = new HashSet<string>
-        {
-            "build-scenes-valid",
-            "version-settings-valid",
-            "build-profile-valid",
-            "unresolvable-scene-reference",
-            "content-package-valid",
-        };
-
         /// <summary>Builds the Build workflow definition.</summary>
         /// <returns>The workflow definition.</returns>
         public static MolcaWorkflowDefinition Create() => new MolcaWorkflowDefinition(
@@ -62,13 +47,18 @@ namespace Molca.Editor.Automation.BuiltIn
             requiresConfirmation: true);
 
         /// <summary>Runs the build-relevant Doctor checks; any Error halts before the build runs.</summary>
+        /// <remarks>
+        /// Through <see cref="MolcaBuildGate"/>, which owns which checks gate a build. This step used to
+        /// keep its own copy of that list under a comment noting it mirrored BuildManager's — meaning the
+        /// evidence bundle could claim a gate the build itself no longer ran. The build below is invoked
+        /// with its own pre-build checks disabled so the gate still runs exactly once.
+        /// </remarks>
         private static async Awaitable<MolcaStepResult> GateStep(MolcaCommandContext context)
         {
-            var issues = await MolcaDoctor.RunAllAsync(
-                enabledIds: PreBuildCheckIds, cancellationToken: context.CancellationToken);
+            var gate = await MolcaBuildGate.RunAsync(context.CancellationToken);
 
-            var errors = issues.Where(i => i.Severity == DoctorSeverity.Error).ToList();
-            var warnings = issues.Where(i => i.Severity == DoctorSeverity.Warning).ToList();
+            var errors = gate.Errors;
+            var warnings = gate.Warnings;
 
             var diagnostics = errors
                 .Select(i => new MolcaDiagnostic(i.CheckId, i.Message, MolcaDiagnosticSeverity.Error, i.Path, i.Line))

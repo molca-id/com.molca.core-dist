@@ -41,6 +41,23 @@ namespace Molca.Settings
         }
 
         /// <summary>
+        /// Called once by <see cref="GlobalSettings"/> during shutdown, after
+        /// <see cref="SaveSettings"/>. Releases this module's per-session state.
+        /// Subclasses overriding this must call <c>base.DeInitialize()</c>.
+        /// </summary>
+        /// <remarks>
+        /// This asset outlives the play session — in the editor it is the same object across every
+        /// run. Anything session-scoped a module holds must be released here: the paired
+        /// <see cref="State"/> (cleared by this implementation) and, critically, any delegate the
+        /// module exposes for runtime listeners. A delegate left populated keeps the previous
+        /// session's destroyed subscribers alive and invokes them again in the next one.
+        /// </remarks>
+        public virtual void DeInitialize()
+        {
+            State = null;
+        }
+
+        /// <summary>
         /// Factory for the paired <see cref="SettingState"/>. Override and return a
         /// new instance to opt into the state-based runtime mutation pattern.
         /// Default returns <c>null</c>, indicating this module has no runtime-mutable state.

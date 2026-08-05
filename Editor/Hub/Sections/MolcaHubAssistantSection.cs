@@ -122,6 +122,16 @@ namespace Molca.Editor.Hub.Sections
 
             // Resilience knobs (Sprint 68): transport retry cap, unproductive-loop breaker, per-result size cap.
             AddGroupHeading(advanced, "Resilience");
+            advanced.Add(BoundRow(so, "requestTimeoutSeconds", "Request Timeout (s)"));
+            advanced.Add(BoundRow(so, "streamStallTimeoutSeconds", "Stream Stall Timeout (s)"));
+            var timeoutNote = new Label(
+                "With streaming on, Request Timeout bounds only the wait for the first token and Stream Stall "
+                + "Timeout bounds the gap between chunks — so a long answer is never cut off while it is still "
+                + "producing output. With streaming off there is no progress signal, so Request Timeout bounds "
+                + "the whole exchange and a reasoning model on a large context may need it raised.");
+            timeoutNote.AddToClassList("molca-hub-muted");
+            timeoutNote.style.whiteSpace = WhiteSpace.Normal;
+            advanced.Add(timeoutNote);
             advanced.Add(BoundRow(so, "retryMaxAttempts", "Retry Max Attempts"));
             advanced.Add(BoundRow(so, "loopBreakThreshold", "Loop-Break Threshold"));
             advanced.Add(BoundRow(so, "maxToolResultChars", "Max Tool-Result Chars"));

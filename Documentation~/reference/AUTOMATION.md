@@ -216,6 +216,7 @@ See [Molca Remote Editor](REMOTE_EDITOR.md) for the accept-fast run model and th
 
 ## See also
 
+- [Composed Workflows](AUTOMATION_COMPOSED_WORKFLOWS.md) — data-driven workflows that string registry commands together.
 - [Extending Molca MCP from an SDK Fork](MCP_FORK_PROVIDERS.md) — the sibling provider pattern for MCP tools.
 - [Extending Molca Doctor with Custom Checks](DOCTOR_CHECKS.md) — checks that automation workflows compose.
 - [The Molca Hub](HUB.md) — where the Automation workspace lives.

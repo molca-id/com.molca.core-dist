@@ -16,6 +16,12 @@ namespace Molca.Editor.Doctor
     /// its own: a second set of rules means a catalog Doctor calls clean and the build gate rejects, and
     /// whichever a person saw first is the one they will believe (plan §7.13).
     /// <para>
+    /// This check is in <see cref="MolcaBuildGate.CheckIds"/>, so it also runs as the pre-build gate the
+    /// Hub, CI and the Build workflow wait on. It reports Error only when the catalog has enabled
+    /// <c>FailBuildOnValidationError</c> — the same switch <c>NetworkCatalogBuildValidator</c> reads —
+    /// so the gate and the build callback can never reach different verdicts about one catalog.
+    /// </para>
+    /// <para>
     /// Each issue carries the workspace deep link for its finding, so the message says where to go rather
     /// than only what is wrong.
     /// </para>
@@ -71,6 +77,13 @@ namespace Molca.Editor.Doctor
 
             var report = NetworkCatalogValidator.Validate(catalog);
 
+            // Whether a catalog error blocks is the catalog's call, not this check's. Since this check is
+            // in MolcaBuildGate.CheckIds, an Error here aborts a build — so reporting Error for a project
+            // that has deliberately not opted in would override that decision from the outside, and the
+            // Doctor window would disagree with the build callback about the same catalog. Opting in is
+            // the one switch; both surfaces read it.
+            bool errorsBlock = catalog.FailBuildOnValidationError;
+
             foreach (var finding in report.Findings)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -82,12 +95,19 @@ namespace Molca.Editor.Doctor
 
                 string remedy = string.IsNullOrEmpty(finding.Remedy) ? string.Empty : " " + finding.Remedy;
 
+                bool isError = finding.Severity == NetworkValidationSeverity.Error;
+
+                // Say why an error is being reported as a warning, so the reader knows the finding is real
+                // and the leniency is theirs to withdraw — otherwise this reads as the check disagreeing
+                // with itself about severity.
+                string policyNote = isError && !errorsBlock
+                    ? " (reported as a warning: this catalog does not enable 'Fail Build On Validation Error')"
+                    : string.Empty;
+
                 issues.Add(new DoctorIssue(
                     Id,
-                    finding.Severity == NetworkValidationSeverity.Error
-                        ? DoctorSeverity.Error
-                        : DoctorSeverity.Warning,
-                    $"[{finding.Code}] {finding.Message}{remedy} Open: {NetworkHubDeepLinks.For(finding)}",
+                    isError && errorsBlock ? DoctorSeverity.Error : DoctorSeverity.Warning,
+                    $"[{finding.Code}] {finding.Message}{remedy}{policyNote} Open: {NetworkHubDeepLinks.For(finding)}",
                     assetPath));
             }
 

@@ -46,8 +46,19 @@ namespace Molca.Editor.Mcp.Assistant
     {
         private const int TitleMaxLength = 50;
 
+        private static string _rootOverride;
+
+        /// <summary>
+        /// Redirects the sessions directory to a temp folder for tests, mirroring
+        /// <see cref="AssistantMemoryStore.OverrideRootForTests"/>, so a test run can never create, list, or
+        /// delete entries in the developer's real session library. Pass <c>null</c> to restore the default.
+        /// </summary>
+        /// <param name="absoluteDirectory">Directory to hold session files, or null for the default.</param>
+        public static void OverrideRootForTests(string absoluteDirectory) => _rootOverride = absoluteDirectory;
+
         private static string SessionsDir =>
-            Path.Combine(Path.GetDirectoryName(Application.dataPath) ?? ".", "Library", "Molca", "sessions");
+            _rootOverride
+            ?? Path.Combine(Path.GetDirectoryName(Application.dataPath) ?? ".", "Library", "Molca", "sessions");
 
         private static string PathFor(string id) => Path.Combine(SessionsDir, id + ".json");
 

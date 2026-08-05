@@ -55,6 +55,17 @@ namespace Molca.Editor.ContentPackage
             public bool CleanBuild = false;
             public bool BuildPlayerContent = true;
             public List<string> TargetGroups = new List<string>();
+
+            /// <summary>
+            /// Force Addressables to emit its build layout report for this build, restoring the
+            /// project's own setting afterwards.
+            /// </summary>
+            /// <remarks>
+            /// A release cut resolves which bundles belong to which package from that report; without
+            /// it the release would fall back to guessing. Opt-in because the report costs time and a
+            /// player build does not read it.
+            /// </remarks>
+            public bool GenerateBuildLayout = false;
         }
 
         /// <summary>
@@ -66,6 +77,9 @@ namespace Molca.Editor.ContentPackage
             var startTime = EditorApplication.timeSinceStartup;
             var result = new BuildResult();
 
+            // Captured before the try so the finally can restore it unconditionally.
+            bool previousLayoutSetting = ProjectConfigData.GenerateBuildLayout;
+
             try
             {
                 var settings = AddressableAssetSettingsDefaultObject.Settings;
@@ -75,6 +89,9 @@ namespace Molca.Editor.ContentPackage
                     result.Message = "Addressables settings not found. Please configure Addressables first.";
                     return result;
                 }
+
+                if (options.GenerateBuildLayout)
+                    ProjectConfigData.GenerateBuildLayout = true;
 
                 // Set active profile
                 SetActiveProfile(settings, options.ProfileName);
@@ -142,6 +159,8 @@ namespace Molca.Editor.ContentPackage
             }
             finally
             {
+                ProjectConfigData.GenerateBuildLayout = previousLayoutSetting;
+
                 // Always notify build completed
                 OnBuildCompleted?.Invoke(result);
             }

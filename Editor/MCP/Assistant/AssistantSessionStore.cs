@@ -13,10 +13,23 @@ namespace Molca.Editor.Mcp.Assistant
     /// </summary>
     public static class AssistantSessionStore
     {
+        private static string _rootOverride;
+
+        /// <summary>
+        /// Redirects the session file to a temp directory for tests, mirroring
+        /// <see cref="AssistantMemoryStore.OverrideRootForTests"/>. Without this a test that exercises
+        /// save/clear round-trips writes over — and then deletes — the developer's live conversation, which
+        /// is exactly what happened before this seam existed. Pass <c>null</c> to restore the real path.
+        /// </summary>
+        /// <param name="absoluteDirectory">Directory to hold the session file, or null for the default.</param>
+        public static void OverrideRootForTests(string absoluteDirectory) => _rootOverride = absoluteDirectory;
+
         private static string SessionPath =>
-            Path.Combine(
-                Path.GetDirectoryName(Application.dataPath) ?? ".",
-                "Library", "Molca", "assistant-session.json");
+            _rootOverride != null
+                ? Path.Combine(_rootOverride, "assistant-session.json")
+                : Path.Combine(
+                    Path.GetDirectoryName(Application.dataPath) ?? ".",
+                    "Library", "Molca", "assistant-session.json");
 
         /// <summary>Writes the current conversation to disk, replacing any prior session.</summary>
         public static void Save(

@@ -165,6 +165,12 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("Maximum HTTP attempts per model call, including the first (1 disables retry). A transient 429/5xx/timeout is retried with backoff up to this cap before the turn surfaces an error.")]
         [SerializeField] private int retryMaxAttempts = 3;
 
+        [Tooltip("Seconds to wait for the model to START responding. With streaming on, this bounds only the wait for the first token — a response that keeps streaming is never cut off, however long it runs. With streaming off there is no progress signal, so this bounds the whole exchange and may need raising for a reasoning model on a large context.")]
+        [SerializeField] private int requestTimeoutSeconds = 180;
+
+        [Tooltip("Streaming only: the longest gap tolerated between streamed chunks before the response is treated as stalled and retried. This is what makes long turns safe — progress, not total elapsed time, decides whether the model is still working. 0 disables stall detection (a wedged stream would then hang until you press Stop).")]
+        [SerializeField] private int streamStallTimeoutSeconds = 90;
+
         [Tooltip("Stop a turn after the model issues this many identical tool calls (same name + arguments). Guards against an unproductive loop burning every tool round; the turn stays resumable via Continue.")]
         [SerializeField] private int loopBreakThreshold = 4;
 
@@ -361,6 +367,19 @@ namespace Molca.Editor.Mcp.Assistant
         /// resumable notice, clamped to a safe range (Sprint 68).
         /// </summary>
         public int LoopBreakThreshold => Mathf.Clamp(loopBreakThreshold, 2, 20);
+
+        /// <summary>
+        /// Seconds allowed for the model to begin responding. Bounds only the time-to-first-token when
+        /// streaming; bounds the whole exchange when not. Clamped to 15…1800.
+        /// </summary>
+        public int RequestTimeoutSeconds => Mathf.Clamp(requestTimeoutSeconds, 15, 1800);
+
+        /// <summary>
+        /// Streaming only: longest tolerated gap between streamed chunks before the attempt is treated as
+        /// stalled. Clamped to 15…900; <c>0</c> is preserved to mean "no stall detection".
+        /// </summary>
+        public int StreamStallTimeoutSeconds =>
+            streamStallTimeoutSeconds <= 0 ? 0 : Mathf.Clamp(streamStallTimeoutSeconds, 15, 900);
 
         /// <summary>
         /// Per-tool-result character ceiling, clamped to a safe range (Sprint 68). A result longer than this is
@@ -569,12 +588,13 @@ namespace Molca.Editor.Mcp.Assistant
         {
             var key = AssistantApiAuth.GetKey(provider);
             var attempts = RetryMaxAttempts;
+            var timeouts = new LlmTimeouts(RequestTimeoutSeconds, StreamStallTimeoutSeconds);
             return provider switch
             {
-                LlmProviderKind.Anthropic => new AnthropicLlmProvider(key, attempts),
-                LlmProviderKind.OpenAI => new OpenAiCompatibleLlmProvider(BaseUrl, key, LlmProviderKind.OpenAI, requireApiKey: true, maxAttempts: attempts),
+                LlmProviderKind.Anthropic => new AnthropicLlmProvider(key, attempts, timeouts),
+                LlmProviderKind.OpenAI => new OpenAiCompatibleLlmProvider(BaseUrl, key, LlmProviderKind.OpenAI, requireApiKey: true, maxAttempts: attempts, timeouts: timeouts),
                 // Local (Ollama): same OpenAI wire format, optional key (the header is omitted when blank).
-                LlmProviderKind.Local => new OpenAiCompatibleLlmProvider(BaseUrl, key, LlmProviderKind.Local, requireApiKey: false, maxAttempts: attempts),
+                LlmProviderKind.Local => new OpenAiCompatibleLlmProvider(BaseUrl, key, LlmProviderKind.Local, requireApiKey: false, maxAttempts: attempts, timeouts: timeouts),
                 LlmProviderKind.MolcaFree => new OpenAiCompatibleLlmProvider(
                     MolcaFreeBaseUrl,
                     DevEntitlementStore.LoadEffective(),
@@ -584,7 +604,8 @@ namespace Molca.Editor.Mcp.Assistant
                     additionalHeaders: new Dictionary<string, string>
                     {
                         ["X-Molca-Machine-Id"] = SystemInfo.deviceUniqueIdentifier
-                    }),
+                    },
+                    timeouts: timeouts),
                 _ => throw new NotImplementedException(
                     $"LLM provider '{provider}' is not implemented in this release.")
             };

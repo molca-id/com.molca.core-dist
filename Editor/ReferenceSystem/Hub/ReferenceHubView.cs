@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Molca.Editor.Hub;
 using Molca.Editor.ReferenceSystem.Repair;
 using Molca.Editor.UI;
 using Molca.Editor.UI.Components;
@@ -30,10 +31,16 @@ namespace Molca.Editor.ReferenceSystem.Hub
     /// tab switch: this view subscribes on <see cref="AttachToPanelEvent"/> and unsubscribes on
     /// <see cref="DetachFromPanelEvent"/> without ever cancelling.</para>
     ///
+    /// <para>The tab opts into <c>cacheContent</c>, so the view is hidden rather than detached on a tab
+    /// switch and attach fires exactly once in its life. Anything that has to happen on every *activation*
+    /// — consuming <see cref="PendingSiteKey"/>, re-reading state another surface may have changed —
+    /// therefore belongs in <see cref="IMolcaHubCachedView.OnWorkspaceActivated"/>, which the workspace
+    /// host calls each time this view is shown again, and not in the attach handler.</para>
+    ///
     /// <para>The workspace never scans on open. Building a snapshot can open scenes and take real time, and
     /// looking at a tab is not a request to do that; the header's actions are.</para>
     /// </remarks>
-    public sealed class ReferenceHubView : VisualElement
+    public sealed class ReferenceHubView : VisualElement, IMolcaHubCachedView
     {
         private const string UssPath =
             "Packages/com.molca.core/Editor/ReferenceSystem/Hub/ReferenceHubView.uss";
@@ -179,13 +186,33 @@ namespace Molca.Editor.ReferenceSystem.Hub
         {
             Unsubscribe();
             Subscribe();
-            ConsumePendingSelection();
-            Refresh();
+            Activate();
 
             // The Runtime view reads live registry state, which changes without any editor event to
             // subscribe to — a provider registering mid-play raises nothing the Hub can hear. Poll,
             // but only while it is actually on screen during play, so an idle Hub costs nothing.
             schedule.Execute(RefreshLiveRuntimeView).Every(RuntimePollMilliseconds);
+        }
+
+        /// <summary>
+        /// Re-activation hook for the Hub's workspace cache: this view is hidden rather than detached on a
+        /// tab switch, so attach cannot be used as an "I am on screen again" signal.
+        /// </summary>
+        /// <remarks>
+        /// Without this, <see cref="ReferenceHubWorkspace.Open"/> would land on the tab but never select the
+        /// requested site for as long as the built view stayed in the cache — "Open in References" would
+        /// work once and then quietly stop.
+        /// </remarks>
+        void IMolcaHubCachedView.OnWorkspaceActivated() => Activate();
+
+        /// <summary>
+        /// The work that belongs to *being shown*, as opposed to being constructed: take any pending
+        /// deep link, then re-render against whatever the session holds now.
+        /// </summary>
+        private void Activate()
+        {
+            ConsumePendingSelection();
+            Refresh();
         }
 
         /// <summary>How often the Runtime view re-reads the live registry while playing.</summary>

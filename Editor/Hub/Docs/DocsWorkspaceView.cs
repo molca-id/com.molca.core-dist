@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Molca.Editor.UI;
 using Molca.Editor.UI.Components;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -53,6 +54,9 @@ namespace Molca.Editor.Hub.Docs
 
         internal DocsWorkspaceView()
         {
+            // A hostable view carries its own design language rather than inheriting the Hub's: the editor
+            // design language allows this same element to be hosted standalone, and Apply is idempotent.
+            MolcaEditorUi.Apply(this);
             AddToClassList("molca-hub-docs-workspace");
             style.flexGrow = 1;
 

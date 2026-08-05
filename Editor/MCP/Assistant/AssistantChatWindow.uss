@@ -221,10 +221,9 @@
     flex-grow: 1;
     flex-shrink: 1;
     white-space: normal;
-    min-height: 40px;
-    max-height: 120px;
+    min-height: 32px;
+    max-height: 180px;
     min-width: 0;
-    overflow: hidden;
     margin: 0;
 }
 
@@ -234,17 +233,96 @@
     margin-top: 5px;
 }
 
-.chat-mode-field {
-    width: 70px;
+/* Queued-message slot (Sprint 91.1b): a message typed while a turn runs, auto-sent on completion. */
+.chat-queued-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 4px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background-color: var(--row-bg-user);
+    border-left-width: 2px;
+    border-left-color: var(--user-accent);
+}
+
+.chat-queued-row__label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    font-size: 10px;
+    color: var(--muted-text);
+    -unity-font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Segmented action-mode control (Sprint 91.1g). */
+.chat-mode-seg {
+    flex-direction: row;
     flex-shrink: 0;
+}
+
+.chat-mode-seg__btn {
     height: 18px;
+    margin: 0;
+    padding: 0 7px;
+    font-size: 10px;
+    border-radius: 0;
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 1px;
+    border-left-width: 0;
+    border-color: var(--composer-edge);
+    color: var(--muted-text);
+}
+
+/* Modifier classes, not :first-child/:last-child — USS supports neither (nor `:not()`, per the note in
+   MolcaHubWindow.uss). The end classes are applied in AssistantComposer.BuildModeControl. */
+.chat-mode-seg__btn--first {
+    border-left-width: 1px;
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+}
+
+.chat-mode-seg__btn--last {
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+}
+
+.chat-mode-seg__btn--selected {
+    background-color: var(--chip-bg);
+    color: var(--chip-label);
+    -unity-font-style: bold;
+}
+
+.chat-mode-seg__btn--auto.chat-mode-seg__btn--selected { color: var(--user-accent); }
+.chat-mode-seg__btn--plan.chat-mode-seg__btn--selected { color: var(--prompt-accent); }
+.chat-mode-seg__btn--all.chat-mode-seg__btn--selected { color: var(--error-accent); }
+
+/* Stat segments (Sprint 91.1f): tokens / cost / cache / reasoning, each tooltipped; click for detail. */
+.chat-stats-row {
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-left: 8px;
+    overflow: hidden;
+}
+
+.chat-stat {
+    font-size: 10px;
+    flex-shrink: 0;
+    margin-right: 8px;
+    -unity-text-align: middle-left;
+    color: var(--muted-text);
 }
 
 .chat-token-estimate {
     font-size: 10px;
-    flex-grow: 1;
     flex-shrink: 1;
-    margin-left: 8px;
+    min-width: 0;
+    overflow: hidden;
     -unity-text-align: middle-left;
     color: var(--muted-text);
 }
@@ -310,6 +388,366 @@
     margin-left: 2px;
     padding-left: 0;
     padding-right: 0;
+}
+
+/* Overflow "+N" chip when the pinned set collapses (Sprint 91.1h). */
+.chat-chip--more {
+    padding-right: 8px;
+    font-size: 10px;
+    color: var(--chip-label);
+    border-width: 0;
+    margin-top: 0;
+    margin-left: 0;
+}
+
+/* ---- Suggestion popup: @ mentions and / commands (Sprint 91.1c/d) ------------------------- */
+
+.chat-suggest {
+    flex-direction: column;
+    background-color: var(--composer-bg);
+    border-width: 1px;
+    border-color: var(--scroll-border);
+    border-radius: 5px;
+    padding: 3px;
+    max-height: 220px;
+}
+
+.chat-suggest__row {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    color: var(--chip-label);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-suggest__row--selected {
+    background-color: var(--chip-bg);
+}
+
+/* ---- Chat pane + artifact canvas (Sprint 92) ------------------------------------------------ */
+
+.chat-pane {
+    flex-direction: column;
+    flex-grow: 1;
+    min-width: 0;
+    padding-right: 4px;
+}
+
+.chat-canvas {
+    flex-direction: column;
+    min-width: 0;
+    padding-left: 4px;
+    border-left-width: 1px;
+    border-left-color: var(--scroll-border);
+}
+
+.chat-canvas__header {
+    flex-direction: row;
+    flex-shrink: 0;
+    margin-bottom: 4px;
+}
+
+.chat-canvas__tabs {
+    flex-direction: row;
+    flex-wrap: wrap;
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+/* A row container (not a Button — see AssistantCanvasView): label + close affordance as siblings. */
+.chat-canvas__tab {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    height: 20px;
+    margin: 0 2px 2px 0;
+    padding: 0 6px 0 8px;
+    font-size: 10px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: var(--composer-edge);
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--muted-text);
+}
+
+/* No color here on purpose: text colour inherits from the tab, so the --active rule tints the label too. */
+.chat-canvas__tab-label {
+    font-size: 10px;
+    -unity-text-align: middle-left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+}
+
+.chat-canvas__tab--active {
+    background-color: var(--chip-bg);
+    color: var(--chip-label);
+    -unity-font-style: bold;
+}
+
+.chat-canvas__tab-close {
+    width: 14px;
+    height: 14px;
+    margin: 0 0 0 5px;
+    padding: 0;
+    font-size: 9px;
+    border-width: 0;
+    border-radius: 7px;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--muted-text);
+}
+
+.chat-canvas__tab-close:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+    color: var(--chip-label);
+}
+
+.molca-light .chat-canvas__tab-close:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+/* The restore chip is a plain Button with no close affordance, so it keeps symmetric padding. */
+.chat-canvas__tab--restore {
+    -unity-font-style: italic;
+    padding: 0 8px;
+}
+
+.chat-canvas__content {
+    flex-grow: 1;
+    min-height: 0;
+    border-width: 1px;
+    border-color: var(--scroll-border);
+    border-radius: 4px;
+    background-color: var(--scroll-bg);
+    padding: 6px;
+}
+
+.chat-canvas__empty,
+.chat-canvas__note {
+    white-space: normal;
+    font-size: 11px;
+    color: var(--muted-text);
+    -unity-font-style: italic;
+    margin-bottom: 4px;
+}
+
+/* Inline artifact card standing in for a molca-* fenced block in the transcript (Sprint 92.3). */
+.chat-artifact-card {
+    flex-direction: row;
+    align-items: center;
+    margin: 3px 0;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: var(--composer-edge);
+    background-color: var(--code-bg);
+}
+
+.chat-artifact-card__icon {
+    flex-shrink: 0;
+    margin-right: 6px;
+    color: var(--accent-text);
+}
+
+.chat-artifact-card__title {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    font-size: 11px;
+    -unity-font-style: bold;
+    color: var(--chip-label);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-artifact-card__open {
+    flex-shrink: 0;
+    height: 18px;
+    font-size: 10px;
+    padding: 0 8px;
+}
+
+/* Workflow proposal panel (Sprint 94.1). */
+.chat-proposal__title {
+    font-size: 12px;
+    -unity-font-style: bold;
+    margin-bottom: 2px;
+}
+
+/* Wraps rather than clipping: the facet summary is long ("…confirms before running") and was truncated. */
+.chat-proposal__facets {
+    font-size: 10px;
+    color: var(--muted-text);
+    margin-bottom: 4px;
+    white-space: normal;
+}
+
+.chat-proposal__issue {
+    font-size: 11px;
+    color: var(--error-accent);
+    white-space: normal;
+    margin-bottom: 2px;
+}
+
+.chat-proposal__issue--warn {
+    color: var(--warn-text);
+}
+
+.chat-proposal__issue--ok {
+    color: var(--accent-text);
+}
+
+.chat-run__diagnostic {
+    font-size: 11px;
+    white-space: normal;
+    margin-top: 2px;
+    color: var(--muted-text);
+}
+
+.chat-proposal__step {
+    flex-direction: row;
+    align-items: center;
+    padding: 3px 4px;
+    margin-bottom: 1px;
+    border-radius: 3px;
+    background-color: var(--row-bg-tool);
+}
+
+.chat-proposal__step-label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-proposal__step-label--unknown {
+    color: var(--error-accent);
+}
+
+.chat-proposal__badge {
+    flex-shrink: 0;
+    font-size: 9px;
+    margin-left: 4px;
+    padding: 0 5px;
+    border-radius: 7px;
+    background-color: var(--chip-bg);
+    color: var(--prompt-accent);
+}
+
+.chat-proposal__badge--irreversible {
+    color: var(--error-accent);
+}
+
+.chat-proposal__critical {
+    flex-shrink: 0;
+    margin-left: 6px;
+    font-size: 10px;
+}
+
+.chat-proposal__actions {
+    flex-direction: row;
+    margin-top: 6px;
+}
+
+/* Run binding panel (Sprint 94.2). */
+.chat-run__status {
+    font-size: 11px;
+    -unity-font-style: bold;
+    margin-bottom: 4px;
+}
+
+.chat-run__status--succeeded { color: var(--assistant-accent); }
+.chat-run__status--failed, .chat-run__status--refused { color: var(--error-accent); }
+.chat-run__status--cancelled, .chat-run__status--interrupted { color: var(--muted-text); }
+
+.chat-run__step--pass {
+    font-size: 11px;
+    color: var(--chip-label);
+}
+
+.chat-run__step--fail {
+    font-size: 11px;
+    color: var(--error-accent);
+}
+
+/* Findings panel rows (Sprint 92.5). */
+.chat-findings {
+    flex-direction: column;
+}
+
+.chat-findings__row {
+    flex-direction: row;
+    margin-bottom: 4px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    border-left-width: 3px;
+    border-left-color: var(--tool-accent);
+    background-color: var(--row-bg-tool);
+}
+
+.chat-findings__row--error {
+    border-left-color: var(--error-accent);
+    background-color: var(--row-bg-error);
+}
+
+.chat-findings__row--warning {
+    border-left-color: var(--prompt-accent);
+    background-color: var(--row-bg-prompt);
+}
+
+.chat-findings__glyph {
+    width: 18px;
+    flex-shrink: 0;
+    -unity-text-align: upper-center;
+}
+
+.chat-findings__body {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.chat-findings__code {
+    font-size: 11px;
+    -unity-font-style: bold;
+    white-space: normal;
+}
+
+.chat-findings__message {
+    font-size: 11px;
+    white-space: normal;
+    color: var(--chip-label);
+}
+
+.chat-findings__fix {
+    font-size: 10px;
+    white-space: normal;
+    margin-top: 2px;
+    color: var(--muted-text);
+}
+
+/* ---- Floating "new messages" jump chip (Sprint 91.2d) -------------------------------------- */
+
+.chat-jump-chip {
+    position: absolute;
+    bottom: 8px;
+    right: 16px;
+    height: 20px;
+    padding: 0 10px;
+    font-size: 10px;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: var(--scroll-border);
+    background-color: var(--composer-bg);
+    color: var(--chip-label);
 }
 
 /* ---- Transcript rows ---------------------------------------------------------------------- */

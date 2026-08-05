@@ -5,6 +5,7 @@ using UnityEditor;
 using UnityEditor.AddressableAssets;
 using UnityEditor.AddressableAssets.Settings;
 using UnityEngine;
+using AddressablesBuildUtility = Molca.Editor.ContentPackage.AddressablesBuildUtility;
 
 namespace Molca.ContentPackage.Editor
 {
@@ -78,19 +79,30 @@ namespace Molca.ContentPackage.Editor
                 return result;
             }
 
-            bool previousLayoutSetting = ProjectConfigData.GenerateBuildLayout;
             try
             {
-                // The graph is built from this report, and a release cut without it would fall back
-                // to guessing which bundles belong to which package -- the exact behaviour this
-                // phase removed. Enabling it here means an author never has to know it exists.
-                ProjectConfigData.GenerateBuildLayout = true;
+                // Through the shared build entry, not AddressableAssetSettings.BuildPlayerContent
+                // directly. Calling the engine here meant a release cut was the one content build that
+                // raised no build-started/completed events, so anything observing content builds --
+                // notifications, and any future observer -- was blind to the build that matters most.
+                //
+                // The layout report is requested rather than toggled by hand: the graph is built from
+                // it, and a release cut without it would fall back to guessing which bundles belong to
+                // which package. Requesting it means an author never has to know it exists, and the
+                // shared entry restores the project's own setting afterwards.
+                var buildResult = AddressablesBuildUtility.BuildAllContent(
+                    new AddressablesBuildUtility.BuildOptions
+                    {
+                        ProfileName = AddressablesBuildUtility.GetActiveProfileName(),
+                        CleanBuild = false, // the staging directory above is already clean
+                        GenerateBuildLayout = true,
+                    });
 
-                AddressableAssetSettings.BuildPlayerContent(out var buildResult);
-
-                if (!string.IsNullOrEmpty(buildResult.Error))
+                if (!buildResult.Success)
                 {
-                    result.Error = buildResult.Error;
+                    result.Error = string.IsNullOrEmpty(buildResult.ErrorMessage)
+                        ? buildResult.Message
+                        : buildResult.ErrorMessage;
                     return result;
                 }
 
@@ -123,10 +135,6 @@ namespace Molca.ContentPackage.Editor
             {
                 result.Error = $"Addressables build failed: {ex.Message}";
                 return result;
-            }
-            finally
-            {
-                ProjectConfigData.GenerateBuildLayout = previousLayoutSetting;
             }
         }
 

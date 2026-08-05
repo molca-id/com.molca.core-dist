@@ -14,12 +14,18 @@ using UnityEngine.UIElements;
 namespace Molca.Editor.Hub.Sections
 {
     /// <summary>
-    /// Read-only Network telemetry section for the Molca Hub Settings workspace.
+    /// Read-only live telemetry section — <b>Network Activity</b> — for the Molca Hub Settings workspace.
     /// </summary>
     /// <remarks>
     /// Placement: <c>Packages/com.molca.core/Editor/Hub/Sections/</c>.
     /// Base class: <see cref="VisualElement"/>.
-    /// Registration: created by <see cref="MolcaHubWindow"/> when the Network rail section is active.
+    /// Registration: created by <see cref="MolcaHubWindow"/> when the Network Activity rail section is active.
+    /// <para>
+    /// Named <b>Network Activity</b>, not "Network", because the Hub also has a <b>Network</b> workspace tab
+    /// (<c>NetworkHubView</c>) and the two are different surfaces: that one authors the route catalog, this
+    /// one watches what the running app is doing. Two rail entries reading "Network" gave the reader no way
+    /// to tell which they wanted.
+    /// </para>
     /// Surfaces live HTTP client counters, the <b>redacted</b> request history, cache size, and
     /// per-streaming-provider connection state. Live data only exists in Play mode while the
     /// <see cref="RuntimeManager"/> is ready; otherwise an idle notice is shown. The section never

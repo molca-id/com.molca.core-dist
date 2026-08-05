@@ -47,6 +47,9 @@ namespace Molca.Editor.Hub
             // The manipulator is attached once here (the pill's contents are rebuilt in Refresh).
             _license = new VisualElement();
             _license.AddToClassList("molca-hub-activity-rail__license");
+            // Placeholder until the first BuildLicenseStatus, which replaces it with the signed-in
+            // identity. The pill is narrow, so the licensee id lives in the tooltip while the label
+            // spends its width on the email — the thing that identifies the person at a glance.
             _license.tooltip = "Developer license — click to manage";
             _license.AddManipulator(new Clickable(() => DevLicenseWindow.Open()));
             Add(_license);
@@ -130,6 +133,10 @@ namespace Molca.Editor.Hub
             label.AddToClassList("molca-hub-activity-rail__license-label");
             _license.Add(label);
 
+            _license.tooltip = status == DevLicenseStatus.Valid && payload != null
+                ? $"Developer license — {LicenseeName(payload)} · licensee {payload.licenseeId}\nClick to manage"
+                : "Developer license — click to manage";
+
             _license.style.display = DisplayStyle.Flex;
             return true;
         }
@@ -143,14 +150,27 @@ namespace Molca.Editor.Hub
             _ => "molca-hub-activity-rail__license-dot--idle",
         };
 
+        /// <summary>
+        /// The pill's caption. A valid entitlement names the <em>person</em> by the verified email on the
+        /// payload, not the licensee id: an id identifies the company that bought the seat, and "who is
+        /// signed in on this machine" is the only question this pill is answering. The licensee id stays
+        /// reachable as the fallback and in Settings ▸ About, which reports both.
+        /// </summary>
         private static string LicenseLabel(DevLicenseStatus status, DevEntitlementPayload payload) => status switch
         {
-            DevLicenseStatus.Valid => $"Licensed · {payload.licenseeId}",
+            DevLicenseStatus.Valid => $"Licensed · {LicenseeName(payload)}",
             DevLicenseStatus.Expired => "License expired",
             DevLicenseStatus.WrongMachine => "License · other machine",
             DevLicenseStatus.Invalid => "License invalid",
             _ => "Not signed in",
         };
+
+        /// <summary>The signed-in developer's email, falling back to the licensee id when none is stored.</summary>
+        private static string LicenseeName(DevEntitlementPayload payload)
+        {
+            if (payload == null) return "unknown";
+            return string.IsNullOrWhiteSpace(payload.email) ? payload.licenseeId : payload.email;
+        }
 
         private VisualElement BuildChip(MolcaHubActivity activity)
         {

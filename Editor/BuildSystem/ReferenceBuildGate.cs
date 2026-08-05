@@ -33,8 +33,10 @@ namespace Molca.Editor
     {
         /// <summary>
         /// Runs early, before player-setting mutations by other callbacks, so an abort needs no restore.
+        /// This is the principle the whole gate band is ordered on; see
+        /// <see cref="MolcaBuildCallbackOrder"/>.
         /// </summary>
-        public int callbackOrder => -1000;
+        public int callbackOrder => MolcaBuildCallbackOrder.ReferenceGate;
 
         // Set by SceneReferenceBuildValidator.Validate so BuildManager's own early gate is not repeated
         // by this callback moments later. Cleared as soon as it is consumed, and never trusted across a

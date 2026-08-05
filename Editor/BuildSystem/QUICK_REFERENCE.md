@@ -39,10 +39,13 @@ BuildManager.Build("development");  // or "staging" / "production"
 
 ## 💻 Command Line Usage
 
+> **No `-quit`.** These entry points gate, build, and then exit Unity themselves with the build's exit
+> code. Passing `-quit` is refused (exit 1) because it would kill the editor before anything is built.
+
 ### Windows
 ```batch
 "C:\Program Files\Unity\Hub\Editor\6000.0.x\Editor\Unity.exe" ^
-  -quit -batchmode -nographics ^
+  -batchmode -nographics ^
   -projectPath "C:\Your\Project\Path" ^
   -buildTarget Win64 ^
   -executeMethod Molca.Editor.CommandLineBuild.BuildProduction ^
@@ -52,7 +55,7 @@ BuildManager.Build("development");  // or "staging" / "production"
 ### macOS/Linux
 ```bash
 /Applications/Unity/.../Unity \
-  -quit -batchmode -nographics \
+  -batchmode -nographics \
   -projectPath "/your/project/path" \
   -buildTarget StandaloneOSX \
   -executeMethod Molca.Editor.CommandLineBuild.BuildProduction \

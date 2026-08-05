@@ -17,8 +17,8 @@ namespace Molca.Editor.Automation.DevPlayer
     /// </summary>
     public sealed class MolcaDevBridgeBuildGuard : IPreprocessBuildWithReport
     {
-        /// <summary>Runs before most preprocessors, after the license/version gates.</summary>
-        public int callbackOrder => -9000;
+        /// <summary>Runs in the gate band, after licensing. See <see cref="MolcaBuildCallbackOrder"/>.</summary>
+        public int callbackOrder => MolcaBuildCallbackOrder.EnvironmentGuard;
 
         /// <summary>The scripting define that gates the dev bridge into a build.</summary>
         public const string DevBuildDefine = "DEVELOPMENT_BUILD";

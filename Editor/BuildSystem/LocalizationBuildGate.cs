@@ -19,13 +19,11 @@ namespace Molca.Editor
         /// <summary>Menu path of the session override toggle.</summary>
         private const string OverrideMenuPath = "Molca/Build/Skip Localization Gate (This Session)";
 
-        // Set by BuildManager immediately before BuildPipeline.BuildPlayer when it has just built the
-        // Addressables content this player ships. One-shot: consumed and cleared by the preprocessor,
-        // and never trusted across builds — a stale latch would silently weaken the gate.
-        private static bool _addressablesContentBuilt;
-
-        /// <summary>Runs after the early reference gate and before Addressables player preparation.</summary>
-        public int callbackOrder => -900;
+        /// <summary>
+        /// Runs after the early reference gate and before Addressables player preparation.
+        /// See <see cref="MolcaBuildCallbackOrder"/> for the bands.
+        /// </summary>
+        public int callbackOrder => MolcaBuildCallbackOrder.LocalizationGate;
 
         /// <summary>
         /// Whether the gate reports blockers without aborting, for this Editor session only.
@@ -41,12 +39,6 @@ namespace Molca.Editor
             set => SessionState.SetBool(OverrideSessionKey, value);
         }
 
-        /// <summary>
-        /// Records that the caller built this player's Addressables content, satisfying the
-        /// production freshness policy without requiring the build-with-player setting.
-        /// </summary>
-        internal static void MarkAddressablesContentBuilt() => _addressablesContentBuilt = true;
-
         /// <summary>Audits the build scope and aborts on blocking findings.</summary>
         /// <param name="report">Unity build report describing options and output target.</param>
         /// <exception cref="BuildFailedException">
@@ -57,8 +49,13 @@ namespace Molca.Editor
             var isDevelopment = report?.summary.options.HasFlag(BuildOptions.Development)
                                 ?? EditorUserBuildSettings.development;
 
-            var contentAlreadyBuilt = _addressablesContentBuilt;
-            _addressablesContentBuilt = false;
+            // Read from the session that owns this build, not from a latch this class holds. A latch
+            // has to be cleared by whoever reads it, and a clear that is ever missed leaves the next
+            // build claiming freshness it did not earn — the one failure mode a gate must not have.
+            // Outside a Molca build (File > Build, CI calling BuildPipeline directly) there is no
+            // session, which reads as "nothing was built for us", the correct conservative answer.
+            var contentAlreadyBuilt = MolcaBuildSession.Current?.HasFact(
+                ContentPackage.AddressablesContentBuildStep.ContentBuiltFact) ?? false;
 
             var request = LocalizationAuditRequest.CreateBuildRequest(!isDevelopment);
             request.AddressablesContentAlreadyBuilt = contentAlreadyBuilt;

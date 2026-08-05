@@ -9,7 +9,7 @@ namespace Molca.Editor.Hub
 {
     /// <summary>
     /// Browser-style workspace tabs for the Hub: builds one icon-bearing tab per resolved workspace, supports
-    /// close/reopen and pinning, measures the strip, and degrades it — icon-only, then an overflow menu — so it
+    /// hide/reshow and pinning, measures the strip, and degrades it — icon-only, then an overflow menu — so it
     /// renders correctly at any provider count and any window width.
     /// </summary>
     /// <remarks>
@@ -18,8 +18,15 @@ namespace Molca.Editor.Hub
     /// anchored Settings home tab is synthesized here (it is not provider-contributed) and never collapses to
     /// icon-only, never overflows, and is always effectively pinned. The fitting decision itself is the pure
     /// static <see cref="Fit"/>, so it is testable without a panel. The strip also owns the tab-management
-    /// affordances — a close button, per-tab context menu, and always-visible tabs menu — so closing, reopening,
-    /// and pinning never requires a trip to Settings ▸ Editor. Editor-only; main thread.
+    /// affordances — a hide button, per-tab context menu, and always-visible tabs menu — so hiding, reshowing,
+    /// and pinning never requires a trip to Settings ▸ Editor.
+    /// <para>
+    /// One word for one operation: the <c>×</c> on a tab, the context menu's <b>Hide tab</b>, the tabs
+    /// menu's checkmarks and the Settings card all <em>hide</em>, because that is what
+    /// <see cref="MolcaHubWorkspaceRegistry.SetHidden"/> does — a persisted per-project visibility change,
+    /// not a dismissal. Nothing here is called "close".
+    /// </para>
+    /// Editor-only; main thread.
     /// </remarks>
     internal sealed class MolcaHubTabStrip : VisualElement
     {
@@ -241,10 +248,13 @@ namespace Molca.Editor.Hub
 
             if (closable)
             {
-                var close = new Button(() => CloseTab(workspaceId))
+                // "Hide", not "Close": this is a persisted per-project visibility change, not a dismissal
+                // of a transient window. The tabs menu, the context menu, the Settings card and
+                // MolcaHubWorkspaceRegistry.SetHidden all use the same word for the same operation.
+                var close = new Button(() => HideTab(workspaceId))
                 {
                     text = "×",
-                    tooltip = "Close " + label,
+                    tooltip = "Hide " + label,
                 };
                 close.AddToClassList("molca-hub-workspace-tab__close");
                 close.RegisterCallback<ClickEvent>(evt => evt.StopPropagation());
@@ -647,21 +657,47 @@ namespace Molca.Editor.Hub
         private static float Width(IReadOnlyList<TabMeasure> tabs, bool iconOnly, string activeId)
         {
             var total = 0f;
+            var left = 0;
+            var right = 0;
+
             foreach (var tab in tabs)
             {
                 var collapsed = iconOnly
                                 && !tab.Anchored
                                 && !string.Equals(tab.Id, activeId, StringComparison.Ordinal);
                 total += collapsed ? IconOnlyTabWidth : tab.FullWidth;
+
+                if (tab.RightAnchored) right++;
+                else if (!tab.Anchored) left++;
             }
 
-            if (tabs.Count > 1) total += (tabs.Count - 1) * DividerWidth;
-            return total;
+            return total + DividerCount(left, right) * DividerWidth;
         }
 
-        // ---- Browser close behavior -----------------------------------------------------------------
+        /// <summary>
+        /// How many dividers <see cref="Build"/> actually emits for a given tab split, so the fit models the
+        /// strip it is fitting.
+        /// </summary>
+        /// <param name="leftItems">Left-aligned provider tabs (the anchored Settings tab is not one).</param>
+        /// <param name="rightItems">Right-anchored provider tabs.</param>
+        /// <returns>The divider count.</returns>
+        /// <remarks>
+        /// Every left tab carries a *leading* divider — including the first, which separates it from
+        /// Settings — while the right-anchored run only gets dividers *between* its members, because the
+        /// flexible spacer already separates it from everything to its left. A plain "tabs minus one"
+        /// over-counted by exactly one divider whenever a right-anchored tab (Docs) was present.
+        /// </remarks>
+        internal static int DividerCount(int leftItems, int rightItems) =>
+            leftItems + Mathf.Max(0, rightItems - 1);
 
-        private void CloseTab(string workspaceId)
+        // ---- Browser-style hide behavior --------------------------------------------------------------
+
+        /// <summary>
+        /// Hides a workspace tab for this project, selecting a browser-style neighbour first when the tab
+        /// being hidden is the active one.
+        /// </summary>
+        /// <param name="workspaceId">The workspace to hide; Settings and pinned tabs are ignored.</param>
+        private void HideTab(string workspaceId)
         {
             if (string.IsNullOrEmpty(workspaceId)
                 || string.Equals(workspaceId, MolcaHubWorkspaceRegistry.SettingsId, StringComparison.Ordinal)
@@ -670,7 +706,7 @@ namespace Molca.Editor.Hub
 
             if (string.Equals(workspaceId, _activeId, StringComparison.Ordinal))
             {
-                var fallback = NextAfterClose(OrderedTabIds(), workspaceId, _activeId);
+                var fallback = NextAfterHide(OrderedTabIds(), workspaceId, _activeId);
                 if (!string.Equals(fallback, workspaceId, StringComparison.Ordinal))
                     _onSelect?.Invoke(fallback);
             }
@@ -691,12 +727,17 @@ namespace Molca.Editor.Hub
         }
 
         /// <summary>
-        /// Chooses the browser-style selection after a tab closes: an inactive close keeps the current tab;
-        /// an active close prefers the tab immediately to its right, then the one to its left, then Settings.
+        /// Chooses the browser-style selection after a tab is hidden: hiding an inactive tab keeps the
+        /// current one; hiding the active tab prefers the tab immediately to its right, then the one to its
+        /// left, then Settings.
         /// </summary>
-        internal static string NextAfterClose(IReadOnlyList<string> orderedIds, string closingId, string activeId)
+        /// <param name="orderedIds">Every tab id in render order, Settings first.</param>
+        /// <param name="hidingId">The tab being hidden.</param>
+        /// <param name="activeId">The currently active tab.</param>
+        /// <returns>The workspace id to select.</returns>
+        internal static string NextAfterHide(IReadOnlyList<string> orderedIds, string hidingId, string activeId)
         {
-            if (!string.Equals(closingId, activeId, StringComparison.Ordinal))
+            if (!string.Equals(hidingId, activeId, StringComparison.Ordinal))
                 return string.IsNullOrEmpty(activeId) ? MolcaHubWorkspaceRegistry.SettingsId : activeId;
 
             if (orderedIds == null || orderedIds.Count == 0)
@@ -705,7 +746,7 @@ namespace Molca.Editor.Hub
             var index = -1;
             for (int i = 0; i < orderedIds.Count; i++)
             {
-                if (!string.Equals(orderedIds[i], closingId, StringComparison.Ordinal)) continue;
+                if (!string.Equals(orderedIds[i], hidingId, StringComparison.Ordinal)) continue;
                 index = i;
                 break;
             }
@@ -869,7 +910,7 @@ namespace Molca.Editor.Hub
 
             evt.menu.AppendAction(pinned ? "Unpin" : "Pin",
                 _ => MolcaHubWorkspaceRegistry.SetPinned(workspaceId, !pinned));
-            evt.menu.AppendAction("Close tab", _ => CloseTab(workspaceId),
+            evt.menu.AppendAction("Hide tab", _ => HideTab(workspaceId),
                 pinned ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
             evt.menu.AppendSeparator();
             evt.menu.AppendAction("Manage tabs…", _ => _onManageTabs?.Invoke(),

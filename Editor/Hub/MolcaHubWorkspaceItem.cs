@@ -71,9 +71,15 @@ namespace Molca.Editor.Hub
         /// <remarks>
         /// Opting in changes the view's lifecycle contract: the view must tolerate being hidden while still
         /// attached — its work keeps running, and it will <em>not</em> receive a <c>DetachFromPanelEvent</c>
-        /// between activations. Detach still fires when the cached view is evicted (the cache keeps a small
-        /// number of views) or when the toolbar is rebuilt, so cleanup code is still required, just no longer
-        /// guaranteed on every switch. Defaults to <c>false</c>, which is exactly today's behaviour.
+        /// between activations. Detach still fires when the cached view is evicted (LRU overflow, or this
+        /// tab being hidden), so cleanup code is still required, just no longer guaranteed on every switch.
+        /// Defaults to <c>false</c>, which is exactly today's behaviour.
+        /// <para>
+        /// The corollary that is easy to miss: <c>AttachToPanelEvent</c> now fires <em>exactly once</em> for
+        /// the view's whole life, so attach is not a "shown again" signal. Anything that must run per
+        /// activation — consuming a pending deep link, re-reading state another surface changed while this
+        /// view was hidden — belongs in <c>IMolcaHubCachedView.OnWorkspaceActivated</c> instead.
+        /// </para>
         /// </remarks>
         public bool CacheContent { get; }
 

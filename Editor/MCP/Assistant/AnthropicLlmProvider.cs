@@ -40,14 +40,16 @@ namespace Molca.Editor.Mcp.Assistant
 
         private readonly string _apiKey;
         private readonly int _maxAttempts;
+        private readonly LlmTimeouts _timeouts;
 
         /// <summary>Creates the provider with an API key (resolved by the caller from <see cref="AssistantApiAuth"/>).</summary>
         /// <param name="apiKey">Anthropic API key.</param>
         /// <param name="maxAttempts">Maximum total HTTP attempts per call including the first (Sprint 68); <c>1</c> disables retry.</param>
-        public AnthropicLlmProvider(string apiKey, int maxAttempts = 1)
+        public AnthropicLlmProvider(string apiKey, int maxAttempts = 1, LlmTimeouts? timeouts = null)
         {
             _apiKey = apiKey;
             _maxAttempts = maxAttempts < 1 ? 1 : maxAttempts;
+            _timeouts = timeouts ?? LlmTimeouts.Default;
         }
 
         /// <inheritdoc/>
@@ -81,9 +83,10 @@ namespace Molca.Editor.Mcp.Assistant
             var result = await AssistantHttp.PostAsync(
                 Endpoint, headers, body, streaming,
                 streaming ? (Action<string>)(line => accumulator.OnLine(line)) : null,
-                timeoutSeconds: 120, cancellationToken,
+                timeoutSeconds: _timeouts.FirstResponseSeconds, cancellationToken,
                 maxAttempts: _maxAttempts,
-                onStreamRestart: streaming ? () => accumulator = new AnthropicStreamAccumulator(onTextDelta) : null);
+                onStreamRestart: streaming ? () => accumulator = new AnthropicStreamAccumulator(onTextDelta) : null,
+                stallTimeoutSeconds: _timeouts.StallSeconds);
 
             if (!result.IsSuccess)
                 throw new Exception(ExtractError(result.Body, result.StatusCode));

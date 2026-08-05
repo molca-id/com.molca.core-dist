@@ -23,11 +23,15 @@ namespace Molca.Editor.Networking.Validation
     /// </remarks>
     public sealed class NetworkCatalogBuildValidator : IPreprocessBuildWithReport
     {
-        /// <summary>
-        /// Runs after most other preprocessors so its message lands near the end of the build log,
-        /// where a reader looks first.
-        /// </summary>
-        public int callbackOrder => 100;
+        /// <summary>Runs in the gate band, after localization and before colour theme.</summary>
+        /// <remarks>
+        /// This used to be <c>+100</c>, chosen so the message landed near the end of the build log. That
+        /// put a callback which can throw <c>BuildFailedException</c> after every other callback's side
+        /// effects — including the one that writes a generated file into <c>Assets/</c>, whose cleanup
+        /// runs in a postprocessor that a throw skips entirely. Log position is not worth an abort that
+        /// leaves the project dirty; see <see cref="Molca.Editor.MolcaBuildCallbackOrder"/> for the bands.
+        /// </remarks>
+        public int callbackOrder => Molca.Editor.MolcaBuildCallbackOrder.NetworkCatalogGate;
 
         /// <summary>
         /// Validates the project's catalog and reports the result to the build log.

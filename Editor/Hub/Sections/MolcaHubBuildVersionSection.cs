@@ -50,8 +50,41 @@ namespace Molca.Editor.Hub.Sections
         private Label _playerSettingsVersionLabel;
         private Button _buildAllButton;
         private Button _releaseButton;
+        private VisualElement _invalidVersionNotice;
+        private VisualElement _outcomeStrip;
+        private Label _outcomeLabel;
 
         private int _selectedProfileIndex;
+
+        /// <summary>
+        /// What the last build started from this Hub did, so the section can say so.
+        /// </summary>
+        /// <remarks>
+        /// Static because the build outlives the view: a build takes minutes, during which the section
+        /// may be rebuilt (a tab switch, a domain reload from a target switch) and the instance that
+        /// started it is gone. Until this existed, the section dispatched a multi-minute operation and
+        /// then reported nothing at all — the outcome went to the console, which is the surface the Hub
+        /// exists to replace. A build that had silently aborted in a pre-build gate looked, from here,
+        /// exactly like one that had never been clicked.
+        /// </remarks>
+        private static BuildOutcome _lastOutcome;
+
+        /// <summary>The result of one build attempt, for display.</summary>
+        private readonly struct BuildOutcome
+        {
+            public string Profile { get; }
+            public bool Succeeded { get; }
+            public string Detail { get; }
+            public System.DateTime FinishedAt { get; }
+
+            public BuildOutcome(string profile, bool succeeded, string detail)
+            {
+                Profile = profile;
+                Succeeded = succeeded;
+                Detail = detail;
+                FinishedAt = System.DateTime.Now;
+            }
+        }
 
         internal MolcaHubBuildVersionSection(MolcaHubState state)
         {
@@ -175,7 +208,11 @@ namespace Molca.Editor.Hub.Sections
             _buildSegment.EnableInClassList("molca-hub-bv-segment--active", resolved == BuildView);
             _versionSegment.EnableInClassList("molca-hub-bv-segment--active", resolved == VersionView);
 
+            // Elements owned by the outgoing view are gone; drop the handles so the refresh loop does
+            // not style a detached element.
             _viewContainer.Clear();
+            _invalidVersionNotice = null;
+
             if (resolved == BuildView)
                 BuildBuildView();
             else
@@ -385,7 +422,7 @@ namespace Molca.Editor.Hub.Sections
             card.body.Add(BuildProfileField(profile, "androidArchitectures", "Architectures"));
 
             var useSigning = profile.FindPropertyRelative("useCustomSigning");
-            card.body.Add(BuildToggleRow(profile, "useCustomSigning", "Use Custom Signing"));
+            card.body.Add(BuildToggleRow(profile, "useCustomSigning", "Use Custom Signing", out var signingToggle));
 
             var signing = new VisualElement();
             signing.AddToClassList("molca-hub-bv-signing");
@@ -404,8 +441,10 @@ namespace Molca.Editor.Hub.Sections
 
             void RefreshSigning() => signing.style.display = useSigning.boolValue ? DisplayStyle.Flex : DisplayStyle.None;
             RefreshSigning();
-            // Track the toggle so the signing block reveals/hides without a full rebuild.
-            signing.schedule.Execute(RefreshSigning).Every(200);
+            // Driven by the toggle, not by a second timer. This used to poll every 200ms alongside the
+            // section's own 250ms label poll — two independent clocks in one view, to reveal a panel
+            // whose one trigger is sitting right there.
+            signingToggle.RegisterValueChangedCallback(_ => RefreshSigning());
 
             card.body.Add(BuildProfileField(profile, "defineSymbols", "Define Symbols"));
             return card.root;
@@ -459,7 +498,12 @@ namespace Molca.Editor.Hub.Sections
             _profiles.InsertArrayElementAtIndex(index);
             var element = _profiles.GetArrayElementAtIndex(index);
             element.FindPropertyRelative("name").stringValue = "New Profile";
-            element.FindPropertyRelative("target").enumValueIndex = (int)BuildTarget.StandaloneWindows64;
+            // intValue, not enumValueIndex: BuildTarget is non-contiguous, so enumValueIndex is a
+            // position in the popup list rather than the enum's value. Assigning
+            // (int)StandaloneWindows64 = 19 to it selected whatever happens to be declared 20th in
+            // UnityEditor.BuildTarget — a retired console — and every new profile started life
+            // pointing at it. The rail already reads the live object for exactly this reason.
+            element.FindPropertyRelative("target").intValue = (int)BuildTarget.StandaloneWindows64;
             element.FindPropertyRelative("outputPath").stringValue = "Builds";
             _buildSerialized.ApplyModifiedProperties();
 
@@ -505,6 +549,7 @@ namespace Molca.Editor.Hub.Sections
             _versionSerialized.Update();
 
             _viewContainer.Add(BuildVersionSummary());
+            _viewContainer.Add(BuildInvalidVersionNotice());
             _viewContainer.Add(BuildVersionFieldsCard());
             _viewContainer.Add(BuildIncrementButtons());
 
@@ -513,7 +558,9 @@ namespace Molca.Editor.Hub.Sections
             var warnIcon = new Label("⚠");
             warnIcon.AddToClassList("molca-hub-bv-warning__icon");
             warning.Add(warnIcon);
-            var warnText = new Label("Build number and changelog entries are only updated when a build runs (Build Manager).");
+            var warnText = new Label(
+                "The build number advances and a changelog entry is written after a build succeeds — " +
+                "never for a build that failed or was aborted by a pre-build gate.");
             warnText.AddToClassList("molca-hub-bv-warning__text");
             warning.Add(warnText);
             _viewContainer.Add(warning);
@@ -547,6 +594,44 @@ namespace Molca.Editor.Hub.Sections
             RefreshDynamicLabels();
 
             return summary;
+        }
+
+        /// <summary>
+        /// The warning shown when the authored version cannot produce a build.
+        /// </summary>
+        /// <remarks>
+        /// The Inspector this view replaced said so; this one did not, so the only surface that told you
+        /// a build number of 0 was invalid was the one the project was moving away from. The same
+        /// condition is a Doctor error (<c>version-settings-valid</c>) and therefore aborts the build —
+        /// finding that out at the point of authoring beats finding it out minutes into a build.
+        /// </remarks>
+        private VisualElement BuildInvalidVersionNotice()
+        {
+            var notice = new VisualElement();
+            notice.AddToClassList("molca-hub-bv-warning");
+
+            var icon = new Label("⚠");
+            icon.AddToClassList("molca-hub-bv-warning__icon");
+            notice.Add(icon);
+
+            var text = new Label(
+                "Version is invalid: Major, Minor and Patch must be zero or greater, and Build must be " +
+                "at least 1. Builds abort until this is fixed.");
+            text.AddToClassList("molca-hub-bv-warning__text");
+            notice.Add(text);
+
+            _invalidVersionNotice = notice;
+            RefreshInvalidVersionNotice();
+            return notice;
+        }
+
+        private void RefreshInvalidVersionNotice()
+        {
+            if (_invalidVersionNotice == null)
+                return;
+
+            _invalidVersionNotice.style.display =
+                _versionSettings.IsValidVersion() ? DisplayStyle.None : DisplayStyle.Flex;
         }
 
         private VisualElement BuildVersionFieldsCard()
@@ -586,38 +671,41 @@ namespace Molca.Editor.Hub.Sections
             return row;
         }
 
+        /// <summary>
+        /// The three bump buttons, each delegating to <see cref="VersionSettings"/>'s own increment.
+        /// </summary>
+        /// <remarks>
+        /// These used to reproduce the SemVer reset rules in raw <see cref="SerializedProperty"/>
+        /// arithmetic — a second implementation of <c>IncrementMinor</c>/<c>IncrementMajor</c> that
+        /// happened to agree with the model, and that nothing would have caught if it stopped agreeing.
+        /// One surface, one implementation.
+        /// </remarks>
         private VisualElement BuildIncrementButtons()
         {
             var row = new VisualElement();
             row.AddToClassList("molca-hub-bv-actions");
 
-            row.Add(MakeIncrementButton("Increment Patch", () =>
-            {
-                var patch = _versionSerialized.FindProperty("patch");
-                patch.intValue++;
-            }));
-            row.Add(MakeIncrementButton("Increment Minor", () =>
-            {
-                _versionSerialized.FindProperty("minor").intValue++;
-                _versionSerialized.FindProperty("patch").intValue = 0;
-            }));
-            row.Add(MakeIncrementButton("Increment Major", () =>
-            {
-                _versionSerialized.FindProperty("major").intValue++;
-                _versionSerialized.FindProperty("minor").intValue = 0;
-                _versionSerialized.FindProperty("patch").intValue = 0;
-            }));
+            row.Add(MakeIncrementButton("Increment Patch", v => v.IncrementPatch()));
+            row.Add(MakeIncrementButton("Increment Minor", v => v.IncrementMinor()));
+            row.Add(MakeIncrementButton("Increment Major", v => v.IncrementMajor()));
 
             return row;
         }
 
-        private Button MakeIncrementButton(string text, Action mutate)
+        private Button MakeIncrementButton(string text, Action<VersionSettings> mutate)
         {
             var button = new Button(() =>
             {
-                _versionSerialized.Update();
-                mutate();
+                // Flush in-flight field edits to the asset first: the increments below operate on the
+                // object, and an unapplied SerializedObject edit would be overwritten by the Update
+                // afterwards rather than counted.
                 _versionSerialized.ApplyModifiedProperties();
+
+                Undo.RecordObject(_versionSettings, text);
+                mutate(_versionSettings);
+                EditorUtility.SetDirty(_versionSettings);
+
+                _versionSerialized.Update();
                 SelectView(VersionView); // refresh summary + bound fields
             })
             { text = text };
@@ -691,7 +779,6 @@ namespace Molca.Editor.Hub.Sections
             var foldout = new Foldout { text = "Advanced", value = false };
             foldout.AddToClassList("molca-hub-bv-foldout");
 
-            foldout.Add(BuildVersionPropertyField("autoSync", "Auto-Sync"));
             foldout.Add(BuildVersionPropertyField("autoIncrementBuildNumberOnBuild", "Auto Increment Build"));
             foldout.Add(BuildVersionPropertyField("autoAppendChangelogOnBuild", "Auto Changelog"));
             foldout.Add(BuildVersionPropertyField("changelogPath", "Changelog Path"));
@@ -701,7 +788,7 @@ namespace Molca.Editor.Hub.Sections
 
             var sync = new Button(() =>
             {
-                _versionSettings.SyncToUnityPlayerSettings(force: true);
+                _versionSettings.SyncToUnityPlayerSettings();
                 EditorUtility.SetDirty(_versionSettings);
             })
             { text = "Sync Now" };
@@ -767,15 +854,56 @@ namespace Molca.Editor.Hub.Sections
         // Footer + shared helpers
         // -------------------------------------------------------------------
 
+        /// <summary>The strip that reports what the last build from this Hub did.</summary>
+        private VisualElement BuildOutcomeStrip()
+        {
+            _outcomeStrip = new VisualElement();
+            _outcomeStrip.AddToClassList("molca-hub-bv-warning");
+
+            _outcomeLabel = new Label();
+            _outcomeLabel.AddToClassList("molca-hub-bv-warning__text");
+            _outcomeStrip.Add(_outcomeLabel);
+
+            RefreshOutcomeStrip();
+            return _outcomeStrip;
+        }
+
+        private void RefreshOutcomeStrip()
+        {
+            if (_outcomeStrip == null)
+                return;
+
+            var outcome = _lastOutcome;
+            if (string.IsNullOrEmpty(outcome.Profile))
+            {
+                _outcomeStrip.style.display = DisplayStyle.None;
+                return;
+            }
+
+            _outcomeStrip.style.display = DisplayStyle.Flex;
+            _outcomeLabel.text =
+                $"{(outcome.Succeeded ? "✓" : "✕")}  {outcome.Profile} · " +
+                $"{outcome.FinishedAt:HH:mm:ss} · {outcome.Detail}";
+        }
+
+        /// <summary>Records an outcome for the strip to report.</summary>
+        /// <param name="profile">The profile that was built.</param>
+        /// <param name="succeeded">Whether the build produced a player.</param>
+        /// <param name="detail">One line saying what happened.</param>
+        private static void RecordOutcome(string profile, bool succeeded, string detail) =>
+            _lastOutcome = new BuildOutcome(profile, succeeded, detail);
+
         private void BuildFooter()
         {
+            Add(BuildOutcomeStrip());
+
             var footer = new VisualElement();
             footer.AddToClassList("molca-hub-bv-footer");
             Add(footer);
 
             var sync = new Button(() =>
             {
-                _versionSettings.SyncToUnityPlayerSettings(force: true);
+                _versionSettings.SyncToUnityPlayerSettings();
                 EditorUtility.SetDirty(_versionSettings);
                 RefreshDynamicLabels();
             })
@@ -813,7 +941,17 @@ namespace Molca.Editor.Hub.Sections
             return row;
         }
 
-        private VisualElement BuildToggleRow(SerializedProperty profile, string relativeName, string label)
+        private VisualElement BuildToggleRow(SerializedProperty profile, string relativeName, string label) =>
+            BuildToggleRow(profile, relativeName, label, out _);
+
+        /// <summary>Builds a labelled toggle row, exposing the toggle for callers that must react to it.</summary>
+        /// <param name="profile">The profile element being edited.</param>
+        /// <param name="relativeName">The boolean property's name within the profile.</param>
+        /// <param name="label">The row's label.</param>
+        /// <param name="toggle">The created toggle.</param>
+        /// <returns>The row.</returns>
+        private VisualElement BuildToggleRow(
+            SerializedProperty profile, string relativeName, string label, out Toggle toggle)
         {
             var row = new VisualElement();
             row.AddToClassList("molca-hub-bv-toggle-row");
@@ -823,7 +961,7 @@ namespace Molca.Editor.Hub.Sections
             row.Add(text);
 
             var property = profile.FindPropertyRelative(relativeName);
-            var toggle = new Toggle();
+            toggle = new Toggle();
             toggle.AddToClassList("molca-hub-bv-toggle");
             toggle.BindProperty(property);
             toggle.RegisterCallback<SerializedPropertyChangeEvent>(_ =>
@@ -837,10 +975,20 @@ namespace Molca.Editor.Hub.Sections
             return row;
         }
 
+        /// <summary>
+        /// Refreshes the labels that read state this view does not own — the active build target,
+        /// PlayerSettings, and the last build's outcome.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately does not call <see cref="SerializedObject.Update"/>. It used to, on a 250 ms
+        /// timer, which meant a periodic overwrite of both serialized objects while their fields were
+        /// bound and possibly mid-edit. Everything here reads the live objects, which the binding system
+        /// already keeps current, so the poll only exists for the external state above.
+        /// </remarks>
         private void RefreshDynamicLabels()
         {
-            _versionSerialized?.Update();
-            _buildSerialized?.Update();
+            RefreshInvalidVersionNotice();
+            RefreshOutcomeStrip();
 
             if (_activeTargetLabel != null)
                 _activeTargetLabel.text = $"active target  {EditorUserBuildSettings.activeBuildTarget}";
@@ -1000,8 +1148,16 @@ namespace Molca.Editor.Hub.Sections
         // is wrapped so exceptions cannot escape into Unity's synchronization context.
         private static async void BuildProfileGated(string profileName)
         {
-            try { await BuildManager.BuildAsync(profileName); }
-            catch (Exception e) { Debug.LogError($"[BuildManager] Build failed: {e}"); }
+            try
+            {
+                var report = await BuildManager.BuildAsync(profileName);
+                RecordOutcome(profileName, DescribeReport(report, out var detail), detail);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[BuildManager] Build failed: {e}");
+                RecordOutcome(profileName, false, $"failed: {e.Message}");
+            }
         }
 
         private static async void BuildAllGated(string[] profileNames)
@@ -1011,6 +1167,8 @@ namespace Molca.Editor.Hub.Sections
                 for (int i = 0; i < profileNames.Length; i++)
                 {
                     var report = await BuildManager.BuildAsync(profileNames[i], runPreBuildChecks: i == 0);
+                    RecordOutcome(profileNames[i], DescribeReport(report, out var detail), detail);
+
                     if (i == 0 && report == null)
                     {
                         Debug.LogWarning("[BuildManager] Build All aborted (pre-build checks failed or the first build did not run).");
@@ -1021,7 +1179,39 @@ namespace Molca.Editor.Hub.Sections
             catch (Exception e)
             {
                 Debug.LogError($"[BuildManager] Build All failed: {e}");
+                RecordOutcome(profileNames.Length > 0 ? profileNames[0] : "Build All", false, $"failed: {e.Message}");
             }
+        }
+
+        /// <summary>
+        /// Turns a build report into the one line the outcome strip shows.
+        /// </summary>
+        /// <param name="report">The report, or null when the build never ran.</param>
+        /// <param name="detail">The line to display.</param>
+        /// <returns>True when the build produced a player.</returns>
+        /// <remarks>
+        /// A null report is the case worth naming: the build was refused by the gate or a pre-build
+        /// step, or was deferred across a build-target switch. "Nothing happened" and "it failed" want
+        /// different next actions from the reader, so they get different text.
+        /// </remarks>
+        private static bool DescribeReport(UnityEditor.Build.Reporting.BuildReport report, out string detail)
+        {
+            if (report == null)
+            {
+                detail = "did not run — see the Console for the gate, step, or target-switch reason.";
+                return false;
+            }
+
+            var summary = report.summary;
+            if (summary.result == UnityEditor.Build.Reporting.BuildResult.Succeeded)
+            {
+                detail = $"built in {summary.totalTime.TotalSeconds:F0}s · " +
+                         $"{summary.totalSize / 1024f / 1024f:F1} MB · {summary.outputPath}";
+                return true;
+            }
+
+            detail = $"{summary.result} · {summary.totalErrors} error(s)";
+            return false;
         }
     }
 }

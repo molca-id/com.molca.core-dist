@@ -24,7 +24,10 @@ namespace Molca.Editor.Remediation.Hub
         public override IEnumerable<MolcaHubWorkspaceItem> GetWorkspaces() => new[]
         {
             new MolcaHubWorkspaceItem(
-                WorkspaceId, "Remediation", order: 20,
+                // Last in Quality (Onboarding 0, Doctor 10, References 20): the others tell you what is
+                // wrong, this one is where you go to fix it. 20 collided with References and left the
+                // order decided by an id comparison neither surface intended.
+                WorkspaceId, "Remediation", order: 30,
                 createContent: () => new RemediationWorkspaceView(),
                 isAvailable: () => MolcaRemediationDomains.All.Count > 0,
                 icon: "remediation",

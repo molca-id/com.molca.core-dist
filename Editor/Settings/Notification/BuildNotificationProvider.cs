@@ -23,7 +23,8 @@ namespace Molca.Settings.Notification
         /// </summary>
         private class BuildCallbackHandler : IPreprocessBuildWithReport, IPostprocessBuildWithReport
         {
-            public int callbackOrder => 0;
+            /// <summary>Reports only; never aborts. See <see cref="Molca.Editor.MolcaBuildCallbackOrder"/>.</summary>
+            public int callbackOrder => Molca.Editor.MolcaBuildCallbackOrder.Observer;
 
             public void OnPreprocessBuild(BuildReport report)
             {

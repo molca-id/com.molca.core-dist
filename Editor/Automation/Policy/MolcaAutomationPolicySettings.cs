@@ -108,14 +108,33 @@ namespace Molca.Editor.Automation
 
         private void Persist()
         {
+            // A test-injected instance is not an asset; SetDirty/SaveAssetIfDirty on it is meaningless and
+            // would log. In-memory state is all a test needs.
+            if (!UnityEditor.EditorUtility.IsPersistent(this)) return;
             UnityEditor.EditorUtility.SetDirty(this);
             UnityEditor.AssetDatabase.SaveAssetIfDirty(this);
         }
 
+        private static MolcaAutomationPolicySettings _overrideForTests;
+
+        /// <summary>
+        /// Substitutes an in-memory instance for the project's policy asset, so a test can exercise
+        /// authorization without creating or mutating <c>Assets/_Molca/Editor/Automation Policy.asset</c>.
+        /// Pass <c>null</c> to restore the real asset.
+        /// </summary>
+        /// <remarks>
+        /// The counterpart of <c>AssistantMemoryStore.OverrideRootForTests</c> for policy: this asset is the
+        /// project's standing authorization, so a test writing to it would silently change what the
+        /// developer's assistant is permitted to run.
+        /// </remarks>
+        /// <param name="instance">A <c>ScriptableObject.CreateInstance</c>d settings object, or null.</param>
+        public static void OverrideForTests(MolcaAutomationPolicySettings instance) => _overrideForTests = instance;
+
         /// <summary>Loads the existing policy asset, creating one at the default path if none exists.</summary>
         /// <returns>The shared <see cref="MolcaAutomationPolicySettings"/> asset.</returns>
         public static MolcaAutomationPolicySettings GetOrCreateSettings()
-            => Molca.Editor.MolcaEditorSettingsAsset.GetOrCreate<MolcaAutomationPolicySettings>(
-                "Automation Policy.asset");
+            => _overrideForTests
+               ?? Molca.Editor.MolcaEditorSettingsAsset.GetOrCreate<MolcaAutomationPolicySettings>(
+                   "Automation Policy.asset");
     }
 }

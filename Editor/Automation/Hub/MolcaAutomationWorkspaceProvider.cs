@@ -13,8 +13,12 @@ namespace Molca.Editor.Automation.Hub
         /// <inheritdoc/>
         public override IEnumerable<MolcaHubWorkspaceItem> GetWorkspaces() => new[]
         {
-            new MolcaHubWorkspaceItem("automation", "Automation", 40,
-                () => new MolcaAutomationView(), icon: "automation"),
+            // Infrastructure, after Network (10): both describe how the project itself is wired — Network
+            // how it talks to the world, Automation how it is driven and built — rather than configuring a
+            // connection to one external product (Integrations) or authoring content (Authoring).
+            new MolcaHubWorkspaceItem("automation", "Automation", 20,
+                () => new MolcaAutomationView(), icon: "automation",
+                group: MolcaHubWorkspaceGroups.Infrastructure),
         };
     }
 }

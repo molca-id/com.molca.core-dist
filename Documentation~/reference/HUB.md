@@ -8,23 +8,36 @@ order: 900
 
 The **Molca Hub** (menu **Molca → Hub**) is the single editor window that fronts the framework's
 tooling: project settings, the [Doctor](DOCTOR_CHECKS.md), the [Assistant](ASSISTANT_RESILIENCE.md),
-sequence tools, localization authoring, licensed add-ons, MCP status, networking, and this docs browser.
+sequence tools, localization and theme authoring, content packaging, licensed add-ons, MCP status,
+networking, automation, and this docs browser.
 It is organized as a home **Settings** workspace plus a set of **workspace tabs**, and both are extension
 points a fork or project can add to without editing Core.
 
 ## Layout
 
-- **Settings (home).** A nested rail of configuration sections — Project, Editor, Build & Version,
-  Integrations, MCP, Network, Runtime, Sequences, Tasks, Assistant, **Add-ons**, and **About** — and the
-  **Docs** branch, which renders every `Documentation~/reference/*.md` shipped by an installed
-  `com.molca.*` package (see [Authoring Hub Docs](DOCS_AUTHORING.md)).
-- **Workspace tabs.** Full-window tools contributed alongside Settings — Core ships
-  **Onboarding** (see [Onboarding](ONBOARDING.md)), **Doctor**,
-  **Remediation** (see [Remediation](REMEDIATION.md)),
-  **References** (see [Scene Reference System](REFERENCE_SYSTEM.md#the-references-workspace)),
-  **Network** (see [Routes & Catalog](NETWORKING_CATALOG.md)),
-  **Localization** (see [Localization](LOCALIZATION.md)), and **Assistant**;
-  `com.molca.sequence` contributes **Sequence** on the same seam.
+- **Settings (home).** A nested rail of configuration sections, grouped as **Framework** (Project,
+  Build & Version, Runtime & Global, Editor), **Tooling** (Integrations, Tasks, MCP, Network Activity) and
+  **Add-ons** (Browse, Installed), followed by **Assistant** and **About**. Provider-contributed leaves join
+  one of those categories or collect under **Extensions**.
+  Reference docs are *not* in this rail — they are read-only content in their own right-anchored **Docs**
+  workspace tab, which renders every `Documentation~/reference/*.md` shipped by an installed `com.molca.*`
+  package (see [Authoring Hub Docs](DOCS_AUTHORING.md)).
+- **Workspace tabs.** Full-window tools contributed alongside Settings. Core ships, by group:
+  - *Quality* — **Onboarding** (see [Onboarding](ONBOARDING.md)), **Doctor**,
+    **References** (see [Scene Reference System](REFERENCE_SYSTEM.md#the-references-workspace)),
+    **Remediation** (see [Remediation](REMEDIATION.md));
+  - *Infrastructure* — **Network** (see [Routes & Catalog](NETWORKING_CATALOG.md)),
+    **Automation** (see [Automation](AUTOMATION.md));
+  - *Assistance* — **Assistant**;
+  - *Authoring* — **Localization** (see [Localization](LOCALIZATION.md)),
+    **Themes** (see [Color ID](COLOR_ID.md)), **Content** (see [Content Packages](CONTENT_PACKAGES.md));
+  - *Reference* — **Docs**, right-anchored.
+
+  `com.molca.sequence` contributes **Sequence** (Authoring) and `com.molca.integration.sentry` contributes
+  **Sentry** (Integrations), both on the same seam.
+
+  Note the two different **Network** surfaces: the *workspace tab* authors the route catalog, while
+  Settings ▸ Tooling ▸ **Network Activity** watches what the running app is actually doing.
 
 ### The toolbar at any width
 
@@ -37,10 +50,11 @@ measures itself and degrades in order:
 3. **Overflow** — the remaining tabs move into a `» N` menu, grouped by [group](#semantic-groups), with a
    **Manage tabs…** entry that lands on Settings ▸ Editor. Nothing is ever silently dropped.
 
-Which tabs keep a slot is decided by: Settings (anchored), then pinned tabs, then the active tab, then
-recently used, then declared order. A pinned tab carries a small accent dot in its top-right corner, so what
-is holding a slot is visible without opening a menu. Hiding still wins over pinning, and the default is no
-pins.
+Which tabs keep a slot is decided by: Settings (anchored), then the active tab, then pinned tabs, then
+recently used, then declared order. The active tab outranks a pinned one — you are looking at it, so it
+cannot be the thing that disappears. A pinned tab carries a small accent dot in its top-right corner, so
+what is holding a slot is visible without opening a menu. Hiding still wins over pinning, and the default
+is no pins.
 
 ### Managing which tabs are shown
 
@@ -51,8 +65,14 @@ shows or hides it. It also carries a **Pin** submenu for the tabs that are in th
 both toggles at once).
 
 Right-clicking an individual tab is the shortcut for the same operations on that one tab — **Pin/Unpin** and
-**Hide tab**. Note that it can only *hide*: a hidden workspace is filtered out of the tab set entirely, so
-nothing is left to right-click, and showing it again goes through the tabs menu or the settings card.
+**Hide tab**. The `×` on a tab does the same thing as **Hide tab**. Note that it can only *hide*: a hidden
+workspace is filtered out of the tab set entirely, so nothing is left to right-click, and showing it again
+goes through the tabs menu or the settings card.
+
+One word, one operation: everything here **hides**. The Hub deliberately does not say "close" anywhere,
+because nothing is being dismissed — hiding a tab is a persisted per-project setting
+(`MolcaHubWorkspaceRegistry.SetHidden`) that survives restarts until you show the tab again. Hiding a tab
+leaves the other workspaces' cached state untouched.
 
 ## Extension seams
 
@@ -101,9 +121,14 @@ A workspace tab declares a **group** rather than guessing a global `Order` integ
 the one scope you can actually observe. A group Core does not declare is fine; it sorts after the declared
 ones. Groups also drive the toolbar's group separators and the overflow menu's submenus.
 
-`Infrastructure` is for surfaces describing how the project itself is wired — Core's **Network** workspace
-is the first. It is distinct from `Integrations`, which is about connecting to one external product, and it
-sits next to `Quality` because you check project health, then configure how the project talks to the world.
+`Infrastructure` is for surfaces describing how the project itself is wired — Core's **Network** (how it
+talks to the world) and **Automation** (how it is driven and built). It is distinct from `Integrations`,
+which is about connecting to one external product, and it sits next to `Quality` because you check project
+health, then configure how the project talks to the world.
+
+Declaring a group is not cosmetic. A tab that omits one lands in `General`, which sorts *after*
+`Integrations` — so a Core-level authoring surface that forgets its group renders among the third-party
+tabs. Give every tab a group, and pick `Order` only against the other members of that group.
 
 Core's **Add-ons** are their own Settings-rail root with **Browse** (`MolcaHubSection.AddOnsBrowse`) and
 **Installed** (`MolcaHubSection.AddOnsInstalled`) leaves, not the seams above; see
@@ -180,13 +205,33 @@ An opted-in view is **hidden, not detached**, on a tab switch. That means:
 
 - Its scroll position, filters, and in-progress state survive a round trip.
 - Its work keeps running while hidden, and it will *not* receive `DetachFromPanelEvent` between activations —
-  so any cleanup keyed on detach no longer runs on every switch. Detach still fires on eviction (at most
-  three views are kept, least-recently-used first) and whenever the tab set is rebuilt, so keep the cleanup.
-- Implement nothing else unless you need an "I am being shown again" signal; the cache is transparent otherwise.
+  so any cleanup keyed on detach no longer runs on every switch. Detach still fires on eviction (a bounded
+  number of views are kept, least-recently-used first — the bound is set above the number of workspaces
+  that opt in, so rotating through them does not thrash) and when the view's own tab is hidden, so keep the
+  cleanup. Hiding an *unrelated* tab no longer evicts you.
+- **`AttachToPanelEvent` fires exactly once in the view's life.** This is the trap: attach is not an "I am
+  on screen again" signal for a cached view, so anything that has to run per activation — consuming a
+  pending deep link, re-reading state another surface may have changed while you were hidden — must not
+  live in the attach handler.
 
-Core opts in **Docs** (scroll position and selected page) and **Sequence**. **Doctor** and **Assistant** stay
-uncached on purpose: both own long-running work whose interaction with a hidden-but-live view deserves its
-own review, and the activity rail already carries their status across tabs.
+Implement `IMolcaHubCachedView` when you need that signal; the host calls `OnWorkspaceActivated()` each
+time it shows an already-built view:
+
+```csharp
+internal sealed class MyToolElement : VisualElement, IMolcaHubCachedView
+{
+    internal static string PendingTarget { get; set; }
+
+    void IMolcaHubCachedView.OnWorkspaceActivated() => ConsumePendingTarget();
+}
+```
+
+Core opts in **Docs** (scroll position and selected page), **Localization**, **Network**, **References**
+and **Content**. Docs, Network and References also implement `IMolcaHubCachedView`, because all three are
+deep-link targets. **Doctor** and **Assistant** stay uncached on purpose: both own long-running work whose
+interaction with a hidden-but-live view deserves its own review, and the activity rail already carries
+their status across tabs. **Sequence**, **Themes**, **Onboarding**, **Remediation** and **Automation** are
+uncached today and rebuild on each activation.
 
 ## Bottom activity rail
 

@@ -81,9 +81,10 @@ namespace Molca.Editor.Settings
     /// </summary>
     /// <remarks>
     /// <para>Pure: it loads assets and inspects them, and writes nothing. Note that
-    /// <see cref="MolcaProjectSettings.Instance"/> self-seeds a project settings asset from the package
-    /// template on first editor access, so <see cref="BootstrapFinding.CodeProjectSettingsMissing"/> fires
-    /// only when that seeding itself failed — a genuinely broken install rather than a fresh one.</para>
+    /// <see cref="MolcaProjectSettings.Instance"/> self-seeds a project settings asset on first editor
+    /// access — generated from the type's own field initializers, not cloned from any packaged template —
+    /// so <see cref="BootstrapFinding.CodeProjectSettingsMissing"/> fires only when that seeding itself
+    /// failed: a genuinely broken install rather than a fresh one.</para>
     /// <para>Editor-only; main thread.</para>
     /// </remarks>
     public static class BootstrapCheck

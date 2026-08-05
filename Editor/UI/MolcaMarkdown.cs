@@ -153,6 +153,15 @@ namespace Molca.Editor.UI
             RawText = string.Empty;
             TableRows = tableRows;
         }
+
+        /// <summary>
+        /// For fenced blocks (<see cref="MolcaMarkdownBlockKind.Code"/> /
+        /// <see cref="MolcaMarkdownBlockKind.Diagram"/>): the fence info string (e.g. <c>csharp</c>,
+        /// <c>mermaid</c>, <c>molca-workflow</c>). Empty for a bare fence; <c>null</c> on non-fenced blocks.
+        /// Routes <see cref="MolcaMarkdownBlockKind.Diagram"/> blocks to their registered renderer
+        /// (Sprint 92.2).
+        /// </summary>
+        public string Info { get; internal set; }
     }
 
     /// <summary>The kind of an inline run within a Markdown block.</summary>
@@ -414,7 +423,11 @@ namespace Molca.Editor.UI
 
                 if (inCode)
                 {
-                    code.AppendLine(line);
+                    // Append '\n' explicitly, not AppendLine: AppendLine writes Environment.NewLine, so on
+                    // Windows every fenced body picked up CRLF separators and — since the flush only trims
+                    // '\n' — a trailing '\r'. Fence bodies are handed verbatim to artifact renderers that
+                    // parse them, so the separator must be platform-independent.
+                    code.Append(line).Append('\n');
                     continue;
                 }
 
@@ -531,15 +544,71 @@ namespace Molca.Editor.UI
             return blocks;
         }
 
+        // ---- Fence renderer registry (Sprint 92.2) --------------------------------------------------
+        //
+        // Typed fenced blocks (info strings like "mermaid" or "molca-workflow") render through a renderer
+        // registered here; anything without a registered renderer stays a plain code block — an unknown
+        // artifact kind must degrade to visible source, never an error. The vocabulary is deliberately
+        // closed (plan rule): registering a kind is a plan-level decision shipped with renderer + tests.
+
+        private static readonly Dictionary<string, Func<string, VisualElement>> FenceRenderers =
+            new Dictionary<string, Func<string, VisualElement>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["mermaid"] = MolcaMermaid.Create
+            };
+
         /// <summary>
-        /// Builds the block for a closed fence: a <see cref="MolcaMarkdownBlockKind.Diagram"/> when the info
-        /// string is <c>mermaid</c> (rendered by <see cref="MolcaMermaid"/>), otherwise a plain
-        /// <see cref="MolcaMarkdownBlockKind.Code"/> block.
+        /// Registers (or replaces) the renderer for a fenced-block info string, e.g. <c>molca-workflow</c>.
+        /// The renderer receives the fence body and returns the element rendered in place of a code block.
+        /// A renderer that throws falls back to the plain code block for that occurrence.
+        /// </summary>
+        /// <param name="infoString">The fence info string the renderer claims (case-insensitive).</param>
+        /// <param name="render">Factory from fence body to visual element.</param>
+        public static void RegisterFenceRenderer(string infoString, Func<string, VisualElement> render)
+        {
+            if (string.IsNullOrWhiteSpace(infoString) || render == null) return;
+            FenceRenderers[infoString.Trim()] = render;
+        }
+
+        /// <summary>Whether a renderer is registered for the given fence info string.</summary>
+        public static bool HasFenceRenderer(string infoString)
+            => !string.IsNullOrWhiteSpace(infoString) && FenceRenderers.ContainsKey(infoString.Trim());
+
+        /// <summary>
+        /// Renders a <see cref="MolcaMarkdownBlockKind.Diagram"/> block through the renderer registered for
+        /// its <see cref="MolcaMarkdownBlock.Info"/>. A block only reaches this path because a renderer was
+        /// registered when it was parsed, but the registry is mutable, so a missing or throwing renderer
+        /// degrades to the plain code block rather than losing the content.
+        /// </summary>
+        private static VisualElement RenderFencedBlock(MolcaMarkdownBlock block)
+        {
+            var info = block.Info?.Trim();
+            if (!string.IsNullOrEmpty(info) && FenceRenderers.TryGetValue(info, out var render))
+            {
+                try
+                {
+                    var element = render(block.Text);
+                    if (element != null) return element;
+                }
+                catch (Exception ex)
+                {
+                    // A renderer's failure must not take the whole transcript row with it.
+                    Debug.LogException(ex);
+                }
+            }
+            return CreateCodeBlock(block.Text);
+        }
+
+        /// <summary>
+        /// Builds the block for a closed fence: a <see cref="MolcaMarkdownBlockKind.Diagram"/> when a
+        /// renderer is registered for the info string (built-in: <c>mermaid</c> via
+        /// <see cref="MolcaMermaid"/>), otherwise a plain <see cref="MolcaMarkdownBlockKind.Code"/> block.
         /// </summary>
         private static MolcaMarkdownBlock MakeFencedBlock(string content, string infoString)
-            => string.Equals(infoString, "mermaid", StringComparison.OrdinalIgnoreCase)
-                ? new MolcaMarkdownBlock(MolcaMarkdownBlockKind.Diagram, content)
-                : new MolcaMarkdownBlock(MolcaMarkdownBlockKind.Code, content);
+        {
+            var kind = HasFenceRenderer(infoString) ? MolcaMarkdownBlockKind.Diagram : MolcaMarkdownBlockKind.Code;
+            return new MolcaMarkdownBlock(kind, content) { Info = infoString ?? string.Empty };
+        }
 
         /// <summary>
         /// Tokenizes a single block's text into inline runs: <c>`code`</c>, <c>**bold**</c>, <c>_italic_</c>,
@@ -717,7 +786,7 @@ namespace Molca.Editor.UI
 
                 if (block.Kind == MolcaMarkdownBlockKind.Diagram)
                 {
-                    parent.Add(MolcaMermaid.Create(block.Text));
+                    parent.Add(RenderFencedBlock(block));
                     continue;
                 }
 
@@ -1047,7 +1116,33 @@ namespace Molca.Editor.UI
                 }
                 table.Add(rowEl);
             }
+
+            // Copy affordance (Sprint 91.2e), mirroring the code-block button: the table's cleaned cell
+            // text as tab-separated rows, pasteable into a spreadsheet.
+            Button copy = null;
+            copy = new Button(() => CopyCodeBlock(TableToTsv(block.TableRows), copy)) { text = "Copy", tooltip = "Copy table as tab-separated text" };
+            copy.AddToClassList("molca-md-code-copy-btn");
+            table.Add(copy);
             return table;
+        }
+
+        /// <summary>Flattens table rows to tab-separated lines (header first) for clipboard use.</summary>
+        internal static string TableToTsv(IReadOnlyList<IReadOnlyList<string>> rows)
+        {
+            if (rows == null || rows.Count == 0) return string.Empty;
+            var sb = new StringBuilder();
+            for (var r = 0; r < rows.Count; r++)
+            {
+                var cells = rows[r];
+                if (cells == null) continue;
+                for (var c = 0; c < cells.Count; c++)
+                {
+                    if (c > 0) sb.Append('\t');
+                    sb.Append(CleanInline(cells[c] ?? string.Empty));
+                }
+                sb.Append('\n');
+            }
+            return sb.ToString();
         }
 
         /// <summary>Flex-grow weight for a table column whose content is empty or absent.</summary>
@@ -1131,34 +1226,35 @@ namespace Molca.Editor.UI
             button.schedule.Execute(() => button.text = "Copy").ExecuteLater(1200);
         }
 
-        // A monospace OS font so code reads as code. Resolved once and cached; null (rare) leaves the label
-        // on the surface's default font. Kept off the USS layer because no monospace font ships in the package.
-        private static Font _monoFont;
-        private static bool _monoResolved;
+        // Monospace for code, opt-in and asset-backed only.
+        //
+        // This used to call Font.CreateDynamicFontFromOSFont(...) and assign the result as the label's
+        // unityFontDefinition. That renders code as *invisible text*: a runtime-created OS font is not an
+        // asset, so TextCore prunes it ("Deleting invalid font reference." in the editor log) and every label
+        // pointing at it draws zero glyphs — leaving only the chip's background and padding, a thin strip
+        // where the code should be. It survived review because it fails on a later domain reload rather than
+        // immediately, and because no test can see rendered glyphs.
+        //
+        // A code span is already distinguished by its background and border in USS, so the default font is a
+        // correct (if plainer) rendering. A project that wants true monospace supplies a real font asset via
+        // <see cref="SetCodeFont"/>; nothing is fabricated at runtime.
+        private static FontDefinition? _codeFont;
 
-        private static Font MonoFont
-        {
-            get
-            {
-                if (_monoResolved) return _monoFont;
-                _monoResolved = true;
-                try
-                {
-                    _monoFont = Font.CreateDynamicFontFromOSFont(
-                        new[] { "Consolas", "Menlo", "DejaVu Sans Mono", "Courier New", "monospace" }, 12);
-                }
-                catch
-                {
-                    _monoFont = null;
-                }
-                return _monoFont;
-            }
-        }
+        /// <summary>
+        /// Sets the font used for inline code and code blocks, or clears it with <c>null</c> to inherit the
+        /// surface's font.
+        /// </summary>
+        /// <remarks>
+        /// Pass a definition built from a real, imported font asset (a <c>FontAsset</c> or an imported
+        /// <c>Font</c>). Do not pass a font created at runtime from an OS family: TextCore treats it as an
+        /// invalid reference and the text renders blank.
+        /// </remarks>
+        /// <param name="font">The code font, or <c>null</c> to inherit.</param>
+        public static void SetCodeFont(FontDefinition? font) => _codeFont = font;
 
         private static void ApplyMonospace(Label label)
         {
-            var font = MonoFont;
-            if (font != null) label.style.unityFontDefinition = FontDefinition.FromFont(font);
+            if (_codeFont.HasValue) label.style.unityFontDefinition = _codeFont.Value;
         }
 
         private static void ApplyVariant(Label label, MolcaMarkdownOptions options)

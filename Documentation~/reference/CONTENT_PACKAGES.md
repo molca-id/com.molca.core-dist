@@ -79,11 +79,41 @@ Each entry in `packageConfigs` is a `PackageConfig`:
 
 Module-level `MaxConcurrentDownloads` and `EnableVerboseLogging` tune the queue and diagnostics.
 
-## Remote storage
+## Publishing and remote storage
 
-Content is fetched from an Addressables remote catalog hosted on cloud object storage. Core ships
-storage-provider integrations for **AWS S3**, **Cloudflare R2**, and **Google Cloud Storage** under
-`Runtime/ContentPackage/Storage/`.
+Content is **not** published by uploading bundles to a CDN of your choosing. There is one release protocol,
+`contentRelease` 1, and the Molca control plane is part of it.
+
+A release is identified by `(projectId, channel, platform, contentVersion)` and is **immutable** — correcting
+published content means a new `contentVersion`, never a rewrite. `channel` is `stable`, `beta`, or
+`internal`; platforms are a fixed, normalized set.
+
+The path from a built package to a player:
+
+1. **Build** in Unity, then stage the candidate (`Editor/ContentPackage/` — `ContentReleaseCandidate`,
+   `ContentReleaseStaging`).
+2. **Upload** the objects directly to the project's private object storage bucket using short-lived
+   presigned URLs issued for that release. The bucket is first-class platform infrastructure hosted on
+   Railway — you do not configure a public CDN endpoint, and there is no per-project credential to manage in
+   Unity.
+3. **Verify and sign.** The control plane verifies the uploaded objects against the manifest and signs the
+   release. A release moves `draft → uploading → verifying → verified → active → superseded` (or `failed`).
+4. **Promote.** An owner or manager makes a verified release the active one for its channel and platform.
+5. **Resolve at runtime.** Players resolve the active release through the content endpoint and fetch objects
+   with a release-scoped access ticket and presigned URLs — never a public bucket listing.
+
+Drive this from **Hub → Content** (`Editor/Hub/Workspaces/Content/`): Protocol, Publish, and Verify pages.
+The runtime half lives in `Runtime/ContentPackage/Release/` — `ContentReleaseClient`,
+`ReleaseManifestVerifier`, `ReleaseAccessProvider`, `ReleaseActivationCoordinator`, and the Addressables
+catalog session that activates a resolved release.
+
+> [!IMPORTANT]
+> The Railway *environment* (development, staging, production) is infrastructure isolation and never appears
+> in a release payload; production hosts all three channels. Do not confuse the environment with the channel.
+
+The authoritative specification is `contracts/content-release-v1.md` in the platform repository, with
+operational procedure in `docs/internal/CONTENT_RELEASE_OPERATIONS.md`. Consult those before relying on any
+summary, including this one.
 
 ## Diagnostics
 

@@ -67,7 +67,7 @@ Click **+ New Package** to create an entry, then fill in the right panel:
 | **Package ID** | Unique machine-readable identifier. Use `kebab-case` (e.g. `fire-training-env`). |
 | **Display Name** | Human-readable name shown in UI. |
 | **Description** | Authoring default shown before remote manifest is fetched. Superseded by remote manifest at runtime. |
-| **Version** | Authoring seed written into `packages.json` by the build pipeline. Superseded by remote manifest at runtime — bump this before each CDN push. |
+| **Version** | Authoring seed. Superseded by the release manifest at runtime — bump it before publishing a new `contentVersion`. |
 | **Author** | Optional author name. |
 | **Tags** | Array of string tags. Exposed in the remote manifest for UI filtering. |
 | **Addressables Labels** | One or more Addressables labels whose content belongs to this package. |
@@ -91,7 +91,7 @@ The system maps **one package → one or more Addressables labels**. The recomme
 
 1. Open **Window > Asset Management > Addressables > Groups**.
 2. Create a group named after your package (e.g. `FireTrainingEnv`).
-3. Set the group's **Build & Load Paths** to your remote CDN profile variables.
+3. Set the group's **Build & Load Paths** to your remote profile variables. Under the release protocol the load path is resolved from the signed release at runtime, not baked to a CDN URL you host.
 4. Assign a label matching your package (e.g. `fire-training-env`) to all entries in the group.
 5. Back in the Content Package Manager, use **Pick Labels…** to select that label.
 6. Click **Scan Assets** to preview asset count and approximate source file size (accurate bundle size is written to `packages.json` at build time).
@@ -102,7 +102,13 @@ The system maps **one package → one or more Addressables labels**. The recomme
 
 ## Remote Package Manifest
 
-`packages.json` is a platform-specific JSON file written to the build output folder by the build pipeline and deployed to CDN alongside the Addressables catalog. At runtime, `PackageService` fetches it during `RefreshCatalogAsync` and uses it as the authoritative source for:
+> [!NOTE]
+> **Legacy path.** `packages.json` belongs to the pre-release-protocol scheme. It is read only during the
+> migration window named in `docs/internal/CONTENT_PACKAGE_RAILWAY_STORAGE_REVAMP_IMPLEMENTATION_PLAN.md`;
+> new content is published as an immutable, signed release (see **Publishing** below and
+> `contracts/content-release-v1.md`). There is no CDN endpoint for you to host or configure.
+
+`packages.json` is a platform-specific JSON file written to the build output folder by the build pipeline. At runtime the legacy reader fetches it during `RefreshCatalogAsync` and uses it as the authoritative source for:
 
 | Data | Source after fetch |
 |---|---|

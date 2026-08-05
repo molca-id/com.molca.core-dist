@@ -1,3 +1,9 @@
+---
+title: Colour Themes
+category: UI & Presentation
+order: 540
+---
+
 # Colour themes
 
 Molca Core 2.x uses one canonical token system. A `ColorThemeSet` declares the token vocabulary and

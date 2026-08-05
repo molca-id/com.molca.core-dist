@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -7,7 +6,6 @@ using UnityEditor.Build;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
 using Molca.Settings;
-using Molca.Editor.Doctor;
 
 namespace Molca.Editor
 {
@@ -29,30 +27,27 @@ namespace Molca.Editor
         }
 
         /// <summary>
-        /// Builds the given profile.
+        /// Builds the given profile <em>without</em> the pre-build Doctor gate.
         /// </summary>
+        /// <param name="profileName">The build profile to build.</param>
         /// <returns>
         /// The <see cref="BuildReport"/> from BuildPipeline, or <c>null</c> when the build
-        /// did not run (missing settings/profile, target-switch failure, or deferred
-        /// editor build pending a target switch). CI callers must treat <c>null</c> or a
+        /// did not run (missing settings/profile, target-switch failure, a failed pre-build step, or a
+        /// deferred editor build pending a target switch). CI callers must treat <c>null</c> or a
         /// non-Succeeded result as failure.
         /// </returns>
+        /// <remarks>
+        /// Prefer <see cref="BuildAsync"/>, which runs <see cref="MolcaBuildGate"/> first. This overload
+        /// exists for callers that have already run the gate themselves (the Build automation workflow)
+        /// or that genuinely want it skipped. It is not the CI entry point —
+        /// <see cref="CommandLineBuild"/> gates before calling it — because "the build path CI happens to
+        /// use" and "the build path that skips the checks" being the same method is how a project ends up
+        /// shipping releases that were never checked.
+        /// </remarks>
         public static BuildReport Build(string profileName)
         {
             return Build(profileName, null);
         }
-
-        // Build-correctness Doctor checks run as the pre-build gate. The code-convention checks
-        // (static singletons, runtime SO writes, etc.) are intentionally excluded — they scan all
-        // scripts and belong to the full Doctor run, not a per-build gate.
-        private static readonly HashSet<string> PreBuildCheckIds = new HashSet<string>
-        {
-            "build-scenes-valid",
-            "version-settings-valid",
-            "build-profile-valid",
-            "unresolvable-scene-reference",
-            "content-package-valid",
-        };
 
         /// <summary>
         /// Runs the build-relevant Molca Doctor gate, then builds <paramref name="profileName"/> when
@@ -72,13 +67,10 @@ namespace Molca.Editor
         {
             if (runPreBuildChecks)
             {
-                var issues = await MolcaDoctor.RunAllAsync(PreBuildCheckIds, cancellationToken: cancellationToken);
-                var errors = issues.Where(i => i.Severity == DoctorSeverity.Error).ToList();
-                if (errors.Count > 0)
+                var gate = await MolcaBuildGate.RunAsync(cancellationToken);
+                if (!gate.Passed)
                 {
-                    Debug.LogError(
-                        $"[BuildManager] Build aborted: {errors.Count} pre-build Doctor error(s):\n  " +
-                        string.Join("\n  ", errors.Select(e => e.ToString())));
+                    Debug.LogError(gate.DescribeFailure());
                     return null;
                 }
             }
@@ -138,7 +130,7 @@ namespace Molca.Editor
                 }
             }
 
-            versionSettings.SyncToUnityPlayerSettings(force: true);
+            versionSettings.SyncToUnityPlayerSettings();
             versionSettings.SyncPlatformVersionCode(profile.target);
             PlayerSettings.companyName = Molca.MolcaProjectSettings.Instance.CompanyName;
 
@@ -238,7 +230,49 @@ namespace Molca.Editor
                 }
             }
 
-            // Version name, platform version codes, and changelog append are applied by
+            // A session for exactly this build. Gates Unity discovers by type (localization, references)
+            // are handed no context, so they read the running build's facts from the session — which
+            // expires here rather than living on as a static latch nobody is sure who clears.
+            BuildReport report;
+            var buildContext = new MolcaBuildContext(profile);
+            using (MolcaBuildSession.Begin(buildContext))
+            {
+                report = RunResolvedBuild(profile, targetGroup, versionSettings, buildContext);
+            }
+
+            // Restore original build target if requested (editor only)
+            if (!Application.isBatchMode && restoreTarget.HasValue && restoreTarget.Value != EditorUserBuildSettings.activeBuildTarget)
+            {
+                var restoreGroup = BuildPipeline.GetBuildTargetGroup(restoreTarget.Value);
+                if (EditorUserBuildSettings.SwitchActiveBuildTarget(restoreGroup, restoreTarget.Value))
+                {
+                    Debug.Log($"Restored active build target to {restoreTarget.Value}.");
+                }
+                else
+                {
+                    Debug.LogWarning($"Failed to restore active build target to {restoreTarget.Value}.");
+                }
+            }
+
+            return report;
+        }
+
+        /// <summary>
+        /// Runs the build for an already-resolved profile whose target is already active, inside an open
+        /// <see cref="MolcaBuildSession"/>.
+        /// </summary>
+        /// <param name="profile">The resolved build profile.</param>
+        /// <param name="targetGroup">The target group for <paramref name="profile"/>'s target.</param>
+        /// <param name="versionSettings">The project's version settings.</param>
+        /// <param name="buildContext">The context for this build; steps record facts on it.</param>
+        /// <returns>The build report, or null when a pre-build step or gate aborted the build.</returns>
+        private static BuildReport RunResolvedBuild(
+            BuildSettings.BuildProfile profile,
+            BuildTargetGroup targetGroup,
+            VersionSettings versionSettings,
+            MolcaBuildContext buildContext)
+        {
+            // Version name, platform version codes, and the runtime build-info asset are applied by
             // BuildVersionPreprocessor (IPreprocessBuildWithReport) during BuildPipeline.BuildPlayer,
             // so they also cover File > Build and CI builds — no explicit sync needed here.
 
@@ -294,22 +328,14 @@ namespace Molca.Editor
                 return null;
             }
 
-            // Addressables content gate (11.4): build the content bundles the player ships before the
-            // player itself, so the two never go out of sync. Opt-in per profile.
-            var addressablesContentBuilt = false;
-            if (profile.buildAddressablesFirst)
+            // Registered pre-build steps (Addressables content among them). This used to be a branch
+            // per system, named here in the build core; a system that could not edit this file had
+            // nowhere to put its pre-build work but a global build callback with a hand-picked order.
+            // Steps declare their own order and record what they did on the build context.
+            if (!MolcaBuildStepRegistry.RunAll(buildContext, out var stepFailure))
             {
-                Debug.Log("[BuildManager] Building Addressables content before the player...");
-                var contentResult = ContentPackage.AddressablesBuildUtility.BuildAllContent(
-                    new ContentPackage.AddressablesBuildUtility.BuildOptions { CleanBuild = profile.cleanBuildCache });
-                if (contentResult == null || !contentResult.Success)
-                {
-                    Debug.LogError("[BuildManager] Build aborted: Addressables content build failed. " +
-                        (contentResult?.ErrorMessage ?? contentResult?.Message ?? "Unknown error."));
-                    return null;
-                }
-                Debug.Log($"[BuildManager] Addressables content build succeeded ({contentResult.BuiltGroups.Count} group(s)).");
-                addressablesContentBuilt = true;
+                Debug.LogError($"[BuildManager] Build aborted: {stepFailure}");
+                return null;
             }
 
             // Handle IL2CPP setting (requires changing PlayerSettings)
@@ -357,9 +383,13 @@ namespace Molca.Editor
             // Setup build target
             BuildTarget buildTarget = profile.target;
             string fullVersionString = versionSettings.GetFullVersionString();
+            // Captured with the version string, before the build runs. BuildVersionPostprocessor
+            // advances the build number inside BuildPipeline.BuildPlayer, so re-reading it afterwards
+            // for the manifest reported the *next* build's number beside this build's version.
+            string builtBuildNumber = versionSettings.GetBuildNumberString();
             string buildPath = GetBuildPath(buildTarget, projectName, fullVersionString, profile.outputPath, profile.name, profile.buildAppBundle);
 
-            Debug.Log($"Starting {profileName} build...");
+            Debug.Log($"Starting {profile.name} build...");
             Debug.Log($"Target: {buildTarget}");
             Debug.Log($"Output: {buildPath}");
 
@@ -403,11 +433,6 @@ namespace Molca.Editor
                 AssetDatabase.SaveAssets();
             }
 
-            // Told to the localization gate here rather than at the content build above, so the latch
-            // cannot outlive an attempt that aborted somewhere in between.
-            if (addressablesContentBuilt)
-                LocalizationBuildGate.MarkAddressablesContentBuilt();
-
             BuildReport report = null;
             try
             {
@@ -444,7 +469,7 @@ namespace Molca.Editor
             if (report.summary.result == BuildResult.Succeeded)
             {
                 Debug.Log($"Build completed successfully!\nOutput: {buildPath}\nSize: {report.summary.totalSize / 1024f / 1024f:F2} MB");
-                WriteBuildManifest(profile, report, buildPath, scenes, activeOptions, fullVersionString, versionSettings);
+                WriteBuildManifest(profile, report, buildPath, scenes, activeOptions, fullVersionString, builtBuildNumber, versionSettings);
             }
             else
             {
@@ -459,20 +484,6 @@ namespace Molca.Editor
                             Debug.LogError(message.content);
                         }
                     }
-                }
-            }
-
-            // Restore original build target if requested (editor only)
-            if (!Application.isBatchMode && restoreTarget.HasValue && restoreTarget.Value != EditorUserBuildSettings.activeBuildTarget)
-            {
-                var restoreGroup = BuildPipeline.GetBuildTargetGroup(restoreTarget.Value);
-                if (EditorUserBuildSettings.SwitchActiveBuildTarget(restoreGroup, restoreTarget.Value))
-                {
-                    Debug.Log($"Restored active build target to {restoreTarget.Value}.");
-                }
-                else
-                {
-                    Debug.LogWarning($"Failed to restore active build target to {restoreTarget.Value}.");
                 }
             }
 
@@ -515,7 +526,7 @@ namespace Molca.Editor
         private static void WriteBuildManifest(
             BuildSettings.BuildProfile profile, BuildReport report, string buildPath,
             string[] scenes, System.Collections.Generic.List<string> options,
-            string fullVersion, VersionSettings versionSettings)
+            string fullVersion, string buildNumber, VersionSettings versionSettings)
         {
             try
             {
@@ -541,7 +552,7 @@ namespace Molca.Editor
                     target = profile.target.ToString(),
                     version = fullVersion,
                     semanticVersion = versionSettings.GetSemanticVersion(),
-                    buildNumber = versionSettings.GetBuildNumberString(),
+                    buildNumber = buildNumber,
                     commit = commit,
                     branch = branch,
                     timestampUtc = System.DateTime.UtcNow.ToString("o"),
@@ -630,7 +641,12 @@ namespace Molca.Editor
                         restoreTarget = (BuildTarget)MolcaEditorPrefs.GetInt(PendingBuildRestoreTargetKey, (int)EditorUserBuildSettings.activeBuildTarget);
                     }
                     ClearPendingBuild();
-                    Build(profileName, restoreTarget);
+
+                    // Gated, like the click that started it. A build deferred across a target switch
+                    // used to resume through the ungated path, so asking to build a profile for a
+                    // target that was not active silently skipped the pre-build Doctor gate — the
+                    // opposite of what a target change should do to your confidence in the project.
+                    ResumeGatedBuild(profileName, restoreTarget);
                 }
                 else
                 {
@@ -653,6 +669,35 @@ namespace Molca.Editor
                     EditorApplication.delayCall += TryResumePendingBuild;
                 }
                 return;
+            }
+        }
+
+        /// <summary>
+        /// Runs the pre-build gate and then the deferred build, preserving its restore target.
+        /// </summary>
+        /// <param name="profileName">The profile whose build was deferred across the target switch.</param>
+        /// <param name="restoreTarget">The target to restore afterwards, or null to stay put.</param>
+        /// <remarks>
+        /// <c>async void</c> is the Unity event-handler entry-point exception in the async contract —
+        /// this resumes from <see cref="EditorApplication.delayCall"/> and has no caller to await it.
+        /// The body is wrapped so nothing escapes into Unity's synchronization context.
+        /// </remarks>
+        private static async void ResumeGatedBuild(string profileName, BuildTarget? restoreTarget)
+        {
+            try
+            {
+                var gate = await MolcaBuildGate.RunAsync();
+                if (!gate.Passed)
+                {
+                    Debug.LogError(gate.DescribeFailure());
+                    return;
+                }
+
+                Build(profileName, restoreTarget);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[BuildManager] Deferred build of '{profileName}' failed: {e}");
             }
         }
 

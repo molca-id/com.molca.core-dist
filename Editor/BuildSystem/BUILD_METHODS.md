@@ -67,14 +67,18 @@ BuildManager.Build("development");  // or "staging" or "production"
 
 **How It Works:**
 - From Inspector: Same as Editor method (calls `BuildManager.Build()`)
-- From CI/CD: Calls `CommandLineBuild.Build[Profile]()` which builds then exits Unity
+- From CI/CD: Calls `CommandLineBuild.Build[Profile]()` which runs the pre-build Doctor gate, builds, then exits Unity with the build's exit code
 - Useful for marking profiles that are designed for automated builds
+
+> **Do not pass `-quit`.** The command-line build runs an asynchronous pre-build gate and exits the
+> editor itself once the build finishes — the same contract `MolcaDoctor.RunCI` uses. With `-quit`,
+> Unity terminates the moment the method returns and nothing is built, so a `-quit` command line is
+> rejected with exit code 1 rather than exiting 0 having produced no artifact.
 
 ### Windows Example:
 
 ```batch
 "C:\Program Files\Unity\Hub\Editor\6000.0.x\Editor\Unity.exe" ^
-  -quit ^
   -batchmode ^
   -nographics ^
   -projectPath "C:\Path\To\Your\Project" ^
@@ -87,7 +91,6 @@ BuildManager.Build("development");  // or "staging" or "production"
 
 ```bash
 /Applications/Unity/Hub/Editor/6000.0.x/Unity.app/Contents/MacOS/Unity \
-  -quit \
   -batchmode \
   -nographics \
   -projectPath "/path/to/your/project" \

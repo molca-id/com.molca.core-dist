@@ -32,8 +32,7 @@ namespace Molca.Editor.Hub
             new SectionInfo(MolcaHubSection.Integrations, "Integrations", "External service connections and provider configuration."),
             new SectionInfo(MolcaHubSection.Tasks, "Tasks", "Your ClickUp tasks for this project's folder, with inline status changes."),
             new SectionInfo(MolcaHubSection.Mcp, "MCP", "MCP bridge, auth token, proxy, and tool provider settings."),
-            new SectionInfo(MolcaHubSection.Network, "Network", "Live HTTP request counts, redacted request history, cache size, and streaming-provider status."),
-            new SectionInfo(MolcaHubSection.Localization, "Localization", "Locale policy, shared audit coverage, translation findings, and production readiness."),
+            new SectionInfo(MolcaHubSection.Network, "Network Activity", "Live HTTP request counts, redacted request history, cache size, and streaming-provider status."),
             new SectionInfo(MolcaHubSection.Assistant, "Assistant", "In-editor chat assistant provider, model, and API key."),
             new SectionInfo(MolcaHubSection.AddOnsBrowse, "Browse", "Discover and install signed add-on packs entitled to this license and compatible with this Core."),
             new SectionInfo(MolcaHubSection.AddOnsInstalled, "Installed", "Manage installed add-ons: updates, removal, integrity status, and signed-bundle import."),
@@ -67,11 +66,44 @@ namespace Molca.Editor.Hub
         [MenuItem("Molca/Hub", priority = 0)]
         public static void Open()
         {
+            ShowWindow();
+            Telemetry.MolcaEditorTelemetry.Track("editor.hub.opened");
+        }
+
+        /// <summary>
+        /// Opens or focuses the window and applies its chrome. Every entry point goes through here so the
+        /// title, icon and minimum size cannot drift between them.
+        /// </summary>
+        /// <returns>The shown window.</returns>
+        /// <remarks>
+        /// Deliberately not named <c>Focus</c>: <see cref="EditorWindow"/> already has an instance
+        /// <c>Focus()</c>, and a same-named static here shadows it.
+        /// </remarks>
+        private static MolcaHubWindow ShowWindow()
+        {
             var window = GetWindow<MolcaHubWindow>();
             window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub", "logo-dark");
             window.minSize = new Vector2(520, 360);
             window.Show();
-            Telemetry.MolcaEditorTelemetry.Track("editor.hub.opened");
+            return window;
+        }
+
+        /// <summary>
+        /// Navigates a (possibly not-yet-built) window to a workspace.
+        /// </summary>
+        /// <param name="window">The focused Hub window.</param>
+        /// <param name="workspaceId">The workspace id to activate.</param>
+        /// <remarks>
+        /// <see cref="SelectWorkspace"/> needs the rail and the tab strip, which only exist once
+        /// <see cref="CreateGUI"/> has run. Before that the request is persisted instead, and
+        /// <see cref="CreateGUI"/> restores it — so an entry point never has to care which case it is in.
+        /// </remarks>
+        private static void GoTo(MolcaHubWindow window, string workspaceId)
+        {
+            if (window._state != null && window._tabStrip != null)
+                window.SelectWorkspace(workspaceId);
+            else
+                MolcaHubState.Load().SetWorkspace(workspaceId);
         }
 
         /// <summary>
@@ -84,19 +116,8 @@ namespace Molca.Editor.Hub
         /// UI has not been built yet (<see cref="SelectWorkspace"/> needs the rail/buttons), the request
         /// is persisted via <see cref="MolcaHubState"/> so <see cref="CreateGUI"/> restores it.
         /// </remarks>
-        internal static void Open(MolcaHubWorkspace workspace)
-        {
-            var window = GetWindow<MolcaHubWindow>();
-            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub", "logo-dark");
-            window.minSize = new Vector2(520, 360);
-            window.Show();
-
-            var workspaceId = MolcaHubState.WorkspaceId(workspace);
-            if (window._state != null && window._tabStrip != null)
-                window.SelectWorkspace(workspaceId);
-            else
-                MolcaHubState.Load().SetWorkspace(workspaceId); // CreateGUI restores this on first build
-        }
+        internal static void Open(MolcaHubWorkspace workspace) =>
+            GoTo(ShowWindow(), MolcaHubState.WorkspaceId(workspace));
 
         /// <summary>
         /// Opens (or focuses) the Hub on a workspace named by its stable id.
@@ -111,18 +132,7 @@ namespace Molca.Editor.Hub
         /// package. As with the enum overload, the request is persisted when the UI has not been built yet so
         /// <see cref="CreateGUI"/> restores it.
         /// </remarks>
-        public static void OpenWorkspace(string workspaceId)
-        {
-            var window = GetWindow<MolcaHubWindow>();
-            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub", "logo-dark");
-            window.minSize = new Vector2(520, 360);
-            window.Show();
-
-            if (window._state != null && window._tabStrip != null)
-                window.SelectWorkspace(workspaceId);
-            else
-                MolcaHubState.Load().SetWorkspace(workspaceId);
-        }
+        public static void OpenWorkspace(string workspaceId) => GoTo(ShowWindow(), workspaceId);
 
         /// <summary>
         /// Opens (or focuses) the Hub, switches to the right-anchored Docs workspace, and selects the doc
@@ -137,16 +147,7 @@ namespace Molca.Editor.Hub
         public static void OpenDoc(string docId)
         {
             Docs.DocsWorkspaceView.PendingDocId = docId;
-
-            var window = GetWindow<MolcaHubWindow>();
-            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub", "logo-dark");
-            window.minSize = new Vector2(520, 360);
-            window.Show();
-
-            if (window._state != null && window._tabStrip != null)
-                window.SelectWorkspace(Docs.DocsWorkspaceProvider.WorkspaceId);
-            else
-                MolcaHubState.Load().SetWorkspace(Docs.DocsWorkspaceProvider.WorkspaceId);
+            GoTo(ShowWindow(), Docs.DocsWorkspaceProvider.WorkspaceId);
         }
 
         /// <summary>
@@ -157,23 +158,33 @@ namespace Molca.Editor.Hub
         /// chip that reports an available framework update. Like <see cref="Open(MolcaHubWorkspace)"/>, the
         /// target is persisted when the UI has not been built yet so <see cref="CreateGUI"/> restores it.
         /// </remarks>
-        internal static void OpenAbout()
+        internal static void OpenAbout() => OpenSettingsSection(MolcaHubSection.About);
+
+        /// <summary>
+        /// Opens (or focuses) the Hub on a specific section of the Settings workspace.
+        /// </summary>
+        /// <param name="section">The Settings section to select.</param>
+        /// <remarks>
+        /// Cross-navigation entry point for surfaces outside the Settings rail — the activity-rail chip
+        /// that reports a framework update, and the slim inspectors that now redirect here instead of
+        /// duplicating an authoring surface. Like <see cref="Open(MolcaHubWorkspace)"/>, the target is
+        /// persisted when the UI has not been built yet so <see cref="CreateGUI"/> restores it — and
+        /// unlike the workspace-only <see cref="GoTo"/>, both halves of the target survive that.
+        /// </remarks>
+        internal static void OpenSettingsSection(MolcaHubSection section)
         {
-            var window = GetWindow<MolcaHubWindow>();
-            window.titleContent = MolcaEditorIcons.WindowTitle("Molca Hub", "logo-dark");
-            window.minSize = new Vector2(520, 360);
-            window.Show();
+            var window = ShowWindow();
 
             if (window._state != null && window._tabStrip != null)
             {
                 window.SelectWorkspace(MolcaHubWorkspaceRegistry.SettingsId);
-                window.SelectSection(MolcaHubSection.About);
+                window.SelectSection(section);
                 return;
             }
 
             var state = MolcaHubState.Load();
             state.SetWorkspace(MolcaHubWorkspaceRegistry.SettingsId);
-            state.SetRailNode(MolcaHubSection.About.ToString());
+            state.SetRailNode(section.ToString());
         }
 
         private void OnEnable()
@@ -278,17 +289,47 @@ namespace Molca.Editor.Hub
             AssetDatabase.LoadAssetAtPath<T>(AssetDir + fileName);
 
         /// <summary>
-        /// Rebuilds the toolbar after the resolved workspace set changed (a tab was hidden or shown). The
-        /// view cache is dropped with it: a cached view whose tab no longer exists has no way back.
+        /// Rebuilds the toolbar after the resolved workspace set changed (a tab was hidden or shown).
         /// </summary>
+        /// <remarks>
+        /// Only the cached views whose tab actually disappeared are evicted — those have no way back — and
+        /// the rest keep their state, so hiding one tab does not reset the other workspaces. The active
+        /// workspace is re-selected only when it is the one that went away; re-selecting it unconditionally
+        /// rebuilt whatever Settings section the reader was on, discarding its scroll and expansion state
+        /// for an unrelated change.
+        /// </remarks>
         private void RefreshWorkspaceToolbar()
         {
             if (_tabStrip == null || _state == null) return;
 
             _workspaceItems = MolcaHubWorkspaceRegistry.GetWorkspaces();
-            _viewCache?.Clear();
+
+            var liveIds = new List<string>(_workspaceItems.Count);
+            foreach (var workspace in _workspaceItems) liveIds.Add(workspace.Id);
+            _viewCache?.RetainOnly(liveIds);
+
             _tabStrip.SetItems(_workspaceItems);
-            SelectWorkspace(_state.Workspace);
+
+            var active = _state.Workspace;
+
+            // Settings is anchored and can never be the tab that went away, so there is nothing to
+            // re-resolve — and re-selecting it would rebuild the section the reader is looking at.
+            if (active == MolcaHubWorkspaceRegistry.SettingsId)
+            {
+                _tabStrip.SetActive(active);
+                return;
+            }
+
+            var item = FindWorkspaceItem(active);
+            if (item == null)
+            {
+                SelectWorkspace(active);   // the active tab was hidden: fall back through the normal path
+                return;
+            }
+
+            // Still a real tab: re-show it (RetainOnly hid the host) without disturbing the rail.
+            _tabStrip.SetActive(active);
+            HostWorkspaceContent(item);
         }
 
         /// <summary>
@@ -327,8 +368,11 @@ namespace Molca.Editor.Hub
             _navRail.SetRoots(_railRoots);
         }
 
-        /// <summary>Enter in the search field activates the first surviving match (a workspace, if any matched).</summary>
         // ---- Rail node model ----------------------------------------------------------------------
+        //
+        // Enter-in-the-search-field activating the first surviving match is the shared rail's behaviour
+        // (MolcaNavRail.OnSearchKeyDown), not this window's — the Hub only supplies the workspace results
+        // it can match, through FilterOnlyRoots above.
 
         /// <summary>Builds the settings rail hierarchy: grouped, editable settings sections.</summary>
         /// <remarks>
@@ -491,10 +535,13 @@ namespace Molca.Editor.Hub
         }
 
         /// <summary>
-        /// The first leaf of <paramref name="node"/>'s subtree that survived the current filter, or
-        /// <c>null</c>. Unlike <see cref="FirstLeaf"/> this consults the built id map, so it never returns a
-        /// row that is not actually on screen.
+        /// Activates a workspace: persists the selection, highlights its tab, and swaps the shell between
+        /// the Settings body and the full-bleed workspace host.
         /// </summary>
+        /// <param name="workspaceId">
+        /// The workspace to activate. An id that is not currently registered — hidden, or from a provider
+        /// that went away — falls back to the anchored Settings tab.
+        /// </param>
         private void SelectWorkspace(string workspaceId)
         {
             // Fall back to the anchored Settings tab if the requested/persisted id is no longer registered
@@ -559,7 +606,6 @@ namespace Molca.Editor.Hub
             MolcaHubSection.Tasks => new MolcaHubTasksSection(SelectSection),
             MolcaHubSection.Mcp => new MolcaHubMcpSection(),
             MolcaHubSection.Network => new MolcaHubNetworkSection(),
-            MolcaHubSection.Localization => new MolcaHubLocalizationSection(),
             MolcaHubSection.Assistant => new MolcaHubAssistantSection(),
             MolcaHubSection.AddOnsBrowse => new Addons.AddonBrowseView(),
             MolcaHubSection.AddOnsInstalled => new Addons.AddonInstalledView(),

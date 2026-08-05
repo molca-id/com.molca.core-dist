@@ -24,6 +24,21 @@ namespace Molca.Editor.Mcp.Assistant
     public static class AssistantToolBridge
     {
         /// <summary>
+        /// The workflow-composing action tools withheld from weak tool-calling models (Sprint 94.5): a
+        /// model that drops or malforms tool calls must not author and launch multi-step actions. The
+        /// read-only workflow tools are not listed — inspecting is always safe.
+        /// </summary>
+        /// <param name="toolName">The tool name to classify.</param>
+        /// <returns>True when the tool mutates or launches composed workflows.</returns>
+        public static bool IsWorkflowMutationTool(string toolName) => toolName switch
+        {
+            "molca_workflow_save" => true,
+            "molca_workflow_run" => true,
+            "molca_workflow_delete" => true,
+            _ => false
+        };
+
+        /// <summary>
         /// Maps registry tools to provider-neutral specs for the model: all read-only tools, plus any
         /// Action tools permitted by <paramref name="isActionAllowed"/>.
         /// </summary>

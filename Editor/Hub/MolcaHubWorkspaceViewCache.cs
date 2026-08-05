@@ -12,8 +12,14 @@ namespace Molca.Editor.Hub
     /// <remarks>
     /// A cached view is hidden rather than detached on tab switch, so it never sees a second
     /// <c>AttachToPanelEvent</c> and cannot use attach as an "I am being shown again" signal. Implement this
-    /// to consume whatever a caller stashed for the next activation (Docs uses it for
-    /// <see cref="Docs.DocsWorkspaceView.PendingDocId"/> deep links). Called after the view is made visible.
+    /// to consume whatever a caller stashed for the next activation, or to re-read state another surface may
+    /// have changed while this view was hidden. Called after the view is made visible.
+    /// <para>
+    /// Every deep-link target that opts into <see cref="MolcaHubWorkspaceItem.CacheContent"/> needs this:
+    /// Docs (<see cref="Docs.DocsWorkspaceView.PendingDocId"/>), Network and References all stash a target
+    /// on a static and would otherwise honour it only on the very first build of the view — the link would
+    /// work once and then silently do nothing for as long as the view stayed cached.
+    /// </para>
     /// </remarks>
     internal interface IMolcaHubCachedView
     {
@@ -30,7 +36,7 @@ namespace Molca.Editor.Hub
     /// Placement: <c>Packages/com.molca.core/Editor/Hub/</c>. Owned by <see cref="MolcaHubWindow"/>.
     /// The mechanism is deliberately <em>hide, do not detach</em>: nothing is removed from the hierarchy on a
     /// switch, so no cached view is ever caught half-torn-down by its own <c>DetachFromPanelEvent</c> cleanup.
-    /// Eviction (LRU overflow, or <see cref="Clear"/> when the toolbar is rebuilt) does remove the child,
+    /// Eviction (LRU overflow, or <see cref="RetainOnly"/> when the view's own tab is hidden) does remove the child,
     /// which fires detach and runs that view's normal cleanup. A non-caching item behaves exactly as it always
     /// has: built on activation, removed on the next switch. A factory that throws is reported in-place and
     /// never cached, so one bad view cannot poison the slot. Editor-only; main thread.
@@ -38,7 +44,14 @@ namespace Molca.Editor.Hub
     internal sealed class MolcaHubWorkspaceViewCache
     {
         /// <summary>Number of opted-in views kept alive at once.</summary>
-        internal const int DefaultCapacity = 3;
+        /// <remarks>
+        /// Sized above the number of workspaces that currently opt in (Docs, Localization, Network,
+        /// References, Content — five), because a capacity below that count quietly defeats the feature:
+        /// rotating through the opted-in tabs would evict and rebuild each one just before you returned to
+        /// it, which is the exact round trip <c>CacheContent</c> promises to survive. Raise this when a
+        /// sixth workspace opts in.
+        /// </remarks>
+        internal const int DefaultCapacity = 6;
 
         private readonly VisualElement _host;
         private readonly int _capacity;
@@ -133,15 +146,26 @@ namespace Molca.Editor.Hub
         }
 
         /// <summary>
-        /// Drops everything: the non-caching view and every cached view are removed from the hierarchy (each
-        /// running its normal detach cleanup). Used when the resolved workspace set itself changes.
+        /// Hides the visible content and evicts only the cached views whose workspace is no longer in
+        /// <paramref name="liveIds"/>. Used when the resolved workspace set changes.
         /// </summary>
-        internal void Clear()
+        /// <param name="liveIds">The ids that still resolve to a tab.</param>
+        /// <remarks>
+        /// A cached view whose tab no longer exists has no way back, so it must go. The others must not:
+        /// hiding one unrelated tab used to tear down every cached workspace with it, discarding filters,
+        /// scroll positions and in-progress scans the cache exists to protect.
+        /// </remarks>
+        internal void RetainOnly(IReadOnlyCollection<string> liveIds)
         {
             ShowNone();
-            foreach (var entry in _cached)
-                entry.View.RemoveFromHierarchy();
-            _cached.Clear();
+
+            var live = new HashSet<string>(liveIds ?? Array.Empty<string>(), StringComparer.Ordinal);
+            for (int i = _cached.Count - 1; i >= 0; i--)
+            {
+                if (live.Contains(_cached[i].Id)) continue;
+                _cached[i].View.RemoveFromHierarchy();   // detach → the view's own cleanup runs
+                _cached.RemoveAt(i);
+            }
         }
 
         private void EvictExcess()

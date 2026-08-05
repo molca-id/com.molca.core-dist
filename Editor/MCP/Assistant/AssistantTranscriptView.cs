@@ -25,11 +25,31 @@ namespace Molca.Editor.Mcp.Assistant
         private readonly Action _onContinue;
 
         // Streaming incremental-render state: the in-flight "live" row and the committed-turn count it was
-        // built against. While a turn streams, only this row changes, so we swap it in place rather than
-        // clearing and re-parsing every committed row on each token delta (Sprint 25.3).
+        // built against. While a turn streams, only this row changes, so we update it in place rather than
+        // clearing and re-parsing every committed row on each token delta (Sprint 25.3). The live row is
+        // split into a markdown-rendered stable prefix (complete blocks) and a plain tail label (Sprint
+        // 91.2a): per-token deltas only touch the tail; the markdown parse runs once per completed block.
         private VisualElement _liveRow;
+        private VisualElement _liveMdContainer;
+        private Label _liveTailLabel;
+        private string _liveStablePrefix;
         private int _committedCount = -1;
         private ChatTurnKind? _lastCommittedKind;
+
+        // Committed-row cache (Sprint 91.2b): a full rebuild reuses the already-built element for any turn
+        // that cannot mutate after commit, so the markdown parse runs once per turn instead of once per
+        // refresh. Plan turns (live step status) and Prompt turns (pending/answered states) always rebuild.
+        private readonly Dictionary<ChatTurn, VisualElement> _rowCache = new Dictionary<ChatTurn, VisualElement>();
+
+        // Scroll pinning (Sprint 91.2d): only force-scroll while the user is at the bottom; otherwise a
+        // floating "↓ new" chip offers the jump instead of yanking the viewport.
+        private Button _jumpChip;
+
+        // The busy state the cached rows were built against. Several affordances are gated on it — Continue on
+        // a resumable error, Retry/Edit on a user turn, Undo on a tool row — so a row cached while busy is
+        // wrong once the turn ends. A turn that fails adds its error row *before* IsBusy clears, so without
+        // this the "click Continue to resume" row was cached with no Continue button on it at all.
+        private bool _renderedBusy;
 
         /// <summary>Creates a transcript view bound to a scroll view and the row-action callbacks.</summary>
         /// <param name="scroll">The scroll view that hosts the rendered rows.</param>
@@ -52,35 +72,44 @@ namespace Molca.Editor.Mcp.Assistant
         }
 
         /// <summary>
+        /// Drops all cached committed rows so the next <see cref="Render"/> rebuilds them from scratch.
+        /// Callers invoke this when a committed turn was mutated in place (undo state, plan edits).
+        /// </summary>
+        public void InvalidateCache() => _rowCache.Clear();
+
+        /// <summary>
         /// Refreshes the transcript. While a turn is streaming and no new committed turn has arrived, only
-        /// the in-flight live row is swapped (the committed rows above it are left untouched); otherwise
-        /// every row is rebuilt from the current transcript. Always scrolls to the latest.
+        /// the in-flight live row is updated in place (markdown for completed blocks, a plain label for the
+        /// growing tail); otherwise the rows are rebuilt, reusing cached elements for turns that cannot
+        /// have changed. Scrolls to the latest only while the user is already at the bottom (Sprint 91.2d).
         /// </summary>
         public void Render()
         {
             if (_scroll == null) return;
 
             var count = _controller.Transcript.Count;
-            var content = _scroll.contentContainer;
+            var atBottom = IsAtBottom();
 
-            // Streaming fast-path: the committed turns are unchanged, so rebuild just the live row.
-            if (_controller.IsBusy && _liveRow != null && count == _committedCount)
+            // Busy-gated affordances must be rebuilt when the state flips (twice a turn, so the cache still
+            // earns its keep during streaming and appends).
+            if (_renderedBusy != _controller.IsBusy)
             {
-                var index = content.IndexOf(_liveRow);
-                if (index >= 0)
-                {
-                    var replacement = BuildLiveRow(continuation: _lastCommittedKind == ChatTurnKind.Assistant);
-                    content.Insert(index, replacement);
-                    _liveRow.RemoveFromHierarchy();
-                    _liveRow = replacement;
-                    _scroll.scrollOffset = new Vector2(0, float.MaxValue);
-                    return;
-                }
+                _renderedBusy = _controller.IsBusy;
+                _rowCache.Clear();
+            }
+
+            // Streaming fast-path: the committed turns are unchanged, so update just the live row's content.
+            if (_controller.IsBusy && _liveRow != null && count == _committedCount && _liveRow.parent != null)
+            {
+                UpdateLiveRowContent();
+                AfterContentChanged(atBottom, forceBottom: false);
+                return;
             }
 
             _scroll.Clear();
             var prevKind = (ChatTurnKind?)null;
             var transcript = _controller.Transcript;
+            var used = new HashSet<ChatTurn>();
             for (var i = 0; i < transcript.Count; i++)
             {
                 var turn = transcript[i];
@@ -93,11 +122,22 @@ namespace Molca.Editor.Mcp.Assistant
 
                 // Inline, a Prompt turn is just a record of the question and the chosen answer; its
                 // interactive controls live in the docked prompt bar (above the composer).
-                var row = BuildRow(turn, continuation: prevKind == turn.Kind);
+                var row = BuildOrReuseRow(turn, continuation: prevKind == turn.Kind, used);
                 _scroll.Add(row);
                 prevKind = turn.Kind;
             }
 
+            // Prune cache entries whose turns left the transcript (session switch, compaction, reset).
+            if (_rowCache.Count > used.Count)
+            {
+                var stale = new List<ChatTurn>();
+                foreach (var key in _rowCache.Keys)
+                    if (!used.Contains(key)) stale.Add(key);
+                foreach (var key in stale) _rowCache.Remove(key);
+            }
+
+            var firstRender = _committedCount < 0;
+            var appended = _committedCount >= 0 && count > _committedCount;
             _committedCount = count;
             _lastCommittedKind = prevKind;
 
@@ -111,8 +151,36 @@ namespace Molca.Editor.Mcp.Assistant
             else
             {
                 _liveRow = null;
+                _liveMdContainer = null;
+                _liveTailLabel = null;
+                _liveStablePrefix = null;
             }
-            _scroll.scrollOffset = new Vector2(0, float.MaxValue);
+
+            // A just-sent user message (and the very first render) always snaps to the bottom; any other
+            // refresh respects the user's scroll position.
+            var lastIsUser = transcript.Count > 0 && transcript[transcript.Count - 1].Kind == ChatTurnKind.User;
+            AfterContentChanged(atBottom, forceBottom: firstRender || (appended && lastIsUser));
+        }
+
+        /// <summary>Builds one flat, full-width, role-labeled row, reusing the cached element when the turn is immutable after commit.</summary>
+        private VisualElement BuildOrReuseRow(ChatTurn turn, bool continuation, HashSet<ChatTurn> used)
+        {
+            // Plan turns mutate step status in place and Prompt turns change with the pending/answered
+            // state, so they always rebuild; everything else is append-only once committed.
+            var cacheable = turn.Kind != ChatTurnKind.Plan && turn.Kind != ChatTurnKind.Prompt;
+            if (cacheable && _rowCache.TryGetValue(turn, out var cached))
+            {
+                used.Add(turn);
+                return cached;
+            }
+
+            var row = BuildRow(turn, continuation);
+            if (cacheable)
+            {
+                _rowCache[turn] = row;
+                used.Add(turn);
+            }
+            return row;
         }
 
         /// <summary>Builds one flat, full-width, role-labeled row.</summary>
@@ -120,12 +188,123 @@ namespace Molca.Editor.Mcp.Assistant
 
         private VisualElement BuildLiveRow(bool continuation)
         {
-            // Render the in-flight row as a plain (unformatted) label: streaming text changes on every token
-            // delta, so skipping the markdown parse here avoids re-parsing partial text dozens of times per
-            // turn. The fully formatted version appears once the assistant turn commits to the transcript.
-            var text = string.IsNullOrEmpty(_controller.StreamingText) ? "Thinking…" : _controller.StreamingText;
-            var liveTurn = new ChatTurn(ChatTurnKind.Assistant, text);
-            return BuildRowElement(liveTurn, text, isLive: true, continuation);
+            var liveTurn = new ChatTurn(ChatTurnKind.Assistant, string.Empty);
+            var row = BuildRowElement(liveTurn, string.Empty, isLive: true, continuation);
+            // Fresh containers — force the stable prefix to re-render into them.
+            _liveStablePrefix = null;
+            UpdateLiveRowContent();
+            return row;
+        }
+
+        /// <summary>
+        /// Updates the live row from the controller's streaming text (Sprint 91.2a): the stable prefix
+        /// (everything up to the last completed block boundary) renders as markdown once per new block; the
+        /// growing tail stays a plain label so per-token deltas never re-parse.
+        /// </summary>
+        private void UpdateLiveRowContent()
+        {
+            if (_liveMdContainer == null || _liveTailLabel == null) return;
+
+            var text = _controller.StreamingText ?? string.Empty;
+            SplitStableTail(text, out var stable, out var tail);
+
+            if (!string.Equals(stable, _liveStablePrefix, StringComparison.Ordinal))
+            {
+                _liveStablePrefix = stable;
+                _liveMdContainer.Clear();
+                if (!string.IsNullOrEmpty(stable))
+                    RenderFormattedText(_liveMdContainer, stable, ChatTurnKind.Assistant);
+            }
+
+            _liveTailLabel.text = string.IsNullOrEmpty(text) ? "Thinking…" : tail;
+            _liveTailLabel.style.display = string.IsNullOrEmpty(text) || tail.Length > 0
+                ? DisplayStyle.Flex
+                : DisplayStyle.None;
+        }
+
+        /// <summary>
+        /// Splits streaming text at the last completed block boundary (a blank line) that does not fall
+        /// inside an unclosed code fence, so the stable part is safe to render as markdown while the tail
+        /// keeps growing. Internal for tests (Sprint 91.3).
+        /// </summary>
+        internal static void SplitStableTail(string text, out string stable, out string tail)
+        {
+            stable = string.Empty;
+            tail = text ?? string.Empty;
+            if (string.IsNullOrEmpty(text)) return;
+
+            var boundary = text.LastIndexOf("\n\n", StringComparison.Ordinal);
+            while (boundary >= 0)
+            {
+                var candidate = text.Substring(0, boundary + 2);
+                if (CountFenceLines(candidate) % 2 == 0)
+                {
+                    stable = candidate;
+                    tail = text.Substring(boundary + 2);
+                    return;
+                }
+                boundary = boundary > 0 ? text.LastIndexOf("\n\n", boundary - 1, StringComparison.Ordinal) : -1;
+            }
+        }
+
+        /// <summary>Counts lines opening/closing a fenced code block (```), for boundary safety.</summary>
+        private static int CountFenceLines(string text)
+        {
+            var count = 0;
+            var lineStart = 0;
+            while (lineStart <= text.Length - 3)
+            {
+                if (string.CompareOrdinal(text, lineStart, "```", 0, 3) == 0) count++;
+                var next = text.IndexOf('\n', lineStart);
+                if (next < 0) break;
+                lineStart = next + 1;
+            }
+            return count;
+        }
+
+        // ---- Scroll pinning (Sprint 91.2d) ----------------------------------------------------------
+
+        /// <summary>Whether the transcript is currently scrolled to (near) the bottom.</summary>
+        private bool IsAtBottom()
+        {
+            var scroller = _scroll.verticalScroller;
+            return scroller == null || scroller.highValue <= 0f || scroller.value >= scroller.highValue - 8f;
+        }
+
+        /// <summary>Scrolls to the bottom when pinned (or forced); otherwise surfaces the "↓ new" jump chip.</summary>
+        private void AfterContentChanged(bool wasAtBottom, bool forceBottom)
+        {
+            if (wasAtBottom || forceBottom)
+            {
+                _scroll.scrollOffset = new Vector2(0, float.MaxValue);
+                SetJumpChipVisible(false);
+                return;
+            }
+            SetJumpChipVisible(true);
+        }
+
+        private void SetJumpChipVisible(bool visible)
+        {
+            if (_jumpChip == null)
+            {
+                if (!visible) return;
+                _jumpChip = new Button(() =>
+                {
+                    _scroll.scrollOffset = new Vector2(0, float.MaxValue);
+                    SetJumpChipVisible(false);
+                }) { text = "↓ New messages" };
+                _jumpChip.AddToClassList("chat-jump-chip");
+                // Hosted on the (non-scrolling) viewport so it floats over the content.
+                var viewport = _scroll.Q("unity-content-viewport") ?? (VisualElement)_scroll;
+                viewport.Add(_jumpChip);
+                // Reaching the bottom by hand dismisses the chip.
+                _scroll.verticalScroller.valueChanged += _ =>
+                {
+                    if (_jumpChip.style.display == DisplayStyle.Flex && IsAtBottom())
+                        SetJumpChipVisible(false);
+                };
+            }
+            _jumpChip.style.display = visible ? DisplayStyle.Flex : DisplayStyle.None;
         }
 
         private VisualElement BuildRowElement(ChatTurn turn, string text, bool isLive, bool continuation)
@@ -209,9 +388,14 @@ namespace Molca.Editor.Mcp.Assistant
 
             if (isLive)
             {
-                var live = new Label(text);
-                live.AddToClassList("chat-live-text");
-                row.Add(live);
+                // Live-row body (Sprint 91.2a): completed blocks render as markdown in the container; the
+                // growing tail stays a plain label. Content is filled by UpdateLiveRowContent.
+                _liveMdContainer = new VisualElement();
+                _liveMdContainer.AddToClassList("chat-live-md");
+                row.Add(_liveMdContainer);
+                _liveTailLabel = new Label();
+                _liveTailLabel.AddToClassList("chat-live-text");
+                row.Add(_liveTailLabel);
                 return row;
             }
 
@@ -440,9 +624,22 @@ namespace Molca.Editor.Mcp.Assistant
             foreach (var s in summaries)
             {
                 if (s == null) continue;
+                var callRow = new VisualElement();
+                callRow.style.flexDirection = FlexDirection.Row;
+                callRow.style.alignItems = Align.Center;
+
                 var rowLabel = new Label($"• {(string.IsNullOrWhiteSpace(s.Name) ? "tool" : s.Name)}: {(s.IsError ? "failed" : "completed")}");
                 rowLabel.AddToClassList(s.IsError ? "chat-body--error" : "chat-body--tool");
-                foldout.Add(rowLabel);
+                rowLabel.style.flexGrow = 1;
+                callRow.Add(rowLabel);
+
+                // Per-call copy (Sprint 91.2e): the redacted raw result without opening the payload foldout.
+                var result = s.ResultContent;
+                if (!string.IsNullOrWhiteSpace(result))
+                    callRow.Add(CreateMiniButton("Copy", () =>
+                        EditorGUIUtility.systemCopyBuffer = AssistantTranscriptFormatter.RedactSecrets(result)));
+
+                foldout.Add(callRow);
             }
             parent.Add(foldout);
         }

@@ -25,8 +25,11 @@ namespace Molca.Editor.Licensing
     /// </remarks>
     public sealed class LicenseBuildGate : IPreprocessBuildWithReport
     {
-        /// <summary>Runs early, but after the version preprocessor (<c>int.MinValue</c>) so version data is set.</summary>
-        public int callbackOrder => -10000;
+        /// <summary>
+        /// First of the gates, but after the version preprocessor (<c>int.MinValue</c>) so version data
+        /// is set. See <see cref="Molca.Editor.MolcaBuildCallbackOrder"/> for the bands.
+        /// </summary>
+        public int callbackOrder => Molca.Editor.MolcaBuildCallbackOrder.LicenseGate;
 
         /// <summary>Verifies developer and project authorization and aborts when either is unavailable.</summary>
         /// <param name="report">The Unity build report for the build about to run.</param>

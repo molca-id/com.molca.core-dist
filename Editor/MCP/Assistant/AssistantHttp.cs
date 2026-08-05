@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -70,20 +71,30 @@ namespace Molca.Editor.Mcp.Assistant
         /// <param name="jsonBody">UTF-8 JSON request body.</param>
         /// <param name="streaming">When true, the body is read as SSE and each line is delivered to <paramref name="onSseLine"/>.</param>
         /// <param name="onSseLine">Per-line callback for a successful streamed response (main thread); ignored otherwise.</param>
-        /// <param name="timeoutSeconds">Per-request timeout.</param>
+        /// <param name="timeoutSeconds">
+        /// Deadline for the model to <em>start</em> responding. For a streaming call this bounds the wait for
+        /// the first SSE line only; for a non-streaming call it bounds the whole exchange, because there is no
+        /// progress signal to measure instead.
+        /// </param>
         /// <param name="cancellationToken">Cancels the request and the pump (surfaces as <see cref="OperationCanceledException"/>).</param>
         /// <param name="maxAttempts">Maximum total attempts including the first (Sprint 68); <c>1</c> disables retry.</param>
         /// <param name="onStreamRestart">
         /// Invoked before a streaming retry so the provider can reset its SSE accumulator to a clean state
         /// (Sprint 68); ignored for non-streaming calls.
         /// </param>
+        /// <param name="stallTimeoutSeconds">
+        /// Streaming only: the longest gap tolerated <em>between</em> SSE lines before the attempt is treated
+        /// as stalled. A response that keeps producing tokens is never timed out, however long it runs — which
+        /// is the point: a reasoning model on a large context can legitimately stream for many minutes, and a
+        /// total deadline would kill it mid-answer. <c>&lt;= 0</c> disables stall detection.
+        /// </param>
         public static async Awaitable<AssistantHttpResult> PostAsync(
             string url, IReadOnlyDictionary<string, string> headers, string jsonBody,
             bool streaming, Action<string> onSseLine, int timeoutSeconds, CancellationToken cancellationToken,
-            int maxAttempts = 1, Action onStreamRestart = null)
+            int maxAttempts = 1, Action onStreamRestart = null, int stallTimeoutSeconds = 0)
         {
             return await RunWithRetryAsync(
-                ct => AttemptOnceAsync(url, headers, jsonBody, streaming, onSseLine, timeoutSeconds, ct),
+                ct => AttemptOnceAsync(url, headers, jsonBody, streaming, onSseLine, timeoutSeconds, stallTimeoutSeconds, ct),
                 streaming, onStreamRestart, maxAttempts, cancellationToken, DelayAsync);
         }
 
@@ -192,13 +203,22 @@ namespace Molca.Editor.Mcp.Assistant
         /// </summary>
         private static async Awaitable<AssistantHttpResult> AttemptOnceAsync(
             string url, IReadOnlyDictionary<string, string> headers, string jsonBody,
-            bool streaming, Action<string> onSseLine, int timeoutSeconds, CancellationToken cancellationToken)
+            bool streaming, Action<string> onSseLine, int timeoutSeconds, int stallTimeoutSeconds,
+            CancellationToken cancellationToken)
         {
             var lines = new ConcurrentQueue<string>();
 
+            // Deadlines are enforced here rather than by HttpClient.Timeout, which is a *total* budget and so
+            // cannot express "still streaming, therefore still healthy". The clock is a Stopwatch timestamp
+            // (safe off the main thread, unlike Time.*) written by the request task and read by the pump.
+            var activity = new ActivityClock();
+            using var deadlineCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var requestToken = deadlineCts.Token;
+            string timeoutReason = null;
+
             var task = Task.Run(async () =>
             {
-                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(timeoutSeconds) };
+                using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
                 using var req = new HttpRequestMessage(HttpMethod.Post, url)
                 {
                     Content = new StringContent(jsonBody ?? string.Empty, Encoding.UTF8, "application/json")
@@ -213,8 +233,9 @@ namespace Molca.Editor.Mcp.Assistant
                 }
 
                 var completion = streaming ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead;
-                using var resp = await client.SendAsync(req, completion, cancellationToken).ConfigureAwait(false);
+                using var resp = await client.SendAsync(req, completion, requestToken).ConfigureAwait(false);
                 var status = (int)resp.StatusCode;
+                activity.Touch(); // headers arrived — the server is alive
 
                 // Stream SSE lines only on success; an error response (even when streaming was requested) is
                 // read whole so the provider can extract the error message from the body.
@@ -225,7 +246,8 @@ namespace Molca.Editor.Mcp.Assistant
                     string line;
                     while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
+                        requestToken.ThrowIfCancellationRequested();
+                        activity.Touch(); // every line is proof of progress; the stall clock restarts
                         lines.Enqueue(line);
                     }
                     return new AssistantHttpResult(status, true, string.Empty);
@@ -233,25 +255,111 @@ namespace Molca.Editor.Mcp.Assistant
 
                 var bodyText = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                 return new AssistantHttpResult(status, resp.IsSuccessStatusCode, bodyText, ParseRetryAfter(resp));
-            }, cancellationToken);
+            }, requestToken);
 
             // Pump on the editor-update loop (fires while Play mode is paused), draining streamed lines onto
-            // the main thread so providers surface deltas without touching Unity state off-thread.
+            // the main thread so providers surface deltas without touching Unity state off-thread. The same
+            // loop is the deadline watchdog.
             while (!task.IsCompleted)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested(); // a real user cancel always wins
+
+                var drained = false;
                 if (streaming && onSseLine != null)
-                    while (lines.TryDequeue(out var queued)) onSseLine(queued);
+                    while (lines.TryDequeue(out var queued)) { onSseLine(queued); drained = true; }
+                if (drained) activity.Touch();
+
+                timeoutReason = DescribeExpiredDeadline(activity, streaming, timeoutSeconds, stallTimeoutSeconds);
+                if (timeoutReason != null)
+                {
+                    deadlineCts.Cancel();
+                    break;
+                }
+
                 await EditorUpdateAwaiter.NextAsync(cancellationToken);
             }
 
             if (streaming && onSseLine != null)
                 while (lines.TryDequeue(out var queued)) onSseLine(queued);
 
+            // A deadline we imposed surfaces as a Timeout so the retry policy engages, and carries a message
+            // that says which deadline expired — "the operation has timed out" told the user nothing.
+            if (timeoutReason != null) throw new TimeoutException(timeoutReason);
+
             if (task.IsFaulted)
                 throw task.Exception?.GetBaseException() ?? new Exception("HTTP request failed.");
 
             return task.Result;
+        }
+
+        /// <summary>Reads the clock and applies <see cref="DescribeExpiredDeadline(bool,bool,double,double,int,int)"/>.</summary>
+        internal static string DescribeExpiredDeadline(
+            ActivityClock activity, bool streaming, int timeoutSeconds, int stallTimeoutSeconds)
+            => DescribeExpiredDeadline(streaming, activity.SawProgress, activity.SecondsSinceStart,
+                activity.SecondsSinceLastTouch, timeoutSeconds, stallTimeoutSeconds);
+
+        /// <summary>
+        /// The deadline decision, as a pure function of elapsed times — no clock, so it is testable with plain
+        /// numbers instead of sleeping.
+        /// </summary>
+        /// <remarks>
+        /// Streaming is judged on <b>progress</b>: once any chunk has arrived, only the gap since the last one
+        /// matters, so a response that keeps producing output never expires however long it runs. Before the
+        /// first chunk, and for a non-streaming call (which has no progress signal at all),
+        /// <paramref name="timeoutSeconds"/> applies. A non-positive budget disables that check rather than
+        /// expiring instantly — callers use <see cref="LlmTimeouts"/>, which never produces a non-positive
+        /// first-response budget, and <c>0</c> is the documented way to switch stall detection off.
+        /// </remarks>
+        /// <param name="streaming">Whether the attempt is streaming.</param>
+        /// <param name="sawProgress">Whether anything has been received yet.</param>
+        /// <param name="sinceStartSeconds">Seconds since the attempt began.</param>
+        /// <param name="sinceLastTouchSeconds">Seconds since the last received chunk.</param>
+        /// <param name="timeoutSeconds">First-response budget (total budget when not streaming); &lt;= 0 disables.</param>
+        /// <param name="stallTimeoutSeconds">Inter-chunk budget; &lt;= 0 disables.</param>
+        /// <returns>A reason string when a deadline has expired, else <c>null</c>.</returns>
+        internal static string DescribeExpiredDeadline(
+            bool streaming, bool sawProgress, double sinceStartSeconds, double sinceLastTouchSeconds,
+            int timeoutSeconds, int stallTimeoutSeconds)
+        {
+            if (!streaming || !sawProgress)
+                return timeoutSeconds > 0 && sinceStartSeconds > timeoutSeconds
+                    ? (streaming
+                        ? $"The model did not start responding within {timeoutSeconds}s. Raise 'Request Timeout' in the assistant's Resilience settings if this model needs longer to begin."
+                        : $"The model did not respond within {timeoutSeconds}s. Raise 'Request Timeout' in the assistant's Resilience settings, or enable Stream Responses so a long answer is bounded by stall detection instead of a total deadline.")
+                    : null;
+
+            return stallTimeoutSeconds > 0 && sinceLastTouchSeconds > stallTimeoutSeconds
+                ? $"The response stalled — no data for {stallTimeoutSeconds}s after streaming for {sinceStartSeconds:0}s. Raise 'Stream Stall Timeout' in the assistant's Resilience settings if the model pauses this long mid-answer."
+                : null;
+        }
+
+        /// <summary>
+        /// A monotonic progress clock shared between the request task and the pump. Uses
+        /// <see cref="Stopwatch"/> timestamps because the request side runs off the main thread, where Unity's
+        /// time APIs throw (the same rule the log pipeline follows).
+        /// </summary>
+        internal sealed class ActivityClock
+        {
+            private readonly long _startedAt = Stopwatch.GetTimestamp();
+            private long _lastTouch = Stopwatch.GetTimestamp();
+            private int _sawProgress;
+
+            /// <summary>Records that the peer produced something (headers, or a streamed line).</summary>
+            public void Touch()
+            {
+                Interlocked.Exchange(ref _lastTouch, Stopwatch.GetTimestamp());
+                Interlocked.Exchange(ref _sawProgress, 1);
+            }
+
+            /// <summary>Whether anything has been received yet.</summary>
+            public bool SawProgress => Interlocked.CompareExchange(ref _sawProgress, 0, 0) == 1;
+
+            /// <summary>Seconds since the attempt began.</summary>
+            public double SecondsSinceStart => (Stopwatch.GetTimestamp() - _startedAt) / (double)Stopwatch.Frequency;
+
+            /// <summary>Seconds since the last <see cref="Touch"/>.</summary>
+            public double SecondsSinceLastTouch =>
+                (Stopwatch.GetTimestamp() - Interlocked.Read(ref _lastTouch)) / (double)Stopwatch.Frequency;
         }
 
         /// <summary>
@@ -262,6 +370,10 @@ namespace Molca.Editor.Mcp.Assistant
         /// </summary>
         internal static HttpErrorKind ClassifyException(Exception ex)
         {
+            // Our own deadline (first-byte or stall) throws TimeoutException. It must classify as Timeout or
+            // the retry policy would treat a stalled stream as fatal and burn the turn on one bad attempt.
+            if (ex is TimeoutException)
+                return HttpErrorKind.Timeout;
             // HttpClient timeout: TaskCanceledException is a subclass of OperationCanceledException. The
             // caller-cancel case was already filtered out before we reach here, so treat it as a timeout.
             if (ex is TaskCanceledException || ex is OperationCanceledException)

@@ -5,6 +5,7 @@ using System.Threading;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
+using HttpErrorKind = Molca.Networking.Http.Models.HttpErrorKind;
 
 namespace Molca.Editor.Mcp.Assistant
 {
@@ -585,6 +586,26 @@ namespace Molca.Editor.Mcp.Assistant
         public string ActiveToolName { get; private set; }
 
         /// <summary>
+        /// Names the tools in a concurrent read-only batch for the progress row, capped so a wide round stays
+        /// one line. Distinct names only — a repeated tool reads as noise.
+        /// </summary>
+        private static string DescribeToolBatch(IReadOnlyList<LlmToolCall> calls)
+        {
+            if (calls == null || calls.Count == 0) return null;
+            var names = new List<string>();
+            foreach (var call in calls)
+            {
+                var name = call?.Name;
+                if (!string.IsNullOrEmpty(name) && !names.Contains(name)) names.Add(name);
+            }
+            if (names.Count == 0) return $"{calls.Count} tools";
+            const int shown = 3;
+            return names.Count <= shown
+                ? string.Join(", ", names)
+                : string.Join(", ", names.GetRange(0, shown)) + $" +{names.Count - shown} more";
+        }
+
+        /// <summary>
         /// Number of tool specs offered to the model on the most recent turn, and a rough token estimate of
         /// that payload (Sprint 67 baseline metric). Surfaced so the Hub/telemetry can show — and the
         /// optimization can prove — the per-request tool-spec cost.
@@ -997,6 +1018,15 @@ namespace Molca.Editor.Mcp.Assistant
                 var mcpSettings = MolcaEditorSettings.Instance.McpSettings;
                 var registry = mcpSettings?.BuildRegistry();
                 Func<string, bool> isActionAllowed = mcpSettings != null ? mcpSettings.IsActionAllowed : null;
+                // Weak-model gate (Sprint 94.5): a model flagged for unreliable tool calling must not drive
+                // multi-step workflow mutation — the composing action tools are withheld entirely (not just
+                // confirmation-gated), mirroring the Hub's weak-model warning. Read-only workflow tools
+                // (validate/list/status) stay available.
+                if (_settings.IsWeakToolModel && isActionAllowed != null)
+                {
+                    var baseAllowed = isActionAllowed;
+                    isActionAllowed = name => !AssistantToolBridge.IsWorkflowMutationTool(name) && baseAllowed(name);
+                }
                 var useTextToolProtocol = _settings.UseTextToolProtocol;
 
                 // Tool exposure. Tiered (Sprint 67, the cloud default): the model gets a compact grouped
@@ -1228,7 +1258,9 @@ namespace Molca.Editor.Mcp.Assistant
                         // sequencing — start them all at once (so I/O-bound reads overlap) and collect results
                         // in order, preserving the transcript/history pairing. Actions still run sequentially
                         // through the loop below.
-                        ActiveToolName = $"{responseToolCalls.Count} tools";
+                        // Name the tools, don't just count them: "2 tools" gave no way to tell a slow sweep
+                        // (a full Doctor run) from a wedged turn, which read as a hang.
+                        ActiveToolName = DescribeToolBatch(responseToolCalls);
                         Changed?.Invoke();
                         var started = new List<(LlmToolCall Call, Awaitable<LlmToolResult> Task)>(responseToolCalls.Count);
                         foreach (var readCall in responseToolCalls)
@@ -1448,7 +1480,18 @@ namespace Molca.Editor.Mcp.Assistant
             }
             catch (Exception ex)
             {
-                AddTurn(ChatTurnKind.Error, ex.Message);
+                // A transport failure (timeout, stall, network) leaves the work so far intact, so it is
+                // resumable: offer Continue rather than making the user retype "continue" to recover.
+                var resumable = IsResumableTransportFailure(ex);
+                var detail = DescribeException(ex);
+                _transcript.Add(new ChatTurn(ChatTurnKind.Error,
+                    resumable ? detail + " The work so far is kept — click Continue to resume." : detail)
+                { CanContinue = resumable });
+                // The transcript carries messages only; without this the stack and the inner exception were
+                // lost outright, which is what made a bare "An error occurred while sending the request"
+                // impossible to diagnose after the fact.
+                Debug.LogException(ex);
+                Changed?.Invoke();
             }
             finally
             {
@@ -1669,6 +1712,49 @@ namespace Molca.Editor.Mcp.Assistant
             foreach (var t in request.Tools ?? Enumerable.Empty<LlmToolSpec>())
                 chars += (t.Name?.Length ?? 0) + (t.Description?.Length ?? 0) + (t.InputSchemaJson?.Length ?? 0);
             return chars / 4;
+        }
+
+        /// <summary>
+        /// Renders an exception for the transcript: the message plus any distinct inner-exception messages,
+        /// punctuated so appended guidance reads as its own sentence.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="System.Net.Http.HttpRequestException"/> in particular carries a useless outer message
+        /// ("An error occurred while sending the request") and puts the real cause — DNS failure, refused
+        /// connection, TLS problem, reset — in its inner exception. Dropping that left the user with nothing
+        /// to act on.
+        /// </remarks>
+        internal static string DescribeException(Exception ex)
+        {
+            if (ex == null) return "Unknown error.";
+
+            var parts = new List<string>();
+            for (var current = ex; current != null; current = current.InnerException)
+            {
+                var message = current.Message?.Trim();
+                if (string.IsNullOrEmpty(message) || parts.Contains(message)) continue;
+                parts.Add(message);
+                if (parts.Count == 3) break; // deeper frames stop adding information
+            }
+            if (parts.Count == 0) return ex.GetType().Name + ".";
+
+            var text = string.Join(" → ", parts);
+            return text.EndsWith(".", StringComparison.Ordinal)
+                   || text.EndsWith("!", StringComparison.Ordinal)
+                   || text.EndsWith("?", StringComparison.Ordinal)
+                ? text
+                : text + ".";
+        }
+
+        /// <summary>
+        /// Whether a faulted turn failed in transport — a timeout, a stalled stream, or a network fault —
+        /// rather than in a way that would repeat. The transcript and history up to the failure are intact for
+        /// these, so the turn can simply be continued.
+        /// </summary>
+        private static bool IsResumableTransportFailure(Exception ex)
+        {
+            if (ex == null) return false;
+            return AssistantHttp.ClassifyException(ex) is HttpErrorKind.Timeout or HttpErrorKind.Network;
         }
 
         /// <summary>

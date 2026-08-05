@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Molca.Editor.Hub;
 using Molca.Editor.Networking.Authoring;
 using Molca.Editor.Networking.Hub.Views;
 using Molca.Editor.UI;
@@ -24,8 +25,14 @@ namespace Molca.Editor.Networking.Hub
     /// The workspace never scans the project on open. Locating and validating the catalog is cheap;
     /// walking the <c>AssetDatabase</c> for legacy assets is not, so that happens only when a view asks.
     /// </para>
+    /// <para>
+    /// The tab opts into <c>cacheContent</c>, so this view is hidden rather than detached on a tab switch
+    /// and attach fires exactly once. Per-activation work — consuming <see cref="PendingTarget"/> and
+    /// re-reading a catalog another surface may have edited while this view was hidden — therefore lives in
+    /// <see cref="IMolcaHubCachedView.OnWorkspaceActivated"/>, not in the attach handler.
+    /// </para>
     /// </remarks>
-    public sealed class NetworkHubView : VisualElement
+    public sealed class NetworkHubView : VisualElement, IMolcaHubCachedView
     {
         private const string UssPath =
             "Packages/com.molca.core/Editor/Networking/Hub/NetworkHubView.uss";
@@ -87,7 +94,22 @@ namespace Molca.Editor.Networking.Hub
         {
             _session.Changed += OnSessionChanged;
             _session.NavigationRequested += Navigate;
+            Activate();
+        }
 
+        /// <summary>
+        /// Re-activation hook for the Hub's workspace cache. A cached view is hidden rather than detached,
+        /// so it never sees a second attach — everything that has to happen each time the tab is shown
+        /// again has to be driven from here.
+        /// </summary>
+        void IMolcaHubCachedView.OnWorkspaceActivated() => Activate();
+
+        /// <summary>
+        /// The work that belongs to *being shown* rather than to being constructed: pick up a catalog edit
+        /// another surface made while this view was hidden, then honour any pending navigation.
+        /// </summary>
+        private void Activate()
+        {
             // Another surface may have edited the catalog while this cached view was hidden.
             _session.Reload();
             ConsumePendingTarget();

@@ -52,13 +52,20 @@ namespace Molca.Editor.Hub.Sections
             RegisterCallback<AttachToPanelEvent>(_ =>
             {
                 _notificationRefreshPoll = schedule.Execute(RefreshNotificationsIfChanged).Every(500);
+
+                // Both toggles this card owns can also be driven from the tab strip's ⋮ menu and from a
+                // tab's context menu while this section is on screen, so the card follows both registry
+                // events. It cannot rely on the window rebuilding it: hiding a tab no longer re-selects
+                // the rail node (see MolcaHubWindow.RefreshWorkspaceToolbar).
                 MolcaHubWorkspaceRegistry.PinsChanged += RebuildWorkspaceTabsCard;
+                MolcaHubWorkspaceRegistry.VisibilityChanged += RebuildWorkspaceTabsCard;
             });
             RegisterCallback<DetachFromPanelEvent>(_ =>
             {
                 _notificationRefreshPoll?.Pause();
                 _notificationRefreshPoll = null;
                 MolcaHubWorkspaceRegistry.PinsChanged -= RebuildWorkspaceTabsCard;
+                MolcaHubWorkspaceRegistry.VisibilityChanged -= RebuildWorkspaceTabsCard;
             });
         }
 
@@ -67,11 +74,22 @@ namespace Molca.Editor.Hub.Sections
         // -------------------------------------------------------------------
 
         /// <summary>Rebuilds the card in place — used when the pinned set changes underneath it.</summary>
+        /// <remarks>
+        /// Deferred by one frame on purpose. The usual caller is a pin toggle *inside* this card, so the
+        /// notification arrives while that toggle is still dispatching its own change event; clearing the
+        /// host synchronously would tear the element down mid-dispatch. Waiting a frame means the rebuild
+        /// always happens on a settled hierarchy, whether the change came from this card or the tab strip.
+        /// </remarks>
         private void RebuildWorkspaceTabsCard()
         {
             if (_workspaceTabsHost == null) return;
-            _workspaceTabsHost.Clear();
-            BuildWorkspaceTabsCard();
+
+            schedule.Execute(() =>
+            {
+                if (_workspaceTabsHost == null || panel == null) return;
+                _workspaceTabsHost.Clear();
+                BuildWorkspaceTabsCard();
+            });
         }
 
         private void BuildWorkspaceTabsCard()

@@ -27,7 +27,9 @@ namespace Molca.Editor.Hub.Workspaces
             new MolcaHubWorkspaceItem(
                 id: "content",
                 label: "Content",
-                order: 20,
+                // Last in Authoring (Localization 10, Themes 20, Sequence 30): packaging and delivering
+                // content is what you reach for after the content itself has been authored.
+                order: 40,
                 createContent: () => new ContentWorkspaceView(),
                 icon: "content",
                 group: MolcaHubWorkspaceGroups.Authoring,

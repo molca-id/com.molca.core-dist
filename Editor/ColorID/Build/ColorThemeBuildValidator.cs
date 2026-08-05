@@ -61,9 +61,15 @@ namespace Molca.ColorID.Editor
     {
         /// <inheritdoc/>
         /// <remarks>
-        /// Runs late enough that content generation has settled, but before the player is written.
+        /// Runs in the gate band, last among the gates. This used to be <c>+100</c>, on the reasoning
+        /// that it needed to run "late enough that content generation has settled" — but nothing in the
+        /// build pipeline generates what it reads. Theme settings, the theme set and the UI Toolkit
+        /// manifest are all authored assets, and the freshness check is precisely that the manifest was
+        /// <em>not</em> regenerated. Meanwhile <c>+100</c> placed a callback that throws
+        /// <c>BuildFailedException</c> after callbacks that write generated files whose cleanup a throw
+        /// skips. See <see cref="Molca.Editor.MolcaBuildCallbackOrder"/>.
         /// </remarks>
-        public int callbackOrder => 100;
+        public int callbackOrder => Molca.Editor.MolcaBuildCallbackOrder.ColorThemeGate;
 
         /// <inheritdoc/>
         public void OnPreprocessBuild(BuildReport report)

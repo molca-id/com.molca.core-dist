@@ -46,7 +46,6 @@ echo.
 
 REM Run Unity build
 %UNITY_PATH% ^
-    -quit ^
     -batchmode ^
     -nographics ^
     -projectPath "%PROJECT_PATH%" ^

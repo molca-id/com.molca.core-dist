@@ -42,11 +42,16 @@ namespace Molca
             }
         }
         
-        // Constructor for transient with factory
-        public ServiceDescriptor(Type serviceType, Func<object> factory)
+        // Constructor for transient with factory.
+        // implementationType is the type the factory is DECLARED to produce. It is optional only
+        // for backward compatibility: leaving it null makes the registration invisible to the
+        // implemented-interface scan in RuntimeManager.GetService, so a factory-registered service
+        // could not be resolved through any interface it implements.
+        public ServiceDescriptor(Type serviceType, Func<object> factory, Type implementationType = null)
         {
             ServiceType = serviceType ?? throw new ArgumentNullException(nameof(serviceType));
             Factory = factory ?? throw new ArgumentNullException(nameof(factory));
+            ImplementationType = implementationType;
             Lifetime = ServiceLifetime.Transient;
         }
         

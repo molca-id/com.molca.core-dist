@@ -32,16 +32,18 @@ namespace Molca.Settings
         [SerializeField] private string buildMetadata = "";
         [SerializeField] private bool includeGitCommitsInChangelog = true;
 
-        [SerializeField]
-        [Tooltip("Automatically synchronize Unity PlayerSettings version when build starts")]
-        private bool autoSync = false;
+        // The former `autoSync` toggle is gone. It claimed to control whether a build syncs this asset
+        // into PlayerSettings, but the build version preprocessor has always synced unconditionally, so
+        // the toggle changed nothing and its tooltip described behaviour it did not have. This asset is
+        // the project's version of record — a switch that lets the built player disagree with it is not
+        // a feature. Old assets keep an orphaned `autoSync` key in their YAML, which Unity ignores.
 
         [SerializeField]
-        [Tooltip("Automatically increment build number when a build starts")]
+        [Tooltip("Automatically increment the build number after a successful build")]
         private bool autoIncrementBuildNumberOnBuild = false;
 
         [SerializeField]
-        [Tooltip("Automatically append build info to a changelog file when a build starts")]
+        [Tooltip("Automatically append an entry to the changelog file after a successful build")]
         private bool autoAppendChangelogOnBuild = false;
 
         [SerializeField]
@@ -58,9 +60,27 @@ namespace Molca.Settings
         /// <summary>Returns the version string formatted for the active build target.</summary>
         public string GetBundleVersionString() => GetBundleVersionString(EditorUserBuildSettings.activeBuildTarget);
 
-        /// <summary>Returns the version string formatted for <paramref name="target"/>.</summary>
+        /// <summary>
+        /// Returns the version string as it should be written to <see cref="PlayerSettings.bundleVersion"/>
+        /// for <paramref name="target"/>.
+        /// </summary>
         /// <param name="target">The target platform.</param>
-        public string GetBundleVersionString(BuildTarget target) => GetVersionString();
+        /// <returns>The full semantic version, or plain <c>Major.Minor.Patch</c> where the platform requires it.</returns>
+        /// <remarks>
+        /// <para>
+        /// This used to ignore both its parameter and the pre-release/build-metadata fields, always
+        /// returning <c>Major.Minor.Patch</c> — so a project could author <c>rc.1</c> in the Hub and ship
+        /// a player that had never heard of it. The fields now reach the built player.
+        /// </para>
+        /// <para>
+        /// <b>iOS is the exception, and it is Apple's.</b> <c>CFBundleShortVersionString</c> must be one
+        /// to three dot-separated integers; <c>1.4.0-rc.1</c> is rejected at submission. iOS therefore
+        /// gets the numeric version, and the pre-release identity travels in the build number instead.
+        /// This is the reason the method takes a target at all.
+        /// </para>
+        /// </remarks>
+        public string GetBundleVersionString(BuildTarget target) =>
+            target == BuildTarget.iOS ? GetVersionString() : GetSemanticVersion();
 
         /// <summary>Returns the build number as a string.</summary>
         public string GetBuildNumberString() => buildNumber.ToString();
@@ -137,13 +157,16 @@ namespace Molca.Settings
         // Unity PlayerSettings sync
         // -------------------------------------------------------------------
 
-        /// <summary>Synchronizes the version string to <see cref="PlayerSettings.bundleVersion"/>.</summary>
-        /// <param name="force">When true, syncs even if <c>autoSync</c> is disabled.</param>
-        public void SyncToUnityPlayerSettings(bool force = false)
+        /// <summary>
+        /// Writes this asset's version to <see cref="PlayerSettings.bundleVersion"/>, formatted for the
+        /// active build target.
+        /// </summary>
+        /// <remarks>
+        /// Unconditional. The old <c>force</c> parameter guarded a toggle that the build path always
+        /// overrode anyway; see the note on the removed <c>autoSync</c> field.
+        /// </remarks>
+        public void SyncToUnityPlayerSettings()
         {
-            if (!force && !autoSync)
-                return;
-
             var version = GetBundleVersionString();
             PlayerSettings.bundleVersion = version;
             Debug.Log($"VersionSettings: Synchronized Unity PlayerSettings version to {version}");
@@ -180,22 +203,36 @@ namespace Molca.Settings
         // -------------------------------------------------------------------
 
         /// <summary>
-        /// Called before a build starts. Appends a changelog entry when <c>autoAppendChangelogOnBuild</c> is enabled.
-        /// Build number is incremented after the build via <see cref="NotifyBuildComplete"/>.
+        /// Called after a build <em>succeeds</em>: appends the changelog entry when
+        /// <c>autoAppendChangelogOnBuild</c> is enabled, then advances the build number when
+        /// <c>autoIncrementBuildNumberOnBuild</c> is enabled.
         /// </summary>
         /// <param name="buildNotes">Optional notes to include in the changelog entry.</param>
-        public void PrepareForBuild(string buildNotes)
+        /// <remarks>
+        /// <para>
+        /// <b>Both halves live here, in this order, on purpose.</b> The changelog entry must name the
+        /// version that was just built, so it is written before the number moves.
+        /// </para>
+        /// <para>
+        /// <b>The changelog used to be written when a build started</b>, from a build preprocessor that
+        /// ran before the reference and localization gates could abort. A project whose builds were
+        /// failing accumulated one changelog entry per attempt, each naming a version no artifact ever
+        /// carried — and because the writer advances its "commits since last build" marker as it writes,
+        /// each failed attempt also consumed the commit range the next real entry should have reported.
+        /// A changelog is a record of what shipped; an attempt is not a thing that shipped.
+        /// </para>
+        /// </remarks>
+        public void NotifyBuildComplete(string buildNotes)
         {
             if (autoAppendChangelogOnBuild)
                 CreateChangelogWriter().AppendBuildEntry(GetFullVersionString(), buildNotes);
-        }
 
-        /// <summary>Called after a build completes. Increments the build number when <c>autoIncrementBuildNumberOnBuild</c> is enabled.</summary>
-        public void NotifyBuildComplete()
-        {
             if (autoIncrementBuildNumberOnBuild)
                 buildNumber++;
         }
+
+        /// <summary>Called after a build completes, with no changelog notes.</summary>
+        public void NotifyBuildComplete() => NotifyBuildComplete(null);
 
         // -------------------------------------------------------------------
         // Changelog history

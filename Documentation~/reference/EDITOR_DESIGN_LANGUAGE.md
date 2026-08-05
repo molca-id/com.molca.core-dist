@@ -99,24 +99,36 @@ tab (always first, Core-owned); every other tab — Core's Doctor/Assistant/Sequ
 contributed through a provider and discovered via `TypeCache`.
 
 - **Add a tab** by subclassing `MolcaHubWorkspaceProvider` and returning `MolcaHubWorkspaceItem`s
-  (`Id` stable kebab-case, `Label`, `Icon`, `Order`, `CreateContent`, optional `IsAvailable`). No Core
-  edit, no registration call. The `"settings"` id is reserved. Every workspace needs a distinct icon from
-  the Molca icon family; when `Icon` is omitted, the registry tries `molca-{Id}.png` before falling back to
-  a label-only tab.
-- **Tabs behave like browser tabs.** Settings is the non-closable home tab. Workspace tabs can be closed,
-  reopened from the rightmost tabs menu, pinned from their context menu, or collapsed to icon-only when the
-  dock narrows. Closing the active tab selects its right neighbour, then its left neighbour, then Settings.
-  Pinned and active tabs remain visible during overflow fitting.
+  (`Id` stable kebab-case, `Label`, `Group`, `Order`, `Icon`, `CreateContent`, optional `IsAvailable`,
+  optional `CacheContent`). No Core edit, no registration call. The `"settings"` id is reserved. Every
+  workspace needs a **distinct** icon from the Molca icon family; when `Icon` is omitted, the tab strip
+  tries `molca-{Id}.png` before falling back to a label-only tab. Sharing an icon with another tab is a
+  bug — icon-only collapse is exactly when the icon is all the reader has.
+- **Always declare a `Group`.** `Order` is compared *within* a group, so it only has to be chosen against
+  members you can actually see. Omitting the group is not neutral: it drops the tab into `General`, which
+  sorts after `Integrations`.
+- **Tabs behave like browser tabs, except they hide rather than close.** Settings is the anchored home tab.
+  Workspace tabs can be hidden (the `×`, the context menu, or the tabs menu), shown again from the
+  rightmost tabs menu, pinned from their context menu, or collapsed to icon-only when the dock narrows.
+  Hiding the active tab selects its right neighbour, then its left neighbour, then Settings. Say "hide",
+  never "close": it is a persisted per-project setting, not a dismissal.
 - **Host content, don't nest controllers.** `CreateContent` builds a `VisualElement` into the workspace host
-  (like Doctor/Assistant/Sequence). It is rebuilt on each selection and must tolerate teardown (the host is
-  cleared on tab switch, firing `DetachFromPanelEvent` cleanup). A tab may also open a standalone window, but
-  it must not stand up a second long-running hosted tool controller behind the host.
+  (like Doctor/Assistant/Sequence). By default it is rebuilt on each selection and must tolerate teardown
+  (the host is cleared on tab switch, firing `DetachFromPanelEvent` cleanup). A tab may also open a
+  standalone window, but it must not stand up a second long-running hosted tool controller behind the host.
+- **Opt into `CacheContent` to keep view state**, and then remember that the view is *hidden, not
+  detached*: `AttachToPanelEvent` fires exactly once for its whole life. Per-activation work belongs in
+  `IMolcaHubCachedView.OnWorkspaceActivated()`, never in the attach handler. See
+  [The Molca Hub](HUB.md#keeping-view-state-across-tab-switches).
+- **A hosted view still applies the design language.** Call `MolcaEditorUi.Apply(this)` in the view's
+  constructor even though the Hub root already did — it is idempotent, and it is what lets the same
+  `VisualElement` be hosted standalone without rendering untokenized.
 - **Hide a built-in by config, never by editing Core.** `MolcaHubWorkspaceRegistry.SetHidden(id, true)`
   drops a tab (e.g. a project that doesn't use Sequence) per project; Settings cannot be hidden.
-- **Deterministic + safe.** Tabs sort by `Order` then `Id`; duplicate ids and the reserved id are rejected;
-  an unavailable/throwing provider or content factory degrades to a skipped tab / compact error, never a
-  broken Hub. Selection persists by id (legacy enum names migrate; a missing/hidden id falls back to
-  Settings).
+- **Deterministic + safe.** Tabs sort by group rank, then `Order`, then `Id`; duplicate ids and the
+  reserved id are rejected; an unavailable/throwing provider or content factory degrades to a skipped tab /
+  compact error, never a broken Hub. Selection persists by id (legacy enum names migrate; a missing/hidden
+  id falls back to Settings).
 
 ### Slim Project Settings Page
 

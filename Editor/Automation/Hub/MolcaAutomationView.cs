@@ -1,4 +1,5 @@
 using System.Linq;
+using Molca.Editor.UI;
 using Molca.Editor.UI.Components;
 using Newtonsoft.Json.Linq;
 using UnityEngine.UIElements;
@@ -27,6 +28,10 @@ namespace Molca.Editor.Automation.Hub
         /// <summary>Builds the Automation workspace view.</summary>
         public MolcaAutomationView()
         {
+            // A hostable view carries its own design language rather than inheriting the Hub's: the editor
+            // design language allows this same element to be hosted standalone, and Apply is idempotent.
+            MolcaEditorUi.Apply(this);
+
             // No horizontal padding on the root: the rail below reaches the panel edge, as it does in
             // Settings and Docs. The header and the detail pane carry the inset instead.
             style.flexGrow = 1;
@@ -127,9 +132,15 @@ namespace Molca.Editor.Automation.Hub
 
         private VisualElement BuildWorkflows()
         {
-            var card = Card("Workflows", "Run a composed workflow and read its evidence", out _);
+            var card = Card("Workflows", "Run a workflow and read its evidence", out _);
             var body = CardBody(card);
-            var workflows = MolcaAutomationKernel.Instance.Capabilities().Where(c => c.Category == "workflow").ToList();
+            // Both categories: the built-ins and any saved composed workflow. Filtering on the built-in
+            // category alone is what previously hid saved workflows from the only UI that lists them.
+            var workflows = MolcaAutomationKernel.Instance.Capabilities()
+                .Where(c => MolcaWorkflowCommandAdapter.IsWorkflowCategory(c.Category))
+                .OrderBy(c => c.Category, System.StringComparer.Ordinal)
+                .ThenBy(c => c.DisplayName, System.StringComparer.Ordinal)
+                .ToList();
 
             if (workflows.Count == 0)
             {
@@ -137,11 +148,19 @@ namespace Molca.Editor.Automation.Hub
                 return card;
             }
 
+            var policy = MolcaAutomationKernel.Instance.Policy as MolcaAutomationPolicy;
             foreach (var workflow in workflows)
             {
                 var row = new VisualElement { style = { marginBottom = 10 } };
                 var headerRow = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
                 headerRow.Add(new Label(workflow.DisplayName) { style = { unityFontStyleAndWeight = UnityEngine.FontStyle.Bold, flexGrow = 1 } });
+                if (workflow.Category == MolcaWorkflowCommandAdapter.ComposedCategory)
+                {
+                    var tag = Muted("saved");
+                    tag.tooltip = $"A composed workflow saved under {MolcaComposedWorkflowStore.RelativeRoot}, registered as command '{workflow.Id}'.";
+                    tag.style.marginRight = 6;
+                    headerRow.Add(tag);
+                }
                 var status = Muted("idle");
                 status.style.marginRight = 6;
                 headerRow.Add(status);
@@ -157,6 +176,33 @@ namespace Molca.Editor.Automation.Hub
                     var desc = Muted(workflow.Description);
                     desc.style.whiteSpace = WhiteSpace.Normal;
                     row.Add(desc);
+                }
+
+                // Authorization state next to the Run button, both ways. An unauthorized action workflow is
+                // refused whatever the profile, so it must be visible here; and the grant must be revocable
+                // from the same place, since a surface that can only widen permissions is the wrong bias.
+                if (workflow.Kind == MolcaCommandKind.Action && policy != null)
+                {
+                    var authorized = policy.IsAllowlisted(workflow.Id);
+                    var authRow = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginTop = 2 } };
+                    var note = Muted(authorized
+                        ? $"Authorized — '{workflow.Id}' is in the action allowlist."
+                        : $"Not authorized — '{workflow.Id}' is not in the action allowlist, so a run is refused under every profile.");
+                    note.style.whiteSpace = WhiteSpace.Normal;
+                    note.style.flexGrow = 1;
+                    authRow.Add(note);
+
+                    var id = workflow.Id;
+                    var toggleButton = MolcaButtons.Mini(authorized ? "Revoke" : "Authorize", () =>
+                    {
+                        MolcaAutomationPolicySettings.GetOrCreateSettings().SetActionAllowed(id, !authorized);
+                        Refresh();
+                    });
+                    toggleButton.tooltip = authorized
+                        ? "Removes this workflow from the action allowlist; runs are refused again."
+                        : "Adds this workflow to the action allowlist (same as the Permissions rail).";
+                    authRow.Add(toggleButton);
+                    row.Add(authRow);
                 }
 
                 var result = new VisualElement { style = { marginTop = 3 } };

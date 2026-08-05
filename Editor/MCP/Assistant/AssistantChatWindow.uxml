@@ -32,9 +32,18 @@
 
         <ui:TextField name="input" multiline="true" class="chat-input" />
 
+        <!-- A message typed while a turn is running is staged here and auto-sent when the turn
+             completes (Sprint 91.1b). Hidden while nothing is queued. -->
+        <ui:VisualElement name="queued-row" class="chat-queued-row" style="display: none;">
+            <ui:Label name="queued-label" class="chat-queued-row__label" />
+            <ui:Button name="queued-cancel" text="✕" class="chat-mini-button" />
+        </ui:VisualElement>
+
         <ui:VisualElement name="control-row" class="chat-control-row">
             <ui:VisualElement name="mode-slot" style="flex-shrink: 0;" />
-            <ui:Label name="token-estimate" class="chat-token-estimate" />
+            <ui:VisualElement name="stats-row" class="chat-stats-row">
+                <ui:Label name="token-estimate" class="chat-token-estimate" />
+            </ui:VisualElement>
             <ui:Button name="send" text="Send" class="chat-send" />
             <ui:Button name="stop" text="Stop" class="chat-stop" />
         </ui:VisualElement>

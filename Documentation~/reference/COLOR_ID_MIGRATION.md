@@ -1,3 +1,9 @@
+---
+title: Colour Migration (1.x → 2.x)
+category: UI & Presentation
+order: 541
+---
+
 # Colour migration guide (1.x → 2.x)
 
 Core 2.x removes the 1.x colour runtime, but it ships the editor-only migrators needed for a direct

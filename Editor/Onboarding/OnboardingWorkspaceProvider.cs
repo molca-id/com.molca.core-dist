@@ -27,7 +27,10 @@ namespace Molca.Editor.Onboarding
                 WorkspaceId, "Onboarding", order: 0,
                 createContent: () => new MolcaOnboardingView(),
                 isAvailable: () => MolcaOnboardingChecklist.Items.Count > 0,
-                icon: "window",
+                // Its own family icon, not the generic "window" mark: that one is the Hub's own window
+                // icon, so sharing it made Onboarding indistinguishable from the brand once the strip
+                // collapsed to icon-only — which is precisely when the icon is all the reader has.
+                icon: "onboarding",
                 group: MolcaHubWorkspaceGroups.Quality),
         };
     }
