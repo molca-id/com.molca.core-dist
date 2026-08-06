@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using UnityEditor;
 using UnityEngine;
 
@@ -151,6 +152,50 @@ namespace Molca.Editor.Hub.Docs
                 return string.Compare(a.Label, b.Label, StringComparison.OrdinalIgnoreCase);
             });
             return products;
+        }
+
+        /// <summary>
+        /// A deterministic fingerprint of everything the docs browser renders <i>around</i> a doc's prose:
+        /// the product grouping, the category tree, and each entry's id, title, order and source path.
+        /// </summary>
+        /// <param name="products">The resolved product groups (typically from <see cref="BuildProducts"/>).</param>
+        /// <returns>A stable string that differs whenever the rail would render differently.</returns>
+        /// <remarks>
+        /// Front-matter is read only while scanning, and <c>Documentation~</c> is outside the AssetDatabase, so
+        /// nothing raises an event when a guide's <c>title</c>/<c>category</c>/<c>order</c>/<c>product</c>
+        /// changes. A view that snapshotted the tree compares this instead and rebuilds only when it actually
+        /// differs — a no-op refresh must not cost the reader their selection, expansion or scroll position.
+        /// Deliberately blind to a doc's body: prose edits are detected from the file's timestamp, by whoever
+        /// is rendering it. Pure; exposed for testing.
+        /// </remarks>
+        public static string Signature(IReadOnlyList<MolcaDocProduct> products)
+        {
+            if (products == null) return string.Empty;
+
+            // Unit/record separators: control characters no title, category or path can plausibly contain, so
+            // two different trees cannot flatten to the same string by concatenation.
+            const char Field = '\u001F';
+            const char Record = '\u001E';
+
+            var builder = new StringBuilder();
+            foreach (var product in products)
+            {
+                builder.Append(product.Key).Append(Field)
+                    .Append(product.Label).Append(Field)
+                    .Append(product.Order).Append(Record);
+
+                foreach (var category in product.Categories)
+                {
+                    builder.Append(category.Name).Append(Field).Append(category.Order).Append(Record);
+                    foreach (var doc in category.Docs)
+                        builder.Append(doc.Id).Append(Field)
+                            .Append(doc.Title).Append(Field)
+                            .Append(doc.Order).Append(Field)
+                            .Append(doc.AbsolutePath).Append(Record);
+                }
+            }
+
+            return builder.ToString();
         }
 
         /// <summary>The product grouping key for a doc: its owning package, or <see cref="ProjectProductKey"/>.</summary>

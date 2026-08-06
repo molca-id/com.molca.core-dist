@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Linq;
 using System.Threading;
 using UnityEngine;
@@ -71,6 +71,10 @@ namespace Molca.Editor
                 if (!gate.Passed)
                 {
                     Debug.LogError(gate.DescribeFailure());
+                    RecordAttempt(profileName, null, MolcaBuildOutcome.Refused,
+                        $"pre-build gate refused the build: {gate.Errors.Count} Doctor error(s) — " +
+                        string.Join("; ", gate.Errors.Select(e => e.CheckId).Distinct()),
+                        reasonCode: MolcaBuildReasonCode.DoctorGate);
                     return null;
                 }
             }
@@ -189,6 +193,8 @@ namespace Molca.Editor
             if (buildSettings == null || versionSettings == null)
             {
                 Debug.LogError("Build or Version settings not found in Editor Settings!");
+                RecordAttempt(profileName, null, MolcaBuildOutcome.Refused,
+                    "Build or Version settings are not assigned on the Molca Editor Settings asset.");
                 return null;
             }
 
@@ -197,6 +203,9 @@ namespace Molca.Editor
             if (profile == null)
             {
                 Debug.LogError($"Build profile '{profileName}' not found!");
+                RecordAttempt(profileName, null, MolcaBuildOutcome.Refused,
+                    $"build profile '{profileName}' does not exist in '{buildSettings.name}'.",
+                    reasonCode: MolcaBuildReasonCode.ProfileNotFound);
                 return null;
             }
             var targetGroup = BuildPipeline.GetBuildTargetGroup(profile.target);
@@ -209,6 +218,9 @@ namespace Molca.Editor
                     if (!EditorUserBuildSettings.SwitchActiveBuildTarget(targetGroup, profile.target))
                     {
                         Debug.LogError($"Failed to switch active build target to {profile.target}. Aborting build.");
+                        RecordAttempt(profileName, profile.target, MolcaBuildOutcome.Refused,
+                            $"could not switch the active build target to {profile.target} — is the platform module installed?",
+                            reasonCode: MolcaBuildReasonCode.TargetSwitchFailed);
                         return null;
                     }
                 }
@@ -221,10 +233,18 @@ namespace Molca.Editor
                     {
                         ClearPendingBuild();
                         Debug.LogError($"Failed to switch active build target to {profile.target}. Aborting build.");
+                        RecordAttempt(profileName, profile.target, MolcaBuildOutcome.Refused,
+                            $"could not switch the active build target to {profile.target} — is the platform module installed?",
+                            reasonCode: MolcaBuildReasonCode.TargetSwitchFailed);
                     }
                     else
                     {
                         Debug.Log($"Switched active build target to {profile.target}. Build will resume automatically.");
+                        // Recorded so the Hub can say what it is waiting for. The resumed build appends its
+                        // own record, so this row is superseded rather than left as the last word.
+                        RecordAttempt(profileName, profile.target, MolcaBuildOutcome.Refused,
+                            $"deferred while the editor switches to {profile.target}; resumes automatically after the reload.",
+                            reasonCode: MolcaBuildReasonCode.TargetSwitchDeferred);
                     }
                     return null;
                 }
@@ -319,12 +339,37 @@ namespace Molca.Editor
             // reference problem aborts before any player setting is mutated and the message names the
             // finding codes. The gate skips its own audit when this one passed, so the work is not
             // duplicated.
-            var referenceErrors = SceneReferenceBuildValidator.Validate();
+            // The profile's own scene set, resolved before the reference gate so the gate audits the scenes
+            // this build actually ships. Auditing the global enabled list instead would fail the build in
+            // ReferenceBuildSceneAudit — correctly, since a scene it never looked at is being built.
+            if (!profile.TryResolveScenePaths(out var profileScenes, out var sceneFailure))
+            {
+                Debug.LogError($"[BuildManager] Build aborted: {sceneFailure}");
+                RecordAttempt(profile.name, profile.target, MolcaBuildOutcome.Refused, sceneFailure,
+                    reasonCode: MolcaBuildReasonCode.SceneSetUnresolvable);
+                return null;
+            }
+
+            var referenceErrors = SceneReferenceBuildValidator.Validate(profileScenes);
             if (referenceErrors.Count > 0)
             {
                 Debug.LogError(
                     $"[BuildManager] Build aborted: {referenceErrors.Count} scene reference problem(s):\n  " +
                     string.Join("\n  ", referenceErrors));
+                RecordAttempt(profile.name, profile.target, MolcaBuildOutcome.Refused,
+                    $"{referenceErrors.Count} scene reference problem(s) — see the Reference audit.",
+                    reasonCode: MolcaBuildReasonCode.SceneReferences);
+                return null;
+            }
+
+            // Everything about this profile that can be known to be impossible, refused while the editor
+            // is still untouched — before the content build below spends minutes and before any
+            // PlayerSettings mutation needs restoring.
+            if (!TryValidateProfileForBuild(profile, out var profileFailure))
+            {
+                Debug.LogError($"[BuildManager] Build aborted: {profileFailure}");
+                RecordAttempt(profile.name, profile.target, MolcaBuildOutcome.Refused, profileFailure,
+                    reasonCode: MolcaBuildReasonCode.ProfileInvalid);
                 return null;
             }
 
@@ -335,6 +380,8 @@ namespace Molca.Editor
             if (!MolcaBuildStepRegistry.RunAll(buildContext, out var stepFailure))
             {
                 Debug.LogError($"[BuildManager] Build aborted: {stepFailure}");
+                RecordAttempt(profile.name, profile.target, MolcaBuildOutcome.Refused, stepFailure,
+                    reasonCode: MolcaBuildReasonCode.PreBuildStep);
                 return null;
             }
 
@@ -409,11 +456,14 @@ namespace Molca.Editor
 
             Debug.Log($"Build Options: {string.Join(", ", activeOptions)}");
 
-            // Get all enabled scenes from build settings
-            string[] scenes = EditorBuildSettings.scenes
+            // The profile's scene set when it declares one, otherwise the enabled Build Settings scenes.
+            string[] scenes = profileScenes ?? EditorBuildSettings.scenes
                 .Where(scene => scene.enabled)
                 .Select(scene => scene.path)
                 .ToArray();
+
+            if (profileScenes != null)
+                Debug.Log($"Scenes: {profileScenes.Length} from profile '{profile.name}' (Build Settings list ignored).");
 
             // Apply profile RuntimeManager/GlobalSettings to MolcaProjectSettings for the build
             var projectSettings = Molca.MolcaProjectSettings.Instance;
@@ -470,6 +520,30 @@ namespace Molca.Editor
             {
                 Debug.Log($"Build completed successfully!\nOutput: {buildPath}\nSize: {report.summary.totalSize / 1024f / 1024f:F2} MB");
                 WriteBuildManifest(profile, report, buildPath, scenes, activeOptions, fullVersionString, builtBuildNumber, versionSettings);
+
+                var detail =
+                    $"built in {report.summary.totalTime.TotalSeconds:F0}s · " +
+                    $"{report.summary.totalSize / 1024f / 1024f:F1} MB · {buildPath}";
+
+                // The record is built before the post steps run so they can read it, and appended after so
+                // it can carry what they reported.
+                var record = CreateRecord(
+                    profile.name, profile.target, MolcaBuildOutcome.Succeeded, detail, report, versionSettings);
+
+                var postContext = new MolcaPostBuildContext(profile, buildPath, record, buildContext);
+                if (!MolcaBuildStepRegistry.RunAllPost(postContext, out var postFailures))
+                {
+                    // The player exists; this is not a build failure. Reported at error severity because
+                    // an unpublished artifact or an unuploaded symbol file is a real problem, and recorded
+                    // on the build row so it is not only in a console someone has since cleared.
+                    Debug.LogError(
+                        $"[BuildManager] The build succeeded, but {postFailures.Count} post-build step(s) failed:\n  " +
+                        string.Join("\n  ", postFailures));
+                    record.detail = detail + $" · {postFailures.Count} post-build step(s) failed: " +
+                        string.Join("; ", postFailures);
+                }
+
+                MolcaBuildRecordStore.Append(record);
             }
             else
             {
@@ -485,12 +559,265 @@ namespace Molca.Editor
                         }
                     }
                 }
+
+                // A gate that refused by throwing BuildFailedException is handed back as a Failed report,
+                // indistinguishable from a compile error — so the gate names itself on the way out and this
+                // reads what it recorded. Without that, every refusal and every broken build would share
+                // one reason, and the only way to tell them apart would be to parse the console text this
+                // design keeps on the machine.
+                string refusal = MolcaBuildRefusal.Recorded;
+                var outcome = string.IsNullOrEmpty(refusal)
+                    ? MolcaBuildOutcome.Failed
+                    : MolcaBuildOutcome.Refused;
+
+                var failureRecord = CreateRecord(
+                    profile.name, profile.target, outcome,
+                    $"{report.summary.result} · {report.summary.totalErrors} error(s) — see the Console.",
+                    report, versionSettings,
+                    string.IsNullOrEmpty(refusal) ? MolcaBuildReasonCode.BuildFailed : refusal);
+
+                MolcaBuildRecordStore.Append(failureRecord);
+
+                // Reported to the control plane here rather than through IMolcaPostBuildStep, because post
+                // steps run only when an artifact exists — that is their contract and it is the right one.
+                // A build with no token minted reports nothing, which is every refusal that happened before
+                // the license gate ran; that gap is documented rather than papered over.
+                ReportOutcomeToControlPlane(failureRecord, buildContext, profile);
             }
 
             return report;
         }
 
-        private static string GetBuildPath(BuildTarget target, string projectName, string fullVersionString, string outputRoot, string profileName, bool androidAppBundle)
+        /// <summary>
+        /// Records one build attempt in <see cref="MolcaBuildRecordStore"/>.
+        /// </summary>
+        /// <param name="profileName">The profile that was asked for.</param>
+        /// <param name="target">The resolved target, or null when it never resolved.</param>
+        /// <param name="outcome">How the attempt ended.</param>
+        /// <param name="detail">One line saying what happened.</param>
+        /// <param name="report">The build report, when one exists.</param>
+        /// <remarks>
+        /// Every exit from the build path passes through here, including the ones that produce no artifact.
+        /// A build that a gate refused is the case most worth recording and the one a manifest beside the
+        /// output can never describe.
+        /// </remarks>
+        /// <summary>
+        /// Reports a build attempt that produced no artifact to the control plane.
+        /// </summary>
+        /// <param name="record">The local record for the attempt.</param>
+        /// <param name="buildContext">The running build's context, carrying the minted build-token id.</param>
+        /// <param name="profile">The profile that was built, for the scene count.</param>
+        /// <remarks>
+        /// <para>
+        /// Silent when no build token was minted, which is not an error: <c>File &gt; Build</c>, a project
+        /// that is not connected, a distribution with licensing unconfigured, and every refusal that
+        /// happened before the license gate ran all land here. There is nothing on the control plane for
+        /// such an attempt to be a record of, because the row hangs off the token.
+        /// </para>
+        /// <para>
+        /// Failures never propagate. A build that already failed must not also produce an exception from the
+        /// code that reports it having failed.
+        /// </para>
+        /// </remarks>
+        private static void ReportOutcomeToControlPlane(
+            MolcaBuildRecord record, MolcaBuildContext buildContext, BuildSettings.BuildProfile profile)
+        {
+            string buildId = buildContext?.GetValue(Licensing.ControlPlaneBuildRecorder.BuildIdKey);
+            if (string.IsNullOrEmpty(buildId)) return;
+
+            try
+            {
+                int sceneCount = profile != null &&
+                    profile.TryResolveScenePaths(out var scenes, out _) && scenes != null
+                        ? scenes.Length
+                        : EditorBuildSettings.scenes.Count(scene => scene.enabled);
+
+                Licensing.ControlPlaneBuildRecorder.Queue(buildId, record, sceneCount);
+            }
+            catch (System.Exception exception)
+            {
+                Debug.LogWarning(
+                    $"[BuildManager] Could not report the build outcome to the control plane: {exception.Message}");
+            }
+        }
+
+        private static void RecordAttempt(
+            string profileName, BuildTarget? target, MolcaBuildOutcome outcome, string detail,
+            BuildReport report = null, string reasonCode = null) =>
+            MolcaBuildRecordStore.Append(
+                CreateRecord(profileName, target, outcome, detail, report, versionSettings: null, reasonCode));
+
+        /// <summary>
+        /// Builds the record for one build attempt without persisting it.
+        /// </summary>
+        /// <param name="profileName">The profile that was asked for.</param>
+        /// <param name="target">The resolved target, or null when it never resolved.</param>
+        /// <param name="outcome">How the attempt ended.</param>
+        /// <param name="detail">One line saying what happened.</param>
+        /// <param name="report">The build report, when one exists.</param>
+        /// <param name="versionSettings">
+        /// The version settings to read; resolved from Editor Settings when null.
+        /// </param>
+        /// <returns>The unpersisted record.</returns>
+        /// <remarks>
+        /// Separate from <see cref="RecordAttempt"/> so a successful build can hand the record to its post
+        /// steps and append it once they have had their say.
+        /// </remarks>
+        private static MolcaBuildRecord CreateRecord(
+            string profileName, BuildTarget? target, MolcaBuildOutcome outcome, string detail,
+            BuildReport report, VersionSettings versionSettings, string reasonCode = null)
+        {
+            versionSettings ??= MolcaEditorSettings.Instance != null
+                ? MolcaEditorSettings.Instance.VersionSettings
+                : null;
+
+            GitLogReader.ReadProvenance(
+                Directory.GetParent(Application.dataPath)?.FullName, out var commit, out var branch);
+
+            return new MolcaBuildRecord
+            {
+                profile = string.IsNullOrEmpty(profileName) ? "(none)" : profileName,
+                target = target?.ToString() ?? string.Empty,
+                outcome = outcome.ToString(),
+                semanticVersion = versionSettings != null ? versionSettings.GetSemanticVersion() : string.Empty,
+                buildNumber = versionSettings != null ? versionSettings.GetBuildNumberString() : string.Empty,
+                commit = commit,
+                branch = branch,
+                outputPath = report != null ? report.summary.outputPath : string.Empty,
+                totalSizeBytes = report != null ? (long)report.summary.totalSize : 0L,
+                durationSeconds = report != null ? report.summary.totalTime.TotalSeconds : 0d,
+                timestampUtc = System.DateTime.UtcNow.ToString("o"),
+                detail = detail ?? string.Empty,
+                // A successful build has no reason to record; anything else always has one, so a failure
+                // can never read as having happened for no reason. The fallback is deliberately the vaguest
+                // code rather than the free text in `detail`: `detail` may name a scene or a path, and this
+                // field is the only part of a failure that leaves the machine.
+                reasonCode = outcome == MolcaBuildOutcome.Succeeded
+                    ? string.Empty
+                    : (string.IsNullOrEmpty(reasonCode) ? "unspecified" : reasonCode),
+            };
+        }
+
+        /// <summary>
+        /// Refuses a build this profile cannot produce, before anything has been mutated.
+        /// </summary>
+        /// <param name="profile">The profile about to be built.</param>
+        /// <param name="failure">Why the build cannot run; null when it can.</param>
+        /// <returns>True when the build may proceed.</returns>
+        /// <remarks>
+        /// Both checks here used to happen too late to matter. An unsupported target was discovered by
+        /// <see cref="GetBuildPath"/> after PlayerSettings had been rewritten, and missing signing
+        /// passwords were a <em>warning</em> logged from <see cref="ApplySigning"/> while the build carried
+        /// on — so a profile that asked to be signed with a release keystore produced an artifact signed
+        /// with Unity's debug keystore instead, indistinguishable from a real one until a store rejected
+        /// it or, worse, accepted it. Every other gate in this system fails closed; signing is the one
+        /// where failing open is least defensible.
+        /// </remarks>
+        internal static bool TryValidateProfileForBuild(BuildSettings.BuildProfile profile, out string failure)
+        {
+            failure = null;
+            if (profile == null)
+            {
+                failure = "no profile.";
+                return false;
+            }
+
+            if (!IsOutputTargetSupported(profile.target))
+            {
+                failure = UnsupportedTargetMessage(profile.target);
+                return false;
+            }
+
+            if (profile.useCustomSigning && profile.target == BuildTarget.Android)
+            {
+                var missing = new System.Collections.Generic.List<string>();
+                if (string.IsNullOrWhiteSpace(profile.androidKeystorePath))
+                    missing.Add("Keystore Path is empty");
+                else if (!File.Exists(AbsoluteKeystorePath(profile.androidKeystorePath)))
+                    missing.Add($"keystore file '{AbsoluteKeystorePath(profile.androidKeystorePath)}' does not exist");
+
+                if (string.IsNullOrWhiteSpace(profile.androidKeyaliasName))
+                    missing.Add("Key Alias Name is empty");
+
+                if (string.IsNullOrEmpty(System.Environment.GetEnvironmentVariable(profile.androidKeystorePassEnv)))
+                    missing.Add($"environment variable '{profile.androidKeystorePassEnv}' (keystore password) is not set");
+
+                if (string.IsNullOrEmpty(System.Environment.GetEnvironmentVariable(profile.androidKeyaliasPassEnv)))
+                    missing.Add($"environment variable '{profile.androidKeyaliasPassEnv}' (key alias password) is not set");
+
+                if (missing.Count > 0)
+                {
+                    failure =
+                        $"profile '{profile.name}' enables custom Android signing, but it cannot be applied:\n  - " +
+                        string.Join("\n  - ", missing) +
+                        "\nRefusing rather than falling back to the debug keystore, which would produce an " +
+                        "unpublishable artifact that looks exactly like a signed one. Fix the signing " +
+                        "configuration, or turn Use Custom Signing off for this profile.";
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>Resolves a profile keystore path against the project root when it is relative.</summary>
+        private static string AbsoluteKeystorePath(string keystorePath) =>
+            Path.IsPathRooted(keystorePath)
+                ? keystorePath
+                : Path.GetFullPath(Path.Combine(Application.dataPath, "..", keystorePath));
+
+        /// <summary>
+        /// True when <see cref="GetBuildPath"/> has an output rule for <paramref name="target"/>.
+        /// </summary>
+        /// <param name="target">The target to check.</param>
+        /// <remarks>
+        /// Deliberately a second switch rather than a try/catch around <see cref="GetBuildPath"/>, which
+        /// creates directories as it resolves. A test asserts the two agree for every
+        /// <see cref="BuildTarget"/> value, so the pair cannot drift into a target that validates and then
+        /// throws mid-build.
+        /// </remarks>
+        internal static bool IsOutputTargetSupported(BuildTarget target)
+        {
+            switch (target)
+            {
+                case BuildTarget.StandaloneWindows64:
+                case BuildTarget.StandaloneWindows:
+                case BuildTarget.StandaloneOSX:
+                case BuildTarget.StandaloneLinux64:
+                case BuildTarget.WebGL:
+                case BuildTarget.Android:
+                case BuildTarget.iOS:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static string UnsupportedTargetMessage(BuildTarget target) =>
+            $"Molca's build system has no output-path rule for build target '{target}'. " +
+            "Add one to BuildManager.GetBuildPath — an artifact whose location is guessed is " +
+            "an artifact nobody can find or sign.";
+
+        /// <summary>
+        /// Resolves the <c>locationPathName</c> for a build: which folder it lands in, and what the
+        /// artifact inside it is called.
+        /// </summary>
+        /// <param name="target">The target being built.</param>
+        /// <param name="projectName">The project name, used for the executable/bundle name.</param>
+        /// <param name="fullVersionString">Version and build number, for the folder/file name.</param>
+        /// <param name="outputRoot">The profile's output path, absolute or relative to the project root.</param>
+        /// <param name="profileName">The profile being built, for the folder/file name.</param>
+        /// <param name="androidAppBundle">True when Android should produce an <c>.aab</c>.</param>
+        /// <returns>The path to pass to <c>BuildPipeline.BuildPlayer</c>.</returns>
+        /// <remarks>
+        /// <b>Every supported target is named here, and the fallback throws.</b> Only Windows, Android and
+        /// iOS used to be, and everything else fell through to a bare extensionless path — so a macOS
+        /// build asked Unity for a location with no <c>.app</c> suffix, which is not a valid application
+        /// bundle, and Linux and WebGL builds landed as loose siblings in <c>Builds/</c> rather than in a
+        /// folder of their own. A silent default for a platform nobody tested is how "the framework
+        /// supports it" and "the framework has a switch case for it" come apart.
+        /// </remarks>
+        internal static string GetBuildPath(BuildTarget target, string projectName, string fullVersionString, string outputRoot, string profileName, bool androidAppBundle)
         {
             string fileName = $"{projectName}_{profileName}_{fullVersionString}";
             string buildDir = ResolveOutputPath(outputRoot);
@@ -498,23 +825,46 @@ namespace Molca.Editor
             // Create build directory if it doesn't exist
             Directory.CreateDirectory(buildDir);
 
+            // One folder per (platform, profile, version) so successive builds of different profiles do
+            // not overwrite each other's output, and a build can be zipped by folder.
+            string PlatformDir(string platform)
+            {
+                var dir = Path.Combine(buildDir, $"{platform}_{profileName}_{fullVersionString}");
+                Directory.CreateDirectory(dir);
+                return dir;
+            }
+
             switch (target)
             {
                 case BuildTarget.StandaloneWindows64:
-                    var winDir = Path.Combine(buildDir, $"Windows_{profileName}_{fullVersionString}");
-                    Directory.CreateDirectory(winDir);
-                    return Path.Combine(winDir, $"{projectName}.exe");
+                    return Path.Combine(PlatformDir("Windows"), $"{projectName}.exe");
+                case BuildTarget.StandaloneWindows:
+                    return Path.Combine(PlatformDir("Windows32"), $"{projectName}.exe");
+                case BuildTarget.StandaloneOSX:
+                    // The .app extension is not decoration: Unity writes an application bundle, and a
+                    // location without it produces something macOS will not launch.
+                    return Path.Combine(PlatformDir("macOS"), $"{projectName}.app");
+                case BuildTarget.StandaloneLinux64:
+                    // Linux players are extensionless by convention.
+                    return Path.Combine(PlatformDir("Linux"), projectName);
+                case BuildTarget.WebGL:
+                    // WebGL's location is the folder the site is written into, not a file.
+                    return PlatformDir("WebGL");
                 case BuildTarget.Android:
                     var androidDir = Path.Combine(buildDir, $"Android_{profileName}");
                     Directory.CreateDirectory(androidDir);
                     var androidExtension = androidAppBundle ? "aab" : "apk";
                     return Path.Combine(androidDir, $"{fileName}.{androidExtension}");
                 case BuildTarget.iOS:
+                    // An Xcode project directory, not a player.
                     var iosDir = Path.Combine(buildDir, $"iOS_{profileName}");
                     Directory.CreateDirectory(iosDir);
                     return iosDir;
                 default:
-                    return Path.Combine(buildDir, fileName);
+                    // Unreachable via the Molca build path: TryValidateProfileForBuild refuses an
+                    // unsupported target before anything is mutated. Kept as the backstop for a direct
+                    // caller, and as the single place the message lives.
+                    throw new System.NotSupportedException(UnsupportedTargetMessage(target));
             }
         }
 
@@ -535,15 +885,8 @@ namespace Molca.Editor
                     return;
                 Directory.CreateDirectory(dir);
 
-                string commit = string.Empty, branch = string.Empty;
-                var projectRoot = Directory.GetParent(Application.dataPath)?.FullName;
-                if (!string.IsNullOrEmpty(projectRoot))
-                {
-                    if (GitLogReader.TryRunGit(projectRoot, "rev-parse --short HEAD", out var c))
-                        commit = c.Trim();
-                    if (GitLogReader.TryRunGit(projectRoot, "rev-parse --abbrev-ref HEAD", out var b))
-                        branch = b.Trim();
-                }
+                GitLogReader.ReadProvenance(
+                    Directory.GetParent(Application.dataPath)?.FullName, out var commit, out var branch);
 
                 var manifest = new BuildManifest
                 {
@@ -804,10 +1147,14 @@ namespace Molca.Editor
 
                 if (string.IsNullOrEmpty(keystorePass) || string.IsNullOrEmpty(keyaliasPass))
                 {
-                    Debug.LogWarning(
+                    // Unreachable from the Molca build path — TryValidateProfileForBuild refuses this
+                    // profile before any mutation. Kept because this method is also reachable from a
+                    // direct caller, and silently signing with the debug keystore is the outcome that
+                    // must never happen quietly.
+                    Debug.LogError(
                         "[BuildManager] Custom Android signing is enabled but the password environment " +
                         $"variables ('{profile.androidKeystorePassEnv}'/'{profile.androidKeyaliasPassEnv}') are empty. " +
-                        "The build may fail to sign or fall back to the debug keystore.");
+                        "The resulting artifact will not be signed with the intended keystore.");
                 }
             }
             else if (profile.target == BuildTarget.iOS)

@@ -324,8 +324,8 @@ namespace Molca.Editor.Hub.Sections
             Rebuild();
         }
 
-        // Reads the provider's authored DisplayName from a throwaway instance so the menu shows "GitHub",
-        // not "GitHubIntegrationProvider". The temp instance is discarded immediately.
+        // Reads the provider's authored DisplayName from a throwaway instance so the menu shows "ClickUp",
+        // not "ClickUpIntegrationProvider". The temp instance is discarded immediately.
         private static string DisplayNameFor(Type type)
         {
             IntegrationProvider temp = null;

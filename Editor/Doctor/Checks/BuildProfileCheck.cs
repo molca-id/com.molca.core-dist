@@ -42,12 +42,32 @@ namespace Molca.Editor.Doctor
                     continue;
 
                 var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var seenIds = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var profile in settings.Profiles)
                 {
                     if (profile == null)
                         continue;
 
                     var label = string.IsNullOrWhiteSpace(profile.name) ? "(unnamed)" : profile.name;
+
+                    // A duplicated id is worse than a duplicated name: names are visible in the Hub and a
+                    // person notices two rows reading the same, whereas an id is only ever resolved in code,
+                    // so two profiles sharing one silently route every reference to whichever comes first.
+                    if (!string.IsNullOrEmpty(profile.id) && !seenIds.Add(profile.id))
+                    {
+                        issues.Add(new DoctorIssue(Id, DoctorSeverity.Error,
+                            $"Build profile \"{label}\" shares its stable id with another profile — anything " +
+                            "referencing that id resolves to only one of them. Clear the id on the duplicate " +
+                            "so a fresh one is assigned.", path));
+                    }
+
+                    // A profile's scene set is resolved at build time and a missing entry aborts the build;
+                    // finding it here means finding it before the build rather than minutes into one.
+                    if (profile.HasSceneOverride && !profile.TryResolveScenePaths(out _, out var sceneFailure))
+                    {
+                        issues.Add(new DoctorIssue(Id, DoctorSeverity.Error,
+                            $"Build profile scene set is unusable: {sceneFailure}", path));
+                    }
 
                     if (string.IsNullOrWhiteSpace(profile.name))
                     {

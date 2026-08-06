@@ -2,6 +2,238 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [2.2.0] - 2026-08-06
+
+### Added
+- **Build profiles have their own scene set.** A profile's new **Scenes** list is what it builds, in order;
+  an empty list keeps the previous behavior of building the enabled Editor Build Settings scenes, which is
+  still the default. Every profile used to build the one global list, so a development profile and a
+  production profile could not ship different scenes — most of the reason to have profiles at all. The
+  reference audit, the processed-scene check and the Doctor checks all follow the profile's set, and a
+  profile listing a deleted scene is refused rather than built without it.
+- **Build profiles have a stable `id`** alongside their editable `name`, and `GetProfile` /
+  `TryGetProfile` accept either. Other systems bind configuration to profiles by name — a network
+  environment's *Enabled Build Profiles*, for one — so renaming a profile silently unbound them. The
+  Doctor now also reports a network environment bound to a profile that no longer exists.
+- **`IMolcaPostBuildStep`**, the post-build twin of `IMolcaBuildStep`, for work that happens once a player
+  exists: symbol upload, artifact publishing, release rows, notifications. It receives the profile, the
+  output path, the build record and the pre-build context. Two contracts differ from pre-build steps
+  deliberately: it runs only for a build that produced an artifact, and every step runs even after one
+  fails — a failed post step is reported and recorded but does not turn a successful build into a failed
+  one, because the player cannot be un-built.
+- **A persisted build record.** `MolcaBuildRecordStore` appends every attempt — including the ones that
+  never run — to `Library/Molca/build-history.json` with profile, target, outcome (`Succeeded`, `Failed`,
+  `Refused`), version, build number, commit, branch, output, size, duration and one line of detail. The
+  Hub's outcome strip reads it instead of a static field the domain reload from *Restore Original Target*
+  discarded moments after recording it, and a new **Recent Builds** list shows the last ten. Builds started
+  by CI or the automation workflow are reported there too.
+- **App builds are recorded in the control plane** (`appBuildRecord` protocol 1). Core's first post-build
+  step, `control-plane-build-record`, reports a shipped player's provenance — profile, target, semantic
+  version, build number, commit, branch, Unity version, size, duration, scene count — to
+  `POST /builds/:buildId/record`, joined on the build token already minted for that build and already baked
+  into the player. So a project can answer "what did we ship, and from which commit" server-side, and a
+  shipped player's usage reports and the build ledger describe the same row. Rows are write-once; a repeat
+  report is accepted and ignored. Reports spool to `Library/Molca/BuildRecords` before delivery, so an
+  offline machine or an editor closed straight after a build delays the record instead of losing it. The
+  output path is deliberately not sent — it names a developer and their directory layout — and identity is
+  taken from the entitlement and project binding on the request, never from the client. The step skips
+  silently for any build that minted no token (`File → Build`, an unconnected project, unconfigured
+  licensing), and cannot fail a build.
+- **Builds that do not ship are recorded too** (`appBuildRecord` protocol 2). A refused or failed attempt
+  used to leave no trace on the control plane at all — it lived only in `build-history.json` on the one
+  machine that ran it — so the most useful operational question, *what is failing*, could not be answered
+  server-side. Attempts now report an `outcome` (`succeeded`, `failed`, `refused`) and, when they did not
+  ship, a **reason code**: a `MolcaBuildReasonCode` naming the gate or step that refused, or `build-failed`.
+  What is *not* reported is the message behind it — never the console text, a file path, or a stack trace.
+  The record's `detail` line is written for the person at that machine and stays there; the server accepts a
+  reason as a lowercase kebab pattern rather than a bounded string, precisely so console output cannot be
+  stored as one even by a client that tries. Reporting a failure necessarily widens what the control plane
+  knows about a project's private working state, and the code-not-message split is the whole of the
+  mitigation: see `docs/internal/LICENSING.md`.
+- **`MolcaBuildRefusal`**, so the build system can say *which* gate refused. A gate refuses by throwing
+  `BuildFailedException`, which Unity converts into a build report whose result is `Failed` —
+  indistinguishable from a compile error, so every refusal and every broken build previously shared one
+  reason. A gate now names itself on the way out, which costs one line and needs no parsing; the
+  alternative was classifying the report's messages, i.e. reading the text this design keeps local. The
+  reason lives on the build session, so it expires with the build instead of latching into the next one.
+- **`MolcaBuildRecord.reasonCode`**, separate from `detail` because the two have different audiences and
+  different rules. It is also what makes the local history groupable: five refusals from one gate are one
+  problem to fix, and grouping by `detail` would treat five differently-worded sentences as five.
+- **`MolcaBuildContext.SetValue` / `GetValue`**, the values twin of build facts, so a system can put an
+  identifier on the running build for a later step to read — the build token id is the first — instead of a
+  static whose lifetime nobody owns.
+- **Preflight in the Hub.** **Run Preflight Checks** runs the same gate a build runs and reports its
+  findings inline. A refused build previously said only "did not run — see the Console", which sent the
+  reader to the surface the Hub exists to replace for its most consequential answer.
+- **`Molca.BuildInfo.SemanticVersion` and `.Profile`.** The embedded build-info asset carried only the
+  numeric version, so a player built from `1.4.0-rc.1` reported itself as `1.4.0` to every crash report,
+  while `build-info.json` beside the output recorded it correctly.
+- **Post-build callback bands** in `MolcaBuildCallbackOrder` — `PostObserver`, `PostGeneratedCleanup`,
+  `PostVersionAdvance` — and a test asserting exactly one Core callback occupies the final position.
+  `BuildVersionPostprocessor` and `LicenseBuildStampPostprocessor` both sat at `int.MaxValue`, each
+  documented as running "after every other post-process callback"; only one can, and which one was
+  whatever order Unity discovered them in.
+- **Per-machine editor settings.** A developer's own MCP bridge port, assistant provider/model, and automation
+  profile no longer live on a committed asset. The new `MolcaLocalSettings` overlay persists them to
+  `UserSettings/MolcaLocalSettings.asset`, which Unity's standard `.gitignore` already excludes, so switching
+  models or ports stops producing a repository diff. The settings assets keep the **authored defaults** and all
+  **policy** — action allowlists, the web-host allowlist, tool-provider lists — because which commands may ever
+  run, and where the editor may make outbound requests, are project decisions that should be visible in a diff.
+  `MolcaLocalSettings.Keys` is the single list of what is machine-local. Overridden fields are marked in the Hub
+  and offer a reset back to the project default; reset clears the entry rather than writing the current default,
+  so an untouched field keeps tracking the project as that default evolves. The overlay shadows a committed
+  asset only — a `CreateInstance`d settings object (tests, the eval runner) still reads and writes its own
+  fields.
+- **ClickUp task focus and pinning.** A project can now name the one task it is currently about. Focusing a task
+  in **Hub → Tasks** (☆ on a row) records it per-machine in the new `ClickUpTaskFocus` store — never on the
+  committed provider asset, because focus is personal — and a banner keeps it visible even when the current
+  filter would hide it. Pinning (📌) is deliberately separate and plural: it only floats rows to the top and
+  survives filter changes, so "what does a build comment on?" always has exactly one answer. Both are exposed to
+  MCP via the new read-only `molca_clickup_focus` and the `molca_clickup_set_focus` action.
+- **ClickUp build/release activity can comment on the focused task** instead of creating a task per build. The new
+  `Push Target` field on the provider selects `NewTaskInList` (the previous behavior, and still the serialized
+  zero value so existing assets are unchanged), `CommentOnFocusedTask` (quietest — reports nothing when nothing
+  is focused), or `CommentOnFocusedTaskOrNewTask`. This is what `ClickUpApiClient.CreateTaskCommentAsync` was
+  written for; it had been dead code since Sprint 28.
+- **Hub → Tasks shows the data it was already fetching.** Rows now carry a status-colored dropdown, assignee
+  initial chips, and priority, due-date, list, and tag badges — `TaskStatus.color`, `ClickUpTask.assignees`,
+  priority, due date and tags were all being deserialized and thrown away. Plus a search field (name, list,
+  status, tag, assignee), grouping by status or list, a "+ New task" row, a last-refreshed stamp, and a Retry
+  action on failure. Due dates read as "Today" / "in 3d" / "2d overdue", compared by calendar day so a task due
+  later today is not reported as overdue.
+- **ClickUp token UX.** The token field validates the `pk_` prefix before spending a round-trip, a "Get a token"
+  button opens ClickUp's token page, and after connecting the inspector names the account by **email** and lists
+  the workspaces the token can actually reach — the usual explanation for an unexpectedly empty task list.
+
+### Changed
+- **Custom Android signing fails closed.** A profile that enables it but whose keystore, alias, or either
+  password environment variable is missing now refuses to build. It used to log a warning and continue,
+  producing an artifact signed with Unity's debug keystore — unpublishable, and indistinguishable from a
+  correctly signed one until a store rejected it. Checked before any PlayerSettings mutation, along with
+  the profile's target and scene set, so a refusal leaves the editor untouched.
+- **Every build target has an explicit output-path rule.** Only Windows, Android and iOS did; macOS, Linux
+  and WebGL fell through to a bare extensionless path, so a macOS build asked Unity for a location that is
+  not a valid `.app` bundle. A target with no rule is now refused rather than built somewhere guessed, and
+  a test asserts the validation switch and the path switch agree for every `BuildTarget`.
+- **A release is identified by its pre-release version.** `CreateRelease` uses the new
+  `VersionSettings.GetReleaseVersionString()` (numeric version plus pre-release, no build metadata per
+  SemVer §10), so releasing `1.4.0-rc.1` no longer writes a changelog entry for "1.4.0" and tags `v1.4.0` —
+  which mislabelled the candidate and spent the tag the real release needed.
+- **`CreateRelease` checks everything it can before writing anything.** An existing tag — the ordinary way
+  this fails — was discovered last, after PlayerSettings had been synced, the changelog appended and
+  `ReleaseCreated` raised, and then reported as `Success = false` for a release that had substantially
+  happened. It now refuses up front and leaves the project untouched; a genuine git failure after the
+  changelog is written reports success with the tag named as the outstanding step.
+- **`CreateRelease` honours *Include Git Commits*.** It constructed its own changelog writer with the option
+  hardcoded on, so a project that had turned it off still got commit subjects in every release entry. The
+  release path now writes through `VersionSettings`, which owns the project's changelog policy.
+- **`ApplyBump` clears the pre-release identifier** and returns whether it applied anything. A bump used to
+  carry `rc.1` forward, turning `1.4.0-rc.1` into `1.5.0-rc.1`; the Hub's **Apply Suggested Bump** also did
+  nothing, silently, when there was nothing to apply. The build number is deliberately not reset — app
+  stores require it to increase across every upload.
+- **`SuggestBump` refuses to guess without a baseline.** With no `v*` tag it fell back to `HEAD~10..HEAD`
+  and presented the result as a reading of history. It now returns `None` with `HasBaseline == false`, and
+  the Hub says why.
+- **A changelog entry records the commit it was written at**, and the next entry's commit range starts
+  there. The anchor lived in `EditorPrefs`, which is per-machine: the second developer to build, and every
+  fresh CI container, silently reported "the last ten commits" instead.
+- **iOS pre-release versions warn instead of vanishing.** Both Apple version fields are numeric, so `rc.1`
+  cannot be carried by an iOS player at all; the documentation claimed it "travels in the build number",
+  which it never did. Building iOS with one set now says so, and points at the two places that record the
+  full version.
+- **The Hub's Build & Version section shows only the platform fields that apply** to the selected profile's
+  target — a Windows profile no longer offers an Android app-bundle toggle and an Apple team ID — and the
+  duplicate *Sync to Player Settings* button in **Advanced** is gone.
+- **Build All runs the gate once, explicitly.** It relied on passing `runPreBuildChecks: true` for the
+  first profile only, so whether a batch was checked depended on loop position; a sort or filter added
+  ahead of the loop would have moved the gate onto a different profile or dropped it.
+- **Git provenance has one implementation.** `GitLogReader.ReadProvenance` replaces the three copies of the
+  same two git invocations in the build manifest, the embedded build-info asset and the build record.
+- **The in-window model picker no longer dirties the assistant asset.** `AssistantModelCatalog.ApplySelection`
+  and `ApplyReasoning` wrote the serialized fields through a `SerializedObject` and called `SetDirty`, so
+  choosing a model from the chat window edited committed configuration. Both now write through the settings
+  properties, which route to the machine-local overlay.
+- **`MolcaEditorSettings.McpSettings` / `.AssistantSettings` fall back to a by-type lookup** when the stored guid
+  reference is missing, instead of returning null. Other call sites reach the same assets through
+  `GetOrCreateSettings()`, so a dangling reference used to mean the two paths disagreed — one null, the other a
+  real or freshly created blank asset. The repair is in-memory; reading settings never writes to
+  `ProjectSettings/`. New `MolcaEditorSettingsAsset.Find<T>()` is the locate-without-creating half of
+  `GetOrCreate<T>`.
+- **Breaking: three ClickUp provider methods now return a result instead of a bare value**, so a failed read is
+  distinguishable from an empty one. `SetTaskStatusAsync` returns `ClickUpApiClient.Result` (was `bool`),
+  `FetchWorkspacesAsync` returns `WorkspaceFetchResult` (was `WorkspaceInfo[]`), and `FetchFoldersAsync` returns
+  `FolderFetchResult` (was `FolderInfo[]`). All in-package callers are updated; a fork calling these will fail to
+  compile rather than silently mis-report. Reads inside `ClickUpApiClient` likewise return a new `ApiResult<T>`.
+- **ClickUp failures now report ClickUp's own reason.** The API returns `{"err":"Status not found","ECODE":"…"}`
+  alongside a 4xx, and it was being discarded in favor of the bare status code — so a rejected status change read
+  as "400" instead of naming the problem. Error text now prefers `err` (with its `ECODE`), then the transport
+  error, then the status line. A non-JSON body (a proxy's HTML error page) is not parsed and never leaked into the
+  message.
+- **The ClickUp inspector no longer explains its own auth history.** The six-line justification for using a
+  personal token rather than OAuth is condensed to the one sentence a user needs; the rationale was sprint
+  history, not configuration.
+- **`ReleaseTool.ReleaseCreated` is raised after the git tag exists, not before.** A subscriber that
+  publishes to a forge used to get there first, so the forge minted its own lightweight tag at the default
+  branch head and the local annotated tag created moments later was a different object — possibly at a
+  different commit, with nothing reporting the divergence. `ReleaseEventArgs` and `ReleaseActivity` now also
+  carry `TagName` and `Commit` (the full hash), so a provider can target the commit that was actually
+  released. Both gained a constructor overload; the existing ones are unchanged and leave the two new
+  values null, which reads as "let the forge decide" rather than as an empty commitish.
+
+### Removed
+- **The GitHub integration moved to an add-on.** `GitHubIntegrationProvider`, its inspector, `GitHubApiClient`
+  and `GitHubModels` left Core for **`com.molca.integration.github`**, installable from Hub → Add-ons — the
+  same move Figma made in 1.14.0, for the same reason: Core should not carry a niche vendor surface no Core
+  system consumes. Nothing in Core, the SDK, or any fork referenced the type, so there is no compile surface
+  to break. An existing `GitHub Integration.asset` keeps working: the type's full name and the provider
+  script's GUID are unchanged, so the asset re-binds and any stored personal access token or OAuth token
+  bundle still resolves once the add-on is installed. **If you had GitHub configured, install the add-on** —
+  until you do, the asset is an unbound MonoBehaviour that pushes nothing. Provider discovery is
+  assembly-agnostic, so the Hub card and the **+ Add integration** entry appear exactly as before.
+- **Two GitHub Actions guides that documented a feature Core never had.**
+  `Editor/BuildSystem/README_GITHUB_ACTIONS.md` and `GITHUB_ACTIONS_SETUP.md` described a one-click
+  "trigger GitHub Actions from Unity" workflow with Repository Owner/Name settings fields — none of which
+  exists in any C# file — and linked a third guide that was never written. They sent onboarding down a
+  workflow that does not run. The genuine CI templates under `Editor/BuildSystem/CI_Examples/` are unaffected.
+
+### Fixed
+- **The project's committed automation profile was `UnattendedCi`.** `Assets/_Molca/Editor/Automation Policy.asset`
+  carried profile 3 — an exact command allowlist with *no interactive confirmation* — so every clone inherited the
+  most permissive profile with ~100 mutating commands allowlisted, while the field's own C# default is `Observe`.
+  Reset to `Observe`. The profile is now machine-local, which is why it could drift there in the first place: a
+  developer switching to CI mode for an afternoon was committing that choice to everyone.
+- **ClickUp task lists were silently truncated at 100 tasks.** The filtered team-task endpoint pages at 100 and
+  marks the end with `last_page`, which was deserialized and never read — so a folder with more tasks showed only
+  the first page, with nothing to indicate the rest existed. `GetTasksAsync` now follows pagination to the last
+  page. Truncation is only possible at a 20-page ceiling and is logged rather than silent, and a page that fails
+  after the first keeps the partial list while reporting the gap.
+- **A refresh could abort an in-flight ClickUp status change.** The Hub Tasks section ran writes on the same
+  cancellation source as its fetches, so hitting Refresh mid-change cancelled the PUT and reverted the dropdown
+  even when ClickUp had already accepted the new status. Fetches and writes now have separate scopes: the write
+  scope is cancelled only when the section detaches.
+- **Every ClickUp task refresh re-fetched the workspace list and the authorized user**, including on a filter
+  flip — and `GET /team` was issued in *both* branches of the workspace check, the second only to validate the
+  configured id. Both are now cached for the editor session (dropped when the token changes, or via
+  `InvalidateSessionCache`), so a repeat refresh costs the folder read plus the task pages.
+- **ClickUp rate limiting is handled.** A personal token is capped near 100 requests/minute; 429 and 503 now
+  retry a bounded number of times, honoring `Retry-After` when present and backing off exponentially otherwise.
+- **A failed ClickUp listing no longer looks like an empty account.** "No folders found in this workspace" was
+  shown when the folder call had actually failed, sending users to fix the wrong thing. Failures are now reported
+  as failures, and one unreadable space no longer hides every folder in the workspace.
+- **ClickUp folder status order.** `ExtractStatusNames` documented that it preserved `orderindex` order but never
+  sorted by it, relying on the API's response order. Statuses are now sorted per source, which also makes the
+  returned array usable as a workflow sort key for grouping.
+- **Hub → Docs now picks up edited docs.** The rail was resolved once when the workspace view was built, and
+  because Docs opts into view caching that snapshot survived every tab switch — so a guide's front-matter
+  (`title`/`category`/`order`/`product`) or a newly dropped `*.md` stayed invisible until the next recompile
+  or Hub reopen. `Documentation~` lives outside the AssetDatabase, so no import event or domain reload was
+  ever going to invalidate it. Re-activating the tab now re-resolves the docs and rebuilds the rail only when
+  the tree actually differs (`MolcaDocsRegistry.Signature`), keeping the reader's selection, search filter and
+  expanded categories; a body edit is caught from the file's write time and re-rendered. A **Refresh** button
+  at the top of the rail forces both for a reader who never left the tab. Front-matter that moves a doc into
+  another product switches the switcher with it, and a doc whose file disappeared no longer leaves a stale page
+  on screen.
+
 ## [2.1.0] - 2026-08-05
 
 ### Added
@@ -70,6 +302,81 @@ All notable changes to Molca Core will be documented here.
   each code (id + facets, read-only). The canvas derives entirely from a transcript scan, so a domain
   reload or session switch rebinds by re-scanning — it carries no state of its own. The system prompt
   teaches the model the closed artifact vocabulary; `ASSISTANT_CANVAS.md` documents it for consumers.
+
+### Changed
+- **Fenced Markdown block bodies use platform-independent newlines.** They were accumulated with
+  `StringBuilder.AppendLine` (`Environment.NewLine`), so on Windows every fenced body carried CRLF
+  separators and a trailing `\r` — invisible in a code block, but fence bodies are now handed verbatim to
+  artifact renderers that parse them.
+- **The transcript streams markdown and stops yanking the scroll.** The live row renders completed
+  blocks through the shared Markdown renderer as they stream (the growing tail stays a plain label, so
+  per-token deltas never re-parse), instead of showing unformatted text until the turn commits. Rebuilds
+  reuse cached rows for turns that cannot change after commit, so a long session no longer re-parses
+  every turn on each refresh. The view force-scrolls only on your own send or when already at the
+  bottom; otherwise a floating "↓ New messages" chip offers the jump instead of moving the viewport.
+- **A build-step seam, with Addressables content as its first consumer.** `IMolcaBuildStep` +
+  `MolcaBuildStepRegistry` (`Editor/BuildSystem/`) is the extension point Doctor has in `IDoctorCheck`:
+  implement it in any Editor assembly, declare an `Order`, and the Molca build path runs it before the
+  player. `BuildManager` no longer names the content system in its own body — "build Addressables first"
+  is now `AddressablesContentBuildStep`, living with the system it belongs to. Facts a step records
+  travel on `MolcaBuildContext`, whose lifetime is one build (`MolcaBuildSession`), replacing the
+  `static bool` latch the localization gate held and every reader had to remember to clear. Three
+  systems had independently invented that latch, each with a comment warning that a stale one silently
+  weakens a gate.
+- **The Hub reports what a build did.** The Build & Version section dispatched a multi-minute operation
+  and then said nothing — the outcome went to the Console, the surface the Hub exists to replace, so a
+  build aborted by a pre-build gate looked exactly like one that was never clicked. There is now an
+  outcome strip: succeeded/failed/did-not-run, duration, size, output path. It also warns when the
+  authored version is invalid, which only the Inspector used to do.
+
+- **Build callbacks have declared ordering bands.** `MolcaBuildCallbackOrder` names them — version sync,
+  gates, observers, generated artifacts — and every Core build callback now uses a constant from it
+  instead of a literal. Unity discovers these by type, so the only coordination between a dozen
+  independent callbacks was a number each picked for itself, and Core's had drifted into two groups:
+  four gates in the negative range and two more (network catalog, colour theme) aborting at `+100`,
+  above the callback that writes the runtime build-info asset into `Assets/`. Since a throwing
+  preprocessor skips every postprocessor, those two aborts leaked a generated file into the project.
+  Both validators moved into the gate band; a test now fails any Core preprocessor that lands between
+  the bands. The colour-theme validator's old order was justified as running "late enough that content
+  generation has settled", but nothing in the build pipeline generates what it reads — its inputs are
+  authored assets, and its freshness check is precisely that they were *not* regenerated.
+- **The pre-build gate covers the network catalog.** `network-catalog` joins `MolcaBuildGate.CheckIds`,
+  so the gate a person waits on before a build covers the same ground as the build callback that would
+  otherwise have failed them minutes later. This adds a surface, not a policy: `NetworkCatalogCheck`
+  reports Error only when the catalog enables `FailBuildOnValidationError` — the same switch
+  `NetworkCatalogBuildValidator` reads — so a project still in the routed-pipeline rollout keeps its
+  warnings, and the gate and the build callback can never reach different verdicts about one catalog.
+- **One authoring surface for build profiles and versions.** `BuildSettingsEditor` and
+  `VersionSettingsEditor` were full authoring UIs duplicating the Hub's Build & Version section, and had
+  already drifted: only the Inspector warned about an invalid version, only the Hub could not clear
+  history, and the Hub reimplemented the SemVer bump rules in raw serialized-property arithmetic instead
+  of calling the model. Both are now slim pages — what the asset is, whether it is healthy, and a button
+  to the Hub — matching `ContentPackageSettings` and `Project Settings > Molca`.
+- **CI builds run the pre-build Doctor gate.** `CommandLineBuild` called the synchronous, ungated
+  `BuildManager.Build`, so `build-scenes-valid`, `version-settings-valid`, `build-profile-valid`,
+  `unresolvable-scene-reference` and `content-package-valid` ran when a developer clicked Build and
+  never when a release was cut. The command-line entry points now gate, and exit the editor themselves
+  with the build's exit code. **This means they must not be launched with `-quit`** (the same contract
+  `MolcaDoctor.RunCI` already had); a `-quit` command line is refused with exit 1 rather than exiting 0
+  having built nothing. Runners that bake in `-quit` (game-ci's `unity-builder`) can pass
+  `-molcaSkipBuildGate` to opt out deliberately and run `MolcaDoctor.RunCI` as a separate step — the
+  bundled CI examples do exactly that. A build deferred across a build-target switch is gated on resume
+  too; it used to resume through the ungated path.
+- **Which checks gate a build has one owner.** `MolcaBuildGate.CheckIds` replaces the list that existed
+  privately in `BuildManager` and again in the Build automation workflow, under a comment noting that it
+  mirrored the other — two copies of the policy deciding whether a build ships, neither failing when
+  they drift. A test now asserts every gate id names a check that exists.
+- **A release cut goes through the shared content build entry.** `ContentReleaseStaging` called
+  `AddressableAssetSettings.BuildPlayerContent` directly, making it the one content build that raised no
+  build-started/completed events — so anything observing content builds was blind to the build that
+  matters most. The build layout report it needs is now an option on the shared entry
+  (`AddressablesBuildUtility.BuildOptions.GenerateBuildLayout`) rather than a project setting toggled by
+  hand.
+- **`VersionSettings.autoSync` is gone.** It claimed to control whether a build syncs the asset into
+  `PlayerSettings`, but the build preprocessor always synced regardless, so the toggle changed nothing
+  and its tooltip described behaviour it did not have. This asset is the project's version of record.
+  `SyncToUnityPlayerSettings()` no longer takes a `force` parameter; old assets keep an orphaned
+  `autoSync` key that Unity ignores.
 
 ### Fixed
 - **Two docs shouted their titles in the Hub rail.** `COLOR_ID.md` and `COLOR_ID_MIGRATION.md` were the only
@@ -196,83 +503,6 @@ All notable changes to Molca Core will be documented here.
   redirects all three stores to a temp tree for the whole run — so the protection cannot be forgotten
   per-fixture, and a fixture that fails before its teardown can no longer leak into real data.
 
-### Changed
-- **Fenced Markdown block bodies use platform-independent newlines.** They were accumulated with
-  `StringBuilder.AppendLine` (`Environment.NewLine`), so on Windows every fenced body carried CRLF
-  separators and a trailing `\r` — invisible in a code block, but fence bodies are now handed verbatim to
-  artifact renderers that parse them.
-- **The transcript streams markdown and stops yanking the scroll.** The live row renders completed
-  blocks through the shared Markdown renderer as they stream (the growing tail stays a plain label, so
-  per-token deltas never re-parse), instead of showing unformatted text until the turn commits. Rebuilds
-  reuse cached rows for turns that cannot change after commit, so a long session no longer re-parses
-  every turn on each refresh. The view force-scrolls only on your own send or when already at the
-  bottom; otherwise a floating "↓ New messages" chip offers the jump instead of moving the viewport.
-- **A build-step seam, with Addressables content as its first consumer.** `IMolcaBuildStep` +
-  `MolcaBuildStepRegistry` (`Editor/BuildSystem/`) is the extension point Doctor has in `IDoctorCheck`:
-  implement it in any Editor assembly, declare an `Order`, and the Molca build path runs it before the
-  player. `BuildManager` no longer names the content system in its own body — "build Addressables first"
-  is now `AddressablesContentBuildStep`, living with the system it belongs to. Facts a step records
-  travel on `MolcaBuildContext`, whose lifetime is one build (`MolcaBuildSession`), replacing the
-  `static bool` latch the localization gate held and every reader had to remember to clear. Three
-  systems had independently invented that latch, each with a comment warning that a stale one silently
-  weakens a gate.
-- **The Hub reports what a build did.** The Build & Version section dispatched a multi-minute operation
-  and then said nothing — the outcome went to the Console, the surface the Hub exists to replace, so a
-  build aborted by a pre-build gate looked exactly like one that was never clicked. There is now an
-  outcome strip: succeeded/failed/did-not-run, duration, size, output path. It also warns when the
-  authored version is invalid, which only the Inspector used to do.
-
-### Changed
-- **Build callbacks have declared ordering bands.** `MolcaBuildCallbackOrder` names them — version sync,
-  gates, observers, generated artifacts — and every Core build callback now uses a constant from it
-  instead of a literal. Unity discovers these by type, so the only coordination between a dozen
-  independent callbacks was a number each picked for itself, and Core's had drifted into two groups:
-  four gates in the negative range and two more (network catalog, colour theme) aborting at `+100`,
-  above the callback that writes the runtime build-info asset into `Assets/`. Since a throwing
-  preprocessor skips every postprocessor, those two aborts leaked a generated file into the project.
-  Both validators moved into the gate band; a test now fails any Core preprocessor that lands between
-  the bands. The colour-theme validator's old order was justified as running "late enough that content
-  generation has settled", but nothing in the build pipeline generates what it reads — its inputs are
-  authored assets, and its freshness check is precisely that they were *not* regenerated.
-- **The pre-build gate covers the network catalog.** `network-catalog` joins `MolcaBuildGate.CheckIds`,
-  so the gate a person waits on before a build covers the same ground as the build callback that would
-  otherwise have failed them minutes later. This adds a surface, not a policy: `NetworkCatalogCheck`
-  reports Error only when the catalog enables `FailBuildOnValidationError` — the same switch
-  `NetworkCatalogBuildValidator` reads — so a project still in the routed-pipeline rollout keeps its
-  warnings, and the gate and the build callback can never reach different verdicts about one catalog.
-- **One authoring surface for build profiles and versions.** `BuildSettingsEditor` and
-  `VersionSettingsEditor` were full authoring UIs duplicating the Hub's Build & Version section, and had
-  already drifted: only the Inspector warned about an invalid version, only the Hub could not clear
-  history, and the Hub reimplemented the SemVer bump rules in raw serialized-property arithmetic instead
-  of calling the model. Both are now slim pages — what the asset is, whether it is healthy, and a button
-  to the Hub — matching `ContentPackageSettings` and `Project Settings > Molca`.
-- **CI builds run the pre-build Doctor gate.** `CommandLineBuild` called the synchronous, ungated
-  `BuildManager.Build`, so `build-scenes-valid`, `version-settings-valid`, `build-profile-valid`,
-  `unresolvable-scene-reference` and `content-package-valid` ran when a developer clicked Build and
-  never when a release was cut. The command-line entry points now gate, and exit the editor themselves
-  with the build's exit code. **This means they must not be launched with `-quit`** (the same contract
-  `MolcaDoctor.RunCI` already had); a `-quit` command line is refused with exit 1 rather than exiting 0
-  having built nothing. Runners that bake in `-quit` (game-ci's `unity-builder`) can pass
-  `-molcaSkipBuildGate` to opt out deliberately and run `MolcaDoctor.RunCI` as a separate step — the
-  bundled CI examples do exactly that. A build deferred across a build-target switch is gated on resume
-  too; it used to resume through the ungated path.
-- **Which checks gate a build has one owner.** `MolcaBuildGate.CheckIds` replaces the list that existed
-  privately in `BuildManager` and again in the Build automation workflow, under a comment noting that it
-  mirrored the other — two copies of the policy deciding whether a build ships, neither failing when
-  they drift. A test now asserts every gate id names a check that exists.
-- **A release cut goes through the shared content build entry.** `ContentReleaseStaging` called
-  `AddressableAssetSettings.BuildPlayerContent` directly, making it the one content build that raised no
-  build-started/completed events — so anything observing content builds was blind to the build that
-  matters most. The build layout report it needs is now an option on the shared entry
-  (`AddressablesBuildUtility.BuildOptions.GenerateBuildLayout`) rather than a project setting toggled by
-  hand.
-- **`VersionSettings.autoSync` is gone.** It claimed to control whether a build syncs the asset into
-  `PlayerSettings`, but the build preprocessor always synced regardless, so the toggle changed nothing
-  and its tooltip described behaviour it did not have. This asset is the project's version of record.
-  `SyncToUnityPlayerSettings()` no longer takes a `force` parameter; old assets keep an orphaned
-  `autoSync` key that Unity ignores.
-
-### Fixed
 - **The changelog no longer records builds that never happened.** The entry was written from a build
   *preprocessor* ordered before the reference and localization gates could abort, so a project whose
   builds were failing accumulated one entry per attempt, each naming a version no artifact ever carried
@@ -304,7 +534,6 @@ All notable changes to Molca Core will be documented here.
   hide the signing block. The signing block is driven by its toggle; the remaining poll refreshes only
   state the view does not own.
 
-### Fixed
 - **A deep link into a cached Hub workspace worked once, then silently stopped.** A cached view is hidden
   rather than detached, so `AttachToPanelEvent` fires exactly once in its life — but References and Network
   both consumed their pending navigation target from that handler, so a link into an already-cached tab did
@@ -319,7 +548,6 @@ All notable changes to Molca Core will be documented here.
 - **The license pill names the signed-in developer, not the licensee.** It showed the licensee id; a person
   is identified by their account, not by the company the account belongs to. The id moves to the tooltip.
 
-### Fixed
 - **Registering a subsystem after bootstrap left it unshut-down.** `Shutdown` walks the init order frozen at
   bootstrap, so a subsystem registered later was never cancelled or torn down. `RegisterSubsystem` now joins
   that order; `DeregisterSubsystem` removes every container entry the subsystem resolves through (one per

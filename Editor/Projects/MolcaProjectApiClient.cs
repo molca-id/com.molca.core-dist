@@ -36,6 +36,25 @@ namespace Molca.Editor.Projects
             return Parse<ProjectBindingResponse>(response);
         }
 
+        /// <summary>
+        /// Reads one project's operational health report — the same report the customer dashboard renders.
+        /// </summary>
+        /// <param name="projectId">The backend project id this repository is connected to.</param>
+        /// <param name="cancellationToken">Cancels the request.</param>
+        /// <returns>The report, or a failure carrying a message fit to show the user.</returns>
+        /// <remarks>
+        /// Read-only, and there is no write counterpart on any surface. Panels the caller's role does not
+        /// reach are omitted by the server rather than returned empty, so a short report means "you may see
+        /// this much", never "this project has less state than it does".
+        /// </remarks>
+        internal async Awaitable<ProjectApiResult<ProjectHealthResponse>> HealthAsync(
+            string projectId, CancellationToken cancellationToken = default)
+        {
+            string path = $"/api/projects/{Uri.EscapeDataString(projectId)}/health";
+            var response = await SendAsync(UnityWebRequest.kHttpVerbGET, path, null, cancellationToken);
+            return Parse<ProjectHealthResponse>(response);
+        }
+
         private static ProjectApiResult<T> Parse<T>(ProjectApiResult<string> response)
         {
             if (!response.Success) return ProjectApiResult<T>.Fail(response.Error);

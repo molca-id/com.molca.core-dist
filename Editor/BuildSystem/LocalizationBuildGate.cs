@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.Build;
@@ -65,7 +65,10 @@ namespace Molca.Editor
             if (blockers.Length > 0)
             {
                 if (!OverrideEnabled)
+                {
+                    MolcaBuildRefusal.Record(MolcaBuildReasonCode.LocalizationGate);
                     throw new BuildFailedException(BuildFailureMessage(snapshot, blockers));
+                }
 
                 Debug.LogWarning(
                     $"[LocalizationBuildGate] Override active: building despite {blockers.Length} " +

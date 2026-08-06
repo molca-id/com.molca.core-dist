@@ -10,9 +10,9 @@ namespace Molca.Settings
     /// <remarks>
     /// The version components and <c>buildNumber</c> are authored configuration that is
     /// intentionally written back to the asset at build time (so the build number is tracked in
-    /// version control). Transient per-build state that should <em>not</em> live in the asset — e.g.
-    /// the last-build commit hash used for changelog diffing — is kept in <see cref="EditorPrefs"/>
-    /// by <see cref="ChangelogWriter"/> instead.
+    /// version control). The commit each changelog entry was written at is recorded on the entry itself
+    /// by <see cref="ChangelogWriter"/>, not on this asset and not in <see cref="EditorPrefs"/> — it is a
+    /// fact about the project's history, so it belongs in the file that history lives in.
     /// </remarks>
     [UnityEngine.Icon("Packages/com.molca.core/Editor/Icons/molca-settings.png")]
     [CreateAssetMenu(fileName = "Version Settings", menuName = "Molca/Editor/Version Settings", order = 110)]
@@ -99,6 +99,23 @@ namespace Molca.Settings
             return version;
         }
 
+        /// <summary>
+        /// Returns the version a release is cut for: <c>Major.Minor.Patch</c> plus the pre-release
+        /// identifier, without build metadata.
+        /// </summary>
+        /// <remarks>
+        /// This is the release <em>identity</em>, and it is not the same string as
+        /// <see cref="GetSemanticVersion"/>. SemVer §10 says build metadata is ignored when determining
+        /// version precedence, so two builds differing only in metadata are the same release and must not
+        /// produce two different tags. The pre-release identifier is the opposite: <c>1.4.0-rc.1</c> and
+        /// <c>1.4.0</c> are different releases, and tagging the release candidate as <c>v1.4.0</c> both
+        /// mislabels it and burns the tag the real release needs.
+        /// </remarks>
+        public string GetReleaseVersionString() =>
+            string.IsNullOrEmpty(preReleaseIdentifier)
+                ? GetVersionString()
+                : $"{GetVersionString()}-{preReleaseIdentifier}";
+
         // -------------------------------------------------------------------
         // Version mutators
         // -------------------------------------------------------------------
@@ -179,9 +196,20 @@ namespace Molca.Settings
         /// </summary>
         /// <param name="target">The build target being built.</param>
         /// <remarks>
+        /// <para>
         /// App stores require a monotonically increasing integer version code per upload; the SemVer
         /// version name from <see cref="GetBundleVersionString()"/> does not satisfy that. Pair this
         /// with <c>autoIncrementBuildNumberOnBuild</c> so every build produces a fresh, higher code.
+        /// </para>
+        /// <para>
+        /// <b>An iOS player cannot carry a pre-release identifier at all</b>, which is why building one
+        /// warns. Both Apple version fields are numeric — <c>CFBundleShortVersionString</c> is one to
+        /// three integers and <c>CFBundleVersion</c> the same — so there is nowhere in the app's own
+        /// metadata for <c>rc.1</c> to live. The documentation used to claim the identifier "travels in
+        /// the build number"; it does not, and quietly dropping it is how an rc reaches TestFlight
+        /// indistinguishable from the final build. It survives in <c>build-info.json</c> and in the
+        /// embedded build-info asset, both of which record the full semantic version.
+        /// </para>
         /// </remarks>
         public void SyncPlatformVersionCode(BuildTarget target)
         {
@@ -194,6 +222,14 @@ namespace Molca.Settings
                 case BuildTarget.iOS:
                     PlayerSettings.iOS.buildNumber = buildNumber.ToString();
                     Debug.Log($"VersionSettings: Set iOS buildNumber to {buildNumber}");
+                    if (!string.IsNullOrEmpty(preReleaseIdentifier))
+                    {
+                        Debug.LogWarning(
+                            $"VersionSettings: pre-release identifier '{preReleaseIdentifier}' is not carried by " +
+                            "the iOS player — Apple's version fields are numeric only. The player reports " +
+                            $"{GetVersionString()} (build {buildNumber}); the full version is recorded in " +
+                            "build-info.json beside the output and in the embedded build-info asset.");
+                    }
                     break;
             }
         }
@@ -233,6 +269,21 @@ namespace Molca.Settings
 
         /// <summary>Called after a build completes, with no changelog notes.</summary>
         public void NotifyBuildComplete() => NotifyBuildComplete(null);
+
+        /// <summary>
+        /// Appends a <c>release</c> entry for <paramref name="version"/> to this project's changelog.
+        /// </summary>
+        /// <param name="version">The released version identity (see <see cref="GetReleaseVersionString"/>).</param>
+        /// <param name="notes">Optional release notes prepended to the entry.</param>
+        /// <remarks>
+        /// The release path writes through this asset rather than constructing its own
+        /// <c>ChangelogWriter</c>. It used to do the latter with <c>includeGitCommits: true</c> hardcoded,
+        /// so a project that had deliberately turned <em>Include Git Commits</em> off still got commit
+        /// subjects in every release entry — the toggle governed builds and silently did not govern
+        /// releases. Changelog policy belongs to the asset that declares it.
+        /// </remarks>
+        public void AppendReleaseEntry(string version, string notes) =>
+            CreateChangelogWriter().AppendReleaseEntry(version, notes);
 
         // -------------------------------------------------------------------
         // Changelog history

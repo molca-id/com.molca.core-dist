@@ -1,4 +1,4 @@
-using UnityEditor;
+﻿using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
@@ -51,6 +51,7 @@ namespace Molca.Editor.Licensing
                         {
                             { "reason", "ProjectConnectionRequired" },
                         });
+                    Molca.Editor.MolcaBuildRefusal.Record(Molca.Editor.MolcaBuildReasonCode.LicenseGate);
                     throw new BuildFailedException(
                         "[License] Build blocked: this repository is not connected to a Molca backend project.\n" +
                         "An owner or manager must connect it in Molca Hub > Settings > Project.");
@@ -70,11 +71,18 @@ namespace Molca.Editor.Licensing
                         {
                             { "reason", "ProjectAuthorizationFailed" },
                         });
+                    Molca.Editor.MolcaBuildRefusal.Record(Molca.Editor.MolcaBuildReasonCode.LicenseGate);
                     throw new BuildFailedException(
                         "[License] Build blocked: Molca could not authorize the connected project.\n" +
                         "Verify the project connection and current membership, then retry while online.");
                 }
                 LicenseBuildStamp.Write(payload.licenseeId, payload.coreVersion, buildToken, buildId, Application.version);
+
+                // Publish the id on the running build's session so the post-build step can report what this
+                // build produced against the token minted for it. The session's lifetime is exactly one
+                // build, which is the only lifetime this identifier is correct for: a static would outlive
+                // it and attribute the next build — or a File > Build with no token at all — to this id.
+                Molca.Editor.MolcaBuildSession.Current?.SetValue(ControlPlaneBuildRecorder.BuildIdKey, buildId);
 
                 Telemetry.MolcaEditorTelemetry.Track("build.authorized", new System.Collections.Generic.Dictionary<string, object>
                 {
@@ -89,6 +97,7 @@ namespace Molca.Editor.Licensing
                 { "reason", status.ToString() },
             });
 
+            Molca.Editor.MolcaBuildRefusal.Record(Molca.Editor.MolcaBuildReasonCode.LicenseGate);
             throw new BuildFailedException(
                 "[License] Build blocked: " + Explain(status) + "\n" +
                 "Open  Molca > License > Developer Sign-In  and sign in with an authorized Google " +
@@ -114,13 +123,19 @@ namespace Molca.Editor.Licensing
     }
 
     /// <summary>
-    /// Removes the generated license stamp after the build, regardless of outcome. Runs last
-    /// (<see cref="callbackOrder"/> = max) so nothing else needs the stamp during post-process.
+    /// Removes the generated license stamp after the build, regardless of outcome.
     /// </summary>
+    /// <remarks>
+    /// Ordered in <see cref="Molca.Editor.MolcaBuildCallbackOrder.PostGeneratedCleanup"/>: after the
+    /// read-only observers, which may want to report on a build while its stamp still exists, and before
+    /// the single callback that advances recorded build state. This used to claim <c>int.MaxValue</c> and
+    /// describe itself as running last — as did <c>BuildVersionPostprocessor</c>, which cannot also be
+    /// true. Cleanup never needed to be last; it needed to be after the readers.
+    /// </remarks>
     public sealed class LicenseBuildStampPostprocessor : IPostprocessBuildWithReport
     {
-        /// <summary>Runs after every other post-process callback.</summary>
-        public int callbackOrder => int.MaxValue;
+        /// <summary>Runs in the generated-artifact cleanup band.</summary>
+        public int callbackOrder => Molca.Editor.MolcaBuildCallbackOrder.PostGeneratedCleanup;
 
         /// <summary>Deletes the generated <c>MolcaLicenseStamp.json</c> written during pre-process.</summary>
         /// <param name="report">The Unity build report for the completed build.</param>

@@ -194,6 +194,7 @@ namespace Molca.Editor.Hub
     internal enum MolcaHubSection
     {
         Project,
+        Health,
         BuildVersion,
         RuntimeGlobal,
         Editor,

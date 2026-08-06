@@ -28,8 +28,8 @@ namespace Molca.Settings.Integration
     /// </remarks>
     public sealed class IntegrationActivityRouter : IPostprocessBuildWithReport
     {
-        /// <inheritdoc/>
-        public int callbackOrder => 0;
+        /// <summary>Read-and-report only; ordered in the post-build observer band.</summary>
+        public int callbackOrder => Molca.Editor.MolcaBuildCallbackOrder.PostObserver;
 
         // Editor-session throttle shared across builds (mirrors the Sprint 28 per-reporter guard).
         private static DateTime _lastBuildPushUtc = DateTime.MinValue;
@@ -119,7 +119,8 @@ namespace Molca.Settings.Integration
         private static ReleaseActivity ReleaseActivityFrom(ReleaseTool.ReleaseEventArgs args)
         {
             var notes = ReadChangelogNotes(args) ?? args.Notes;
-            return new ReleaseActivity(ProjectName, args.Version, TriggeredBy, notes);
+            return new ReleaseActivity(
+                ProjectName, args.Version, TriggeredBy, notes, args.TagName, args.Commit);
         }
 
         // Prefer the composed changelog entry (raw notes + git commits) over the raw notes alone.

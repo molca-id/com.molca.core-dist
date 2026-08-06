@@ -150,8 +150,8 @@ namespace Molca.Editor.Hub.Sections
             {
                 // Drive the persisted Enabled flag (not Start/Stop directly) so the button, the checkbox,
                 // and the listener never disagree, and a manual start survives the next domain reload.
+                // The write lands in the machine-local overlay, so the asset is not dirtied.
                 settings.Enabled = !McpServerController.IsRunning;
-                EditorUtility.SetDirty(settings);
                 McpServerController.Restart();
             })
             { text = "Start" };
@@ -162,32 +162,20 @@ namespace Molca.Editor.Hub.Sections
             restart.AddToClassList("molca-hub-mini-button");
             card.AddHeaderAction(restart);
 
-            var settingsSO = new SerializedObject(settings);
+            // Whether this machine runs a listener, and on which port, are per-developer: two projects open on
+            // one box collide on a port, and not every clone wants the bridge running. Both write the local
+            // overlay instead of the asset — see MolcaLocalSettings.
+            card.Body.Add(MolcaLocalOverrideRow.Bool(
+                "Enable Bridge", MolcaLocalSettings.Keys.McpEnabled,
+                settings.ProjectDefaultEnabled, settings.Enabled,
+                value => settings.Enabled = value,
+                McpServerController.Restart));
 
-            var enableRow = MakeFieldRow("Enable Bridge", out var enableControl);
-            var enableToggle = new Toggle();
-            enableToggle.BindProperty(settingsSO.FindProperty("enabled"));
-            enableToggle.RegisterValueChangedCallback(_ =>
-            {
-                settingsSO.ApplyModifiedProperties();
-                EditorUtility.SetDirty(settings);
-                McpServerController.Restart();
-            });
-            enableControl.Add(enableToggle);
-            card.Body.Add(enableRow);
-
-            var portRow = MakeFieldRow("Port", out var portControl);
-            var portField = new IntegerField();
-            portField.AddToClassList("molca-hub-field-control");
-            portField.BindProperty(settingsSO.FindProperty("port"));
-            portField.RegisterValueChangedCallback(_ =>
-            {
-                settingsSO.ApplyModifiedProperties();
-                EditorUtility.SetDirty(settings);
-                McpServerController.Restart();
-            });
-            portControl.Add(portField);
-            card.Body.Add(portRow);
+            card.Body.Add(MolcaLocalOverrideRow.Int(
+                "Port", MolcaLocalSettings.Keys.McpPort,
+                settings.ProjectDefaultPort, settings.Port,
+                value => settings.Port = value,
+                McpServerController.Restart));
 
             // Keep the header status live as the listener starts/stops (Restart is async across a reload).
             void RefreshStatus()
@@ -875,23 +863,6 @@ namespace Molca.Editor.Hub.Sections
                 McpProviderStatus.Misconfigured => "molca-hub-status-dot--error",
                 _ => "molca-hub-status-dot--idle",
             };
-        }
-
-        private static VisualElement MakeFieldRow(string label, out VisualElement control)
-        {
-            var row = new VisualElement();
-            row.AddToClassList("molca-hub-field-row");
-            row.AddToClassList("molca-hub-bv-field");
-
-            var fieldLabel = new Label(label);
-            fieldLabel.AddToClassList("molca-hub-field-label");
-            row.Add(fieldLabel);
-
-            control = new VisualElement();
-            control.AddToClassList("molca-hub-field-control");
-            row.Add(control);
-
-            return row;
         }
 
         private static string BuildProviderSignature(McpSettings settings)

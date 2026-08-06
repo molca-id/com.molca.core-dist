@@ -74,6 +74,21 @@ namespace Molca.Settings.Integration.ClickUp
             public string url;
         }
 
+        /// <summary>
+        /// ClickUp's error envelope, returned alongside a 4xx/5xx status.
+        /// </summary>
+        /// <remarks>
+        /// Shape is <c>{"err":"Status not found","ECODE":"CAT_014"}</c>. Surfacing <c>err</c> is the difference
+        /// between telling the user "400 Bad Request" and "Status not found" — the status code alone never
+        /// explains which of a request's several possible mistakes was made.
+        /// </remarks>
+        [Serializable]
+        public class ErrorResponse
+        {
+            public string err;
+            public string ECODE;
+        }
+
         /// <summary>Envelope for <c>GET /api/v2/folder/{folder_id}</c>.</summary>
         /// <remarks>
         /// A folder only carries its own <see cref="statuses"/> when it overrides statuses; otherwise the
@@ -118,6 +133,11 @@ namespace Molca.Settings.Integration.ClickUp
         }
 
         /// <summary>A ClickUp task (subset used by the editor task list).</summary>
+        /// <remarks>
+        /// <see cref="due_date"/> and <see cref="date_updated"/> are Unix epoch <b>milliseconds carried as JSON
+        /// strings</b> (e.g. <c>"1508369194377"</c>), not numbers — typing them as <c>long</c> would make
+        /// <see cref="UnityEngine.JsonUtility"/> drop them. Use <see cref="ClickUpTaskFormat"/> to parse.
+        /// </remarks>
         [Serializable]
         public class ClickUpTask
         {
@@ -127,6 +147,33 @@ namespace Molca.Settings.Integration.ClickUp
             public TaskStatus status;
             public User[] assignees;
             public TaskList list;
+            public Priority priority;
+            public Tag[] tags;
+            public string due_date;
+            public string date_updated;
+        }
+
+        /// <summary>A ClickUp task priority.</summary>
+        /// <remarks>
+        /// Every field is a JSON string in ClickUp's responses — including <see cref="orderindex"/>, which is
+        /// <c>"1"</c> rather than <c>1</c>. The whole object is <c>null</c> on a task with no priority set.
+        /// </remarks>
+        [Serializable]
+        public class Priority
+        {
+            public string id;
+            public string priority;
+            public string color;
+            public string orderindex;
+        }
+
+        /// <summary>A ClickUp tag, carrying its own foreground/background colors.</summary>
+        [Serializable]
+        public class Tag
+        {
+            public string name;
+            public string tag_fg;
+            public string tag_bg;
         }
 
         /// <summary>The list a task belongs to (subset of the ClickUp list object).</summary>

@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.Build;
@@ -39,6 +39,8 @@ namespace Molca.Editor.Automation.DevPlayer
 
             if (WouldBridgeShip(developmentBuild, defines))
             {
+                Molca.Editor.MolcaBuildRefusal.Record(
+                    Molca.Editor.MolcaBuildReasonCode.DevBridgePresent);
                 throw new BuildFailedException(
                     $"[Molca] '{DevBuildDefine}' is in the scripting define symbols for a non-development build — " +
                     "the development-player bridge would ship in a production Player. Remove the forced define " +

@@ -52,17 +52,27 @@ namespace Molca.Editor
         }
 
         /// <summary>
-        /// Validates the enabled build scenes and returns one message per problem found.
+        /// Validates the scenes going into a build and returns one message per problem found.
         /// </summary>
+        /// <param name="scenePaths">
+        /// The scenes the build ships, or null for the enabled Editor Build Settings scenes.
+        /// </param>
         /// <returns>One <c>REFnnn</c>-prefixed message per error. An empty list means build-safe.</returns>
         /// <remarks>
         /// Kept in this shape so <see cref="BuildManager"/> can gate before it mutates any player setting.
         /// Calling it marks the reference gate satisfied for the build that follows, so
         /// <see cref="ReferenceBuildGate"/> does not repeat the work.
+        /// <para>
+        /// The parameter exists because a build profile may declare its own scene set. Auditing the global
+        /// enabled list for a build that ships a different one would mark the gate satisfied for scenes the
+        /// build never touches, and leave the ones it does ship unvalidated.
+        /// </para>
         /// </remarks>
-        public static List<string> Validate()
+        public static List<string> Validate(IEnumerable<string> scenePaths = null)
         {
-            var snapshot = Audit(EditorUserBuildSettings.development);
+            var snapshot = Audit(
+                EditorUserBuildSettings.development,
+                scenePaths == null ? null : ScenesToAudit(scenePaths));
             var errors = snapshot.Errors.Select(f => f.ToMessage()).ToList();
 
             if (errors.Count == 0)
@@ -94,9 +104,19 @@ namespace Molca.Editor
         /// leave that scene's providers undiscovered, and every reference into it would be reported as
         /// missing rather than as deferred.</para>
         /// </remarks>
-        public static IReadOnlyList<string> ScenesToAudit()
+        public static IReadOnlyList<string> ScenesToAudit() => ScenesToAudit(EnabledBuildScenes());
+
+        /// <summary>
+        /// Every scene the declared load sets mention, unioned with <paramref name="shippedScenes"/>.
+        /// </summary>
+        /// <param name="shippedScenes">The scenes the build ships.</param>
+        /// <remarks>
+        /// The overload taking an explicit set exists for build profiles that declare their own scenes; see
+        /// <see cref="ScenesToAudit()"/> for why the load sets are unioned in either way.
+        /// </remarks>
+        public static IReadOnlyList<string> ScenesToAudit(IEnumerable<string> shippedScenes)
         {
-            var scenes = new List<string>(EnabledBuildScenes());
+            var scenes = new List<string>(shippedScenes ?? EnabledBuildScenes());
 
             foreach (var set in ReferenceLoadSetStore.Sets)
             {

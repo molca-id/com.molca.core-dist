@@ -55,6 +55,8 @@ namespace Molca.Editor.Mcp
 
             EditorGUILayout.BeginVertical(_boxStyle);
 
+            DrawProjectDefaults();
+
             var providersProperty = serializedObject.FindProperty("providers");
             EditorGUILayout.PropertyField(providersProperty, new GUIContent("Tool Providers"), true);
 
@@ -103,6 +105,70 @@ namespace Molca.Editor.Mcp
             EditorGUILayout.EndVertical();
 
             serializedObject.ApplyModifiedProperties();
+        }
+
+        /// <summary>
+        /// The committed project defaults for the enable flag and port, plus — when this machine overrides
+        /// them — the value actually in force and a way back to the default.
+        /// </summary>
+        /// <remarks>
+        /// Editing here authors the default <b>every clone inherits</b>; the same two fields in
+        /// <c>Hub → MCP</c> write only this machine's <see cref="MolcaLocalSettings"/> overlay. Two surfaces for
+        /// one field is a genuine trap, so each one says which it is. This section exists because this asset has
+        /// a custom inspector: without it, the project defaults had no editor at all once the Hub rows moved to
+        /// the overlay.
+        /// </remarks>
+        private void DrawProjectDefaults()
+        {
+            var settings = (McpSettings)target;
+
+            EditorGUILayout.LabelField("Project Defaults (committed)", EditorStyles.miniBoldLabel);
+
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("enabled"),
+                new GUIContent("Start On Load", "Project default. Each developer can override this in Hub → MCP "
+                    + "without committing the change."));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("port"),
+                new GUIContent("Port", "Project default. Each developer can override this in Hub → MCP without "
+                    + "committing the change."));
+            if (EditorGUI.EndChangeCheck())
+            {
+                // Apply before restarting: the controller reads the settings properties, which would otherwise
+                // still see the pre-edit values. A restart is a no-op when an override masks the new default.
+                serializedObject.ApplyModifiedProperties();
+                McpServerController.Restart();
+            }
+
+            DrawOverrideNotice(settings, MolcaLocalSettings.Keys.McpEnabled, "Start On Load",
+                settings.Enabled.ToString().ToLowerInvariant());
+            DrawOverrideNotice(settings, MolcaLocalSettings.Keys.McpPort, "Port",
+                settings.Port.ToString());
+
+            EditorGUILayout.Space(10);
+        }
+
+        /// <summary>
+        /// One row naming a machine-local override of <paramref name="label"/> and offering to drop it. Draws
+        /// nothing when the field is not overridden.
+        /// </summary>
+        /// <param name="settings">The settings asset being inspected.</param>
+        /// <param name="key">The overlay key from <see cref="MolcaLocalSettings.Keys"/>.</param>
+        /// <param name="label">The field's display name, matching the row above.</param>
+        /// <param name="effective">The value actually in force on this machine.</param>
+        private static void DrawOverrideNotice(McpSettings settings, string key, string label, string effective)
+        {
+            if (!settings.HasLocalOverride(key)) return;
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(
+                $"↺ {label} is overridden on this machine: {effective}",
+                EditorStyles.miniLabel);
+            if (GUILayout.Button("Use Default", EditorStyles.miniButton, GUILayout.Width(90)))
+            {
+                settings.ClearLocalOverride(key);
+                McpServerController.Restart();
+            }
+            EditorGUILayout.EndHorizontal();
         }
 
         /// <summary>

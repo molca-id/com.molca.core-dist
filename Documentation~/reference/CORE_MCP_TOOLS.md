@@ -129,8 +129,10 @@ Source / Doctor / ClickUp:
 
 - `molca_read_source`: read a text/source file inside the project by path with optional line-range pagination.
 - `molca_doctor`: run Molca Doctor convention checks.
-- `molca_clickup_status`: ClickUp connection, target, and token state.
-- `molca_clickup_list_tasks`: tasks from the configured target folder/list.
+- `molca_clickup_status`: ClickUp connection, target, push target, and token state.
+- `molca_clickup_focus`: the task currently focused for this project, plus the pinned task ids.
+- `molca_clickup_list_tasks`: tasks from the configured target folder, paginated, with priority, due date, tags,
+  assignees, and pinned/focused flags.
 - `molca_clickup_list_workspaces`: workspaces available to the stored token.
 
 Interactive:
@@ -209,7 +211,7 @@ Edit-mode irreversible actions:
 - `molca_create_mcp_tool`
 - `molca_trigger_build`
 - `molca_kg_build`
-- `molca_clickup_set_task_status`, `molca_clickup_create_task`
+- `molca_clickup_set_task_status`, `molca_clickup_create_task`, `molca_clickup_set_focus`
 - `molca_undo_last_action`
 
 ## Usage Rules

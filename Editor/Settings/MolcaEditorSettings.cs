@@ -133,18 +133,40 @@ namespace Molca.Editor
         }
 
         [SerializeField] private Mcp.McpSettings mcpSettings;
-        /// <summary>The MCP bridge settings asset, or null if the MCP bridge is not configured.</summary>
+        /// <summary>The MCP bridge settings asset, or null if the project has none.</summary>
+        /// <remarks>
+        /// Falls back to locating the asset by type when the stored reference is missing — see
+        /// <see cref="AssistantSettings"/> for why.
+        /// </remarks>
         public Mcp.McpSettings McpSettings
         {
-            get => mcpSettings;
+            get
+            {
+                if (mcpSettings == null) mcpSettings = MolcaEditorSettingsAsset.Find<Mcp.McpSettings>();
+                return mcpSettings;
+            }
             set { mcpSettings = value; Save(); }
         }
 
         [SerializeField] private Mcp.Assistant.AssistantSettings assistantSettings;
-        /// <summary>The in-editor assistant settings asset, or null if the assistant is not configured.</summary>
+        /// <summary>The in-editor assistant settings asset, or null if the project has none.</summary>
+        /// <remarks>
+        /// The stored value is a guid reference, so it dangles whenever the asset exists but this file does not
+        /// name it — a clone that never opened the Hub, a re-created asset, a merge that dropped the line.
+        /// Other call sites reach the same assets through <c>GetOrCreateSettings()</c>, which locates them by
+        /// type, so a dangling reference used to mean the two paths disagreed: one returned <c>null</c> while
+        /// the other returned a real (or freshly created, blank) asset. Falling back to a by-type lookup keeps
+        /// them consistent. The repair is in-memory only — <see cref="Save"/> is not called from a getter — so
+        /// merely reading settings never writes to <c>ProjectSettings/</c>.
+        /// </remarks>
         public Mcp.Assistant.AssistantSettings AssistantSettings
         {
-            get => assistantSettings;
+            get
+            {
+                if (assistantSettings == null)
+                    assistantSettings = MolcaEditorSettingsAsset.Find<Mcp.Assistant.AssistantSettings>();
+                return assistantSettings;
+            }
             set { assistantSettings = value; Save(); }
         }
     }

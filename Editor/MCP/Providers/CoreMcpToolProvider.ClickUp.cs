@@ -8,9 +8,9 @@ using UnityEngine;
 namespace Molca.Editor.Mcp.Providers
 {
     /// <summary>
-    /// ClickUp tools: read the integration's connection/target state, list the project folder's tasks,
-    /// list accessible workspaces, change a task's status, and create a task. Reads are
-    /// <see cref="McpToolKind.ReadOnly"/>; the mutating tools are <see cref="McpToolKind.Action"/>, gated by
+    /// ClickUp tools: read the integration's connection/target state, list the project folder's tasks, list
+    /// accessible workspaces, read and set the focused task, change a task's status, and create a task. Reads
+    /// are <see cref="McpToolKind.ReadOnly"/>; the mutating tools are <see cref="McpToolKind.Action"/>, gated by
     /// the allowlist + confirmation guardrails.
     /// </summary>
     /// <remarks>
@@ -22,6 +22,12 @@ namespace Molca.Editor.Mcp.Providers
     /// <see cref="McpToolMode.Edit"/> on the main thread; the ClickUp REST API is the source of truth, so the
     /// Action tools are <see cref="McpToolReversibility.Irreversible"/> (a status change or new task cannot be
     /// rolled back via Unity Undo).
+    /// <para>
+    /// <b>Why focus is exposed to MCP.</b> The focused task (<see cref="ClickUpTaskFocus"/>) is the project's own
+    /// statement of what is being worked on right now. Reading it lets an agent scope its work to the actual
+    /// ticket instead of asking, and it is also what build/release activity comments on — so an agent changing it
+    /// is changing where automated reports land.
+    /// </para>
     /// </remarks>
     public partial class CoreMcpToolProvider
     {
@@ -30,8 +36,9 @@ namespace Molca.Editor.Mcp.Providers
         private static McpToolDefinition CreateClickUpStatusTool() => new McpToolDefinition(
             name: "molca_clickup_status",
             description: "Reads the ClickUp integration state: whether a token is stored, whether it has been "
-                       + "verified this session, the status message, the target list/folder/workspace ids, and "
-                       + "the canPush/canViewTasks readiness flags. The token itself is never returned. Read-only.",
+                       + "verified this session, the status message, the target list/folder/workspace ids, the "
+                       + "push target and whether it has a destination, the focused task, and the "
+                       + "canPush/canViewTasks readiness flags. The token itself is never returned. Read-only.",
             inputSchemaJson: "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}",
             execute: ExecuteClickUpStatus,
             mode: McpToolMode.Any,
@@ -48,11 +55,95 @@ namespace Molca.Editor.Mcp.Providers
                 ["hasToken"] = provider.HasToken,
                 ["isConnected"] = provider.IsConnected,
                 ["statusMessage"] = provider.StatusMessage,
+                ["connectedEmail"] = provider.ConnectedEmail,
                 ["targetListId"] = provider.TargetListId,
                 ["targetFolderId"] = provider.TargetFolderId,
                 ["targetWorkspaceId"] = provider.TargetWorkspaceId,
+                ["pushOnBuild"] = provider.PushOnBuild,
+                ["pushOnRelease"] = provider.PushOnRelease,
+                ["pushTarget"] = provider.PushTarget.ToString(),
+                ["hasPushDestination"] = provider.HasPushDestination,
+                ["focusedTaskId"] = ClickUpTaskFocus.FocusedTaskId,
+                ["focusedTaskName"] = ClickUpTaskFocus.FocusedTaskName,
+                ["pinnedCount"] = ClickUpTaskFocus.PinnedCount,
                 ["canPush"] = provider.CanPush,
                 ["canViewTasks"] = provider.CanViewTasks
+            }.ToString(Formatting.None);
+        }
+
+        // ── molca_clickup_focus (read) ───────────────────────────────────────────────────────
+
+        private static McpToolDefinition CreateClickUpFocusTool() => new McpToolDefinition(
+            name: "molca_clickup_focus",
+            description: "Reads the ClickUp task currently focused for this project — the task the developer is "
+                       + "working on, and the one build/release activity comments on when the push target is a "
+                       + "comment mode. Returns its id, name, and url, plus the pinned task ids. Focus is stored "
+                       + "per-machine and is not committed. Read-only.",
+            inputSchemaJson: "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}",
+            execute: ExecuteClickUpFocus,
+            mode: McpToolMode.Any,
+            kind: McpToolKind.ReadOnly);
+
+        private static string ExecuteClickUpFocus(string argumentsJson)
+        {
+            var pinned = new JArray();
+            foreach (var id in ClickUpTaskFocus.GetPinnedIds())
+                pinned.Add(id);
+
+            return new JObject
+            {
+                ["hasFocus"] = ClickUpTaskFocus.HasFocus,
+                ["taskId"] = ClickUpTaskFocus.FocusedTaskId,
+                ["taskName"] = ClickUpTaskFocus.FocusedTaskName,
+                ["taskUrl"] = ClickUpTaskFocus.FocusedTaskUrl,
+                ["pinnedTaskIds"] = pinned
+            }.ToString(Formatting.None);
+        }
+
+        // ── molca_clickup_set_focus (action) ─────────────────────────────────────────────────
+
+        private static McpToolDefinition CreateClickUpSetFocusTool() => new McpToolDefinition(
+            name: "molca_clickup_set_focus",
+            description: "Sets or clears the focused ClickUp task for this project. Pass 'taskId' (with optional "
+                       + "'taskName' and 'taskUrl' for labelling) to focus a task, or 'clear': true to unfocus. "
+                       + "This changes where build/release activity is reported when the push target is a comment "
+                       + "mode. It only writes local editor state (per-machine, not committed) and can be changed "
+                       + "back by calling this tool again, but it is not on Unity's undo stack.",
+            inputSchemaJson:
+                "{\"type\":\"object\",\"properties\":{" +
+                "\"taskId\":{\"type\":\"string\",\"description\":\"The ClickUp task id to focus.\"}," +
+                "\"taskName\":{\"type\":\"string\",\"description\":\"Optional display name for the focused task.\"}," +
+                "\"taskUrl\":{\"type\":\"string\",\"description\":\"Optional ClickUp URL for the focused task.\"}," +
+                "\"clear\":{\"type\":\"boolean\",\"description\":\"Clear the focus instead of setting it.\"}}," +
+                "\"additionalProperties\":false}",
+            execute: ExecuteClickUpSetFocus,
+            mode: McpToolMode.Any,
+            kind: McpToolKind.Action,
+            reversibility: McpToolReversibility.Irreversible);
+
+        private static string ExecuteClickUpSetFocus(string argumentsJson)
+        {
+            var args = ParseArgs(argumentsJson);
+
+            if (args.Value<bool?>("clear") == true)
+            {
+                ClickUpTaskFocus.ClearFocus();
+                return new JObject { ["success"] = true, ["hasFocus"] = false }.ToString(Formatting.None);
+            }
+
+            string taskId = args.Value<string>("taskId");
+            if (string.IsNullOrWhiteSpace(taskId))
+                return ClickUpError("'taskId' is required unless 'clear' is true.");
+
+            ClickUpTaskFocus.SetFocus(
+                taskId.Trim(), args.Value<string>("taskName"), args.Value<string>("taskUrl"));
+
+            return new JObject
+            {
+                ["success"] = true,
+                ["hasFocus"] = true,
+                ["taskId"] = ClickUpTaskFocus.FocusedTaskId,
+                ["taskName"] = ClickUpTaskFocus.FocusedTaskName
             }.ToString(Formatting.None);
         }
 
@@ -61,10 +152,12 @@ namespace Molca.Editor.Mcp.Providers
         private static McpToolDefinition CreateClickUpListTasksTool() => new McpToolDefinition(
             name: "molca_clickup_list_tasks",
             description: "Lists the ClickUp tasks scoped to the configured Target Folder Id (the same view as "
-                       + "Hub → Tasks). Defaults to the token user's open tasks. Returns each task's id, name, "
-                       + "url, current status, and list, plus the folder's available status names. Set "
-                       + "'onlyMine' to false for everyone's tasks, 'includeClosed' to true to include done "
-                       + "tasks. Requires a stored token and a Target Folder Id. Read-only.",
+                       + "Hub → Tasks), following pagination so folders with more than 100 tasks are complete. "
+                       + "Defaults to the token user's open tasks. Returns each task's id, name, url, status, "
+                       + "list, priority, due date (ISO-8601), tags, assignees, and whether it is pinned or "
+                       + "focused, plus the folder's available status names in workflow order. Set 'onlyMine' to "
+                       + "false for everyone's tasks, 'includeClosed' to true to include done tasks. Requires a "
+                       + "stored token and a Target Folder Id. Read-only.",
             inputSchemaJson:
                 "{\"type\":\"object\",\"properties\":{" +
                 "\"onlyMine\":{\"type\":\"boolean\",\"description\":\"Limit to the token user's tasks (default true).\"}," +
@@ -89,29 +182,70 @@ namespace Molca.Editor.Mcp.Providers
 
             var tasks = new JArray();
             foreach (var task in result.Tasks)
-            {
-                tasks.Add(new JObject
-                {
-                    ["id"] = task.id,
-                    ["name"] = task.name,
-                    ["url"] = task.url,
-                    ["status"] = task.status?.status,
-                    ["list"] = task.list?.name
-                });
-            }
+                tasks.Add(DescribeTask(task));
 
+            // Names only: the wire contract for this tool is the ordered list of status names an agent may pass
+            // back to molca_clickup_set_task_status. Colors are presentational and would only be noise here.
             var statuses = new JArray();
             foreach (var status in result.Statuses)
-                statuses.Add(status);
+            {
+                if (!string.IsNullOrEmpty(status?.status)) statuses.Add(status.status);
+            }
 
             return new JObject
             {
                 ["onlyMine"] = onlyMine,
                 ["includeClosed"] = includeClosed,
+                ["folderName"] = result.FolderName,
                 ["count"] = result.Tasks.Length,
                 ["tasks"] = tasks,
                 ["statuses"] = statuses
             }.ToString(Formatting.None);
+        }
+
+        // One task as JSON. Dates are emitted as ISO-8601 rather than ClickUp's epoch-millisecond strings so a
+        // consumer can compare them without knowing the wire quirk.
+        private static JObject DescribeTask(ClickUpModels.ClickUpTask task)
+        {
+            var tags = new JArray();
+            if (task.tags != null)
+            {
+                foreach (var tag in task.tags)
+                {
+                    if (!string.IsNullOrEmpty(tag?.name)) tags.Add(tag.name);
+                }
+            }
+
+            var assignees = new JArray();
+            if (task.assignees != null)
+            {
+                foreach (var user in task.assignees)
+                {
+                    if (user == null) continue;
+                    assignees.Add(new JObject
+                    {
+                        ["id"] = user.id,
+                        ["username"] = user.username,
+                        ["email"] = user.email
+                    });
+                }
+            }
+
+            return new JObject
+            {
+                ["id"] = task.id,
+                ["name"] = task.name,
+                ["url"] = task.url,
+                ["status"] = task.status?.status,
+                ["list"] = task.list?.name,
+                ["priority"] = task.priority?.priority,
+                ["dueDate"] = ClickUpTaskFormat.ToIso8601(task.due_date),
+                ["updated"] = ClickUpTaskFormat.ToIso8601(task.date_updated),
+                ["tags"] = tags,
+                ["assignees"] = assignees,
+                ["pinned"] = ClickUpTaskFocus.IsPinned(task.id),
+                ["focused"] = ClickUpTaskFocus.IsFocused(task.id)
+            };
         }
 
         // ── molca_clickup_list_workspaces (read) ─────────────────────────────────────────────
@@ -133,9 +267,12 @@ namespace Molca.Editor.Mcp.Providers
             if (!provider.HasToken)
                 return ClickUpError("ClickUp is not connected — add a token in Hub → Integrations.");
 
-            var workspaces = await provider.FetchWorkspacesAsync(CancellationToken.None);
+            var result = await provider.FetchWorkspacesAsync(CancellationToken.None);
+            if (!result.Success)
+                return ClickUpError(result.Error);
+
             var arr = new JArray();
-            foreach (var workspace in workspaces)
+            foreach (var workspace in result.Workspaces)
                 arr.Add(new JObject { ["id"] = workspace.Id, ["name"] = workspace.Name });
 
             return new JObject { ["count"] = arr.Count, ["workspaces"] = arr }.ToString(Formatting.None);
@@ -171,11 +308,10 @@ namespace Molca.Editor.Mcp.Providers
             if (string.IsNullOrWhiteSpace(taskId)) return ClickUpError("'taskId' is required.");
             if (string.IsNullOrWhiteSpace(status)) return ClickUpError("'status' is required.");
 
-            bool ok = await provider.SetTaskStatusAsync(taskId, status, CancellationToken.None);
-            return ok
+            var result = await provider.SetTaskStatusAsync(taskId, status, CancellationToken.None);
+            return result.Success
                 ? new JObject { ["success"] = true, ["taskId"] = taskId, ["status"] = status }.ToString(Formatting.None)
-                : ClickUpError($"Failed to change status of task '{taskId}' to '{status}' — check the id and that "
-                             + "the status exists in the task's set.");
+                : ClickUpError($"Failed to change status of task '{taskId}' to '{status}': {result.Error}");
         }
 
         // ── molca_clickup_create_task (action) ───────────────────────────────────────────────
@@ -201,29 +337,22 @@ namespace Molca.Editor.Mcp.Providers
             var args = ParseArgs(argumentsJson);
             var provider = ResolveClickUpProvider(out string error);
             if (provider == null) return ClickUpError(error);
-
-            var client = provider.CreateClient();
-            if (client == null)
+            if (!provider.HasToken)
                 return ClickUpError("ClickUp is not connected — add a token in Hub → Integrations.");
 
             string name = args.Value<string>("name");
             if (string.IsNullOrWhiteSpace(name)) return ClickUpError("'name' is required.");
 
-            string listId = args.Value<string>("listId");
-            if (string.IsNullOrWhiteSpace(listId)) listId = provider.TargetListId;
-            if (string.IsNullOrWhiteSpace(listId))
-                return ClickUpError("No list id — pass 'listId' or set a Target List Id on the ClickUp integration.");
+            var result = await provider.CreateTaskAsync(
+                name, args.Value<string>("markdownDescription"), args.Value<string>("listId"),
+                CancellationToken.None);
 
-            string markdown = args.Value<string>("markdownDescription");
-
-            var result = await client.CreateTaskAsync(listId, name, markdown, CancellationToken.None);
             if (!result.Success)
                 return ClickUpError($"Create failed ({result.StatusCode}): {result.Error}");
 
             return new JObject
             {
                 ["success"] = true,
-                ["listId"] = listId,
                 ["taskId"] = result.Id
             }.ToString(Formatting.None);
         }

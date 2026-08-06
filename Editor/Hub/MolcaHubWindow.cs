@@ -26,6 +26,7 @@ namespace Molca.Editor.Hub
         private static readonly SectionInfo[] Sections =
         {
             new SectionInfo(MolcaHubSection.Project, "Project", "Project identity, project links, and logo configuration."),
+            new SectionInfo(MolcaHubSection.Health, "Health", "Read-only project health from the control plane: connection, content, builds, add-ons, and team."),
             new SectionInfo(MolcaHubSection.BuildVersion, "Build & Version", "Semantic versioning, build profiles, and release sync."),
             new SectionInfo(MolcaHubSection.RuntimeGlobal, "Runtime & Global", "Runtime Manager, Global Settings modules, and bootstrap context."),
             new SectionInfo(MolcaHubSection.Editor, "Editor", "Editor-only helpers, Area Picker, and notification providers."),
@@ -386,6 +387,9 @@ namespace Molca.Editor.Hub
 
             _railRoots.Add(Category(MolcaHubSettingsLeafRegistry.Framework, "Framework",
                 SectionLeaf(MolcaHubSection.Project),
+                // Directly under Project, because it answers the question Project raises: the connection is
+                // configured here, and whether it is actually working is the next thing anyone asks.
+                SectionLeaf(MolcaHubSection.Health),
                 SectionLeaf(MolcaHubSection.BuildVersion),
                 SectionLeaf(MolcaHubSection.RuntimeGlobal),
                 SectionLeaf(MolcaHubSection.Editor)));
@@ -599,6 +603,7 @@ namespace Molca.Editor.Hub
         private VisualElement CreateSectionContent(MolcaHubSection section) => section switch
         {
             MolcaHubSection.Project => new MolcaHubProjectSection(),
+            MolcaHubSection.Health => new MolcaHubHealthSection(SelectSection),
             MolcaHubSection.BuildVersion => new MolcaHubBuildVersionSection(_state),
             MolcaHubSection.RuntimeGlobal => new MolcaHubRuntimeSection(_state),
             MolcaHubSection.Editor => new MolcaHubEditorSection(),

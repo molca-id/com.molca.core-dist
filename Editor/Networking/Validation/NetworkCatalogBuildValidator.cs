@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -57,8 +57,12 @@ namespace Molca.Editor.Networking.Validation
             string details = Format(validation);
 
             if (catalog.FailBuildOnValidationError)
+            {
+                Molca.Editor.MolcaBuildRefusal.Record(
+                    Molca.Editor.MolcaBuildReasonCode.NetworkCatalogGate);
                 throw new BuildFailedException(
                     $"[Network] Catalog validation failed: {validation.Summarize()}.\n{details}");
+            }
 
             Debug.LogWarning(
                 $"[Network] Catalog validation failed: {validation.Summarize()}. " +

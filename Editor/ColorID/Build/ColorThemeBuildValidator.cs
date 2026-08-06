@@ -1,4 +1,4 @@
-#if UNITY_EDITOR
+﻿#if UNITY_EDITOR
 using System.Collections.Generic;
 using Molca.ColorID;
 using Molca.Settings;
@@ -86,6 +86,8 @@ namespace Molca.ColorID.Editor
 
             if (hasErrors)
             {
+                Molca.Editor.MolcaBuildRefusal.Record(
+                    Molca.Editor.MolcaBuildReasonCode.ColorThemeGate);
                 throw new BuildFailedException(
                     "Colour theme validation failed. See the errors above. A shipped build must have a "
                     + "valid theme set, every required token resolvable in every variant, and current "

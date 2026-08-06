@@ -102,5 +102,41 @@ namespace Molca.Editor
         /// Unity collecting <c>Resources</c>, which happens once the player build itself starts.
         /// </remarks>
         public const int GeneratedArtifacts = 1000;
+
+        // -------------------------------------------------------------------
+        // Postprocessor bands
+        // -------------------------------------------------------------------
+        // Postprocessors are ordered by the same ascending callbackOrder, and had no vocabulary at all:
+        // two Core callbacks both sat at int.MaxValue, each documented as running "after every other
+        // post-process callback". Only one of them can, and which one is whatever order Unity happens to
+        // discover them in. A callback implementing both halves is ordered by its *gate* band — Unity
+        // reads one callbackOrder property for both interfaces — so these apply to postprocess-only
+        // callbacks.
+
+        /// <summary>Read-only post-build observers: notifications, activity routing, telemetry.</summary>
+        /// <remarks>Same value and same reasoning as <see cref="Observer"/>, on the way out.</remarks>
+        public const int PostObserver = 0;
+
+        /// <summary>
+        /// Removal of the files written by a <see cref="GeneratedArtifacts"/> preprocessor.
+        /// </summary>
+        /// <remarks>
+        /// After the observers, so a callback that reports on the build can still read a generated stamp
+        /// while it exists. Mirrors <see cref="GeneratedArtifacts"/> deliberately: the two halves of one
+        /// generated file are easier to keep honest when their orders are named as a pair.
+        /// </remarks>
+        public const int PostGeneratedCleanup = 1000;
+
+        /// <summary>
+        /// Advancing recorded build state — the build number and the changelog entry — once everything
+        /// else has read this build.
+        /// </summary>
+        /// <remarks>
+        /// Last, and exclusively Core's: a "build completed" reader must report the version that was just
+        /// built rather than the next build's number, and that guarantee only holds if exactly one
+        /// callback occupies the final position. A project callback that needs to run late belongs just
+        /// below this, not alongside it.
+        /// </remarks>
+        public const int PostVersionAdvance = int.MaxValue;
     }
 }

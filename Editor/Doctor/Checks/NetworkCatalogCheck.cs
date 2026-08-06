@@ -111,7 +111,54 @@ namespace Molca.Editor.Doctor
                     assetPath));
             }
 
+            ReportDanglingBuildProfileBindings(catalog, assetPath, issues);
+
             return issues;
+        }
+
+        /// <summary>
+        /// Reports environments whose <c>Enabled Build Profiles</c> name a build profile that does not exist.
+        /// </summary>
+        /// <param name="catalog">The catalog to inspect.</param>
+        /// <param name="assetPath">The catalog's asset path, for the finding's location.</param>
+        /// <param name="issues">Accumulates findings.</param>
+        /// <remarks>
+        /// These bindings are stored as profile <em>names</em>, and a name is a label somebody edits in the
+        /// Hub. Renaming a profile therefore unbinds every environment that named it, with no error at
+        /// author time and no error at build time — the environment simply stops being enabled by anything.
+        /// Reported as a warning rather than an error because an empty list legitimately means "any profile",
+        /// and a project mid-rename should not be blocked from building; a profile's stable id resolves too,
+        /// which is the way to make a binding rename-proof.
+        /// </remarks>
+        private void ReportDanglingBuildProfileBindings(
+            Molca.Networking.Configuration.NetworkCatalog catalog, string assetPath, List<DoctorIssue> issues)
+        {
+            var buildSettings = Molca.Editor.MolcaEditorSettings.Instance != null
+                ? Molca.Editor.MolcaEditorSettings.Instance.BuildSettings
+                : null;
+            if (buildSettings == null || buildSettings.Profiles.Count == 0)
+                return;
+
+            foreach (var environment in catalog.Environments)
+            {
+                if (environment == null)
+                    continue;
+
+                foreach (var binding in environment.EnabledBuildProfiles)
+                {
+                    if (string.IsNullOrWhiteSpace(binding))
+                        continue;
+
+                    if (buildSettings.TryGetProfile(binding, out _))
+                        continue;
+
+                    issues.Add(new DoctorIssue(Id, DoctorSeverity.Warning,
+                        $"Network environment \"{environment.Id}\" is enabled for build profile \"{binding}\", " +
+                        "which no longer exists — the profile was renamed or removed, so this binding does " +
+                        "nothing. Re-select the profile, or bind by its stable id.",
+                        assetPath));
+                }
+            }
         }
     }
 }

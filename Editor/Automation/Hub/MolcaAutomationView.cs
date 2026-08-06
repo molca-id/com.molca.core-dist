@@ -356,6 +356,29 @@ namespace Molca.Editor.Automation.Hub
 
             // --- Profile chooser: one selectable row per profile, with its blurb ---
             body.Add(new Label("Profile") { style = { unityFontStyleAndWeight = UnityEngine.FontStyle.Bold, marginBottom = 4 } });
+
+            // The profile is per machine (MolcaLocalSettings): a CI runner is configured where it runs, not in
+            // the repository. Say so, and offer the way back to the project default — otherwise a local choice
+            // is indistinguishable from the team's, which is how a committed UnattendedCi went unnoticed.
+            if (settings.HasActiveProfileOverride)
+            {
+                var overrideNote = new VisualElement
+                {
+                    style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginBottom = 4 }
+                };
+                var text = Muted($"Overridden on this machine — the project default is "
+                    + $"{settings.ProjectDefaultActiveProfile}. Not committed.");
+                text.style.whiteSpace = WhiteSpace.Normal;
+                text.style.flexGrow = 1;
+                overrideNote.Add(text);
+                overrideNote.Add(new Button(() =>
+                {
+                    settings.ClearActiveProfileOverride();
+                    Refresh();
+                }) { text = "Use project default" });
+                body.Add(overrideNote);
+            }
+
             foreach (MolcaAutomationProfile p in System.Enum.GetValues(typeof(MolcaAutomationProfile)))
             {
                 var profile = p;

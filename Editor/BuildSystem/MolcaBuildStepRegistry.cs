@@ -30,6 +30,7 @@ namespace Molca.Editor
     public static class MolcaBuildStepRegistry
     {
         private static List<IMolcaBuildStep> _steps;
+        private static List<IMolcaPostBuildStep> _postSteps;
         private static readonly List<string> _errors = new List<string>();
 
         /// <summary>The discovered steps, in execution order.</summary>
@@ -39,6 +40,16 @@ namespace Molca.Editor
             {
                 EnsureDiscovered();
                 return _steps;
+            }
+        }
+
+        /// <summary>The discovered post-build steps, in execution order.</summary>
+        public static IReadOnlyList<IMolcaPostBuildStep> PostSteps
+        {
+            get
+            {
+                EnsureDiscovered();
+                return _postSteps;
             }
         }
 
@@ -56,6 +67,7 @@ namespace Molca.Editor
         public static void Reset()
         {
             _steps = null;
+            _postSteps = null;
             _errors.Clear();
         }
 
@@ -139,37 +151,169 @@ namespace Molca.Editor
             return true;
         }
 
+        /// <summary>
+        /// Runs every registered post-build step that applies to <paramref name="context"/>, in order.
+        /// </summary>
+        /// <param name="context">The build that just succeeded.</param>
+        /// <param name="failures">One line per step that failed or threw; empty when all succeeded.</param>
+        /// <returns>True when no applicable step failed.</returns>
+        /// <remarks>
+        /// <b>Every step runs, even after one fails</b> — the opposite of <see cref="RunAll(MolcaBuildContext, out string)"/>,
+        /// and for the same reason it stops: pre-build steps may depend on each other, post-build steps are
+        /// independent consumers of a finished artifact. Skipping a symbol upload because an unrelated
+        /// notification webhook was down would lose data that cannot be recovered later.
+        /// </remarks>
+        public static bool RunAllPost(MolcaPostBuildContext context, out IReadOnlyList<string> failures) =>
+            RunAllPost(PostSteps, context, out failures);
+
+        /// <summary>
+        /// Runs an explicit ordered post-build step list against <paramref name="context"/>.
+        /// </summary>
+        /// <param name="steps">The steps to run, already ordered.</param>
+        /// <param name="context">The build that just succeeded.</param>
+        /// <param name="failures">One line per step that failed or threw; empty when all succeeded.</param>
+        /// <returns>True when no applicable step failed.</returns>
+        /// <remarks>Exposed so the run-everything contract can be tested against a controlled list.</remarks>
+        public static bool RunAllPost(
+            IEnumerable<IMolcaPostBuildStep> steps, MolcaPostBuildContext context, out IReadOnlyList<string> failures)
+        {
+            var collected = new List<string>();
+            failures = collected;
+            if (context == null || steps == null)
+                return true;
+
+            foreach (var step in steps)
+            {
+                if (step == null)
+                    continue;
+
+                bool applies;
+                try
+                {
+                    applies = step.ShouldRun(context);
+                }
+                catch (Exception ex)
+                {
+                    collected.Add($"Post-build step '{step.Id}' threw deciding whether to run: {ex.Message}");
+                    continue;
+                }
+
+                if (!applies)
+                    continue;
+
+                Debug.Log($"[BuildManager] Post-build step '{step.DisplayName}' ({step.Id}) running…");
+
+                MolcaBuildStepResult result;
+                try
+                {
+                    result = step.Run(context);
+                }
+                catch (Exception ex)
+                {
+                    collected.Add($"Post-build step '{step.Id}' threw: {ex.Message}");
+                    continue;
+                }
+
+                if (!result.Succeeded)
+                {
+                    collected.Add(string.IsNullOrEmpty(result.Message)
+                        ? $"Post-build step '{step.Id}' failed."
+                        : $"Post-build step '{step.Id}' failed: {result.Message}");
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(result.Message))
+                    Debug.Log($"[BuildManager] Post-build step '{step.Id}': {result.Message}");
+            }
+
+            return collected.Count == 0;
+        }
+
         private static void EnsureDiscovered()
         {
             if (_steps != null) return;
 
-            var instances = new List<IMolcaBuildStep>();
             var errors = new List<string>();
+            _steps = BuildSteps(Instantiate<IMolcaBuildStep>("Build step", errors), errors);
+            _postSteps = BuildPostSteps(Instantiate<IMolcaPostBuildStep>("Post-build step", errors), errors);
 
-            foreach (var type in TypeCache.GetTypesDerivedFrom<IMolcaBuildStep>())
+            _errors.Clear();
+            _errors.AddRange(errors);
+            if (_errors.Count > 0)
+                Debug.LogWarning($"[MolcaBuildStepRegistry] discovery issues:\n - {string.Join("\n - ", _errors)}");
+        }
+
+        /// <summary>
+        /// Instantiates every concrete implementation of <typeparamref name="T"/> found by TypeCache,
+        /// recording why any candidate was skipped.
+        /// </summary>
+        /// <typeparam name="T">The step interface to discover.</typeparam>
+        /// <param name="label">How this kind of step is named in skip messages.</param>
+        /// <param name="errors">Accumulates skip reasons.</param>
+        private static List<T> Instantiate<T>(string label, List<string> errors) where T : class
+        {
+            var instances = new List<T>();
+
+            foreach (var type in TypeCache.GetTypesDerivedFrom<T>())
             {
                 if (type.IsAbstract || type.IsInterface) continue;
                 if (type.GetConstructor(Type.EmptyTypes) == null)
                 {
-                    errors.Add($"Build step '{type.FullName}' has no public parameterless constructor; skipped.");
+                    errors.Add($"{label} '{type.FullName}' has no public parameterless constructor; skipped.");
                     continue;
                 }
 
                 try
                 {
-                    instances.Add((IMolcaBuildStep)Activator.CreateInstance(type));
+                    instances.Add((T)Activator.CreateInstance(type));
                 }
                 catch (Exception ex)
                 {
-                    errors.Add($"Build step '{type.FullName}' failed to instantiate: {ex.Message}");
+                    errors.Add($"{label} '{type.FullName}' failed to instantiate: {ex.Message}");
                 }
             }
 
-            _steps = BuildSteps(instances, errors);
-            _errors.Clear();
-            _errors.AddRange(errors);
-            if (_errors.Count > 0)
-                Debug.LogWarning($"[MolcaBuildStepRegistry] discovery issues:\n - {string.Join("\n - ", _errors)}");
+            return instances;
+        }
+
+        /// <summary>
+        /// De-duplicates post-build step instances by id, drops empty ids, and orders the survivors by
+        /// <see cref="IMolcaPostBuildStep.Order"/> then id.
+        /// </summary>
+        /// <param name="candidates">Candidate step instances.</param>
+        /// <param name="errors">Accumulates skip reasons; may be pre-populated.</param>
+        /// <returns>The accepted steps, in execution order.</returns>
+        /// <remarks>Exposed so the dedup/ordering contract can be tested without <c>TypeCache</c>.</remarks>
+        public static List<IMolcaPostBuildStep> BuildPostSteps(
+            IEnumerable<IMolcaPostBuildStep> candidates, List<string> errors)
+        {
+            errors ??= new List<string>();
+            var accepted = new List<IMolcaPostBuildStep>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var step in candidates ?? Enumerable.Empty<IMolcaPostBuildStep>())
+            {
+                if (step == null) continue;
+
+                if (string.IsNullOrWhiteSpace(step.Id))
+                {
+                    errors.Add($"Post-build step '{step.GetType().FullName}' has an empty Id; skipped.");
+                    continue;
+                }
+
+                if (!seen.Add(step.Id))
+                {
+                    errors.Add($"Duplicate post-build step id '{step.Id}' from '{step.GetType().FullName}'; skipped.");
+                    continue;
+                }
+
+                accepted.Add(step);
+            }
+
+            return accepted
+                .OrderBy(s => s.Order)
+                .ThenBy(s => s.Id, StringComparer.Ordinal)
+                .ToList();
         }
 
         /// <summary>

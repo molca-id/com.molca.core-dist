@@ -51,13 +51,50 @@ namespace Molca.Editor.Doctor
                     $"Scene \"{dup.Key}\" is listed more than once among the enabled build scenes.", dup.Key));
             }
 
-            if (enabledPaths.Count == 0)
+            // Only a finding when something would actually build from this list. A project whose every
+            // profile declares its own scene set does not use the Build Settings list at all, and warning
+            // about it there would be a permanent false positive in a gate people are meant to trust.
+            if (enabledPaths.Count == 0 && AnyProfileUsesTheBuildSettingsList())
             {
                 issues.Add(new DoctorIssue(Id, DoctorSeverity.Warning,
-                    "No enabled scenes in Build Settings — a player build would contain no scenes."));
+                    "No enabled scenes in Build Settings, and at least one build profile declares no scene " +
+                    "set of its own — a player build from that profile would contain no scenes."));
             }
 
             return issues;
+        }
+
+        /// <summary>
+        /// True when any build profile in the project would build the Editor Build Settings scene list —
+        /// i.e. declares no scene set of its own. Also true when there are no profiles at all, since
+        /// <c>File &gt; Build</c> always uses the list.
+        /// </summary>
+        private static bool AnyProfileUsesTheBuildSettingsList()
+        {
+            var guids = AssetDatabase.FindAssets("t:BuildSettings");
+            if (guids.Length == 0)
+                return true;
+
+            bool sawProfile = false;
+            foreach (var guid in guids)
+            {
+                var settings = AssetDatabase.LoadAssetAtPath<Molca.Settings.BuildSettings>(
+                    AssetDatabase.GUIDToAssetPath(guid));
+                if (settings == null)
+                    continue;
+
+                foreach (var profile in settings.Profiles)
+                {
+                    if (profile == null)
+                        continue;
+
+                    sawProfile = true;
+                    if (!profile.HasSceneOverride)
+                        return true;
+                }
+            }
+
+            return !sawProfile;
         }
     }
 }

@@ -42,15 +42,9 @@ namespace Molca.Editor
         /// <returns>The existing or newly created settings asset.</returns>
         public static T GetOrCreate<T>(string fileName) where T : ScriptableObject
         {
-            // Locate an existing asset by type, wherever it lives in the project.
-            var guids = AssetDatabase.FindAssets($"t:{typeof(T).Name}");
-            foreach (var guid in guids)
-            {
-                var path = AssetDatabase.GUIDToAssetPath(guid);
-                var existing = AssetDatabase.LoadAssetAtPath<T>(path);
-                if (existing != null)
-                    return existing;
-            }
+            var existing = Find<T>();
+            if (existing != null)
+                return existing;
 
             if (!Directory.Exists(CanonicalFolder))
                 Directory.CreateDirectory(CanonicalFolder);
@@ -59,6 +53,26 @@ namespace Molca.Editor
             AssetDatabase.CreateAsset(settings, $"{CanonicalFolder}/{fileName}");
             AssetDatabase.SaveAssets();
             return settings;
+        }
+
+        /// <summary>
+        /// Locates the project's settings asset of type <typeparamref name="T"/> without creating one.
+        /// </summary>
+        /// <typeparam name="T">The settings ScriptableObject type (one per project).</typeparam>
+        /// <returns>The existing asset, or <c>null</c> if the project has none.</returns>
+        /// <remarks>
+        /// Use this where creating configuration as a side effect would be wrong — a read-only query, a
+        /// validator, or repairing a dangling reference. <see cref="GetOrCreate{T}"/> is the authoring path.
+        /// </remarks>
+        public static T Find<T>() where T : ScriptableObject
+        {
+            foreach (var guid in AssetDatabase.FindAssets($"t:{typeof(T).Name}"))
+            {
+                var found = AssetDatabase.LoadAssetAtPath<T>(AssetDatabase.GUIDToAssetPath(guid));
+                if (found != null)
+                    return found;
+            }
+            return null;
         }
     }
 }

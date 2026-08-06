@@ -89,26 +89,39 @@ namespace Molca.Editor.Mcp.Assistant
     /// <see cref="AssistantApiAuth"/> (project-scoped EditorPrefs / env var), never on this asset.
     /// Mirrors <c>NotificationSettings</c> / <c>McpSettings</c>.
     /// </summary>
+    /// <remarks>
+    /// <b>Which backend a developer talks to is per machine.</b> The fields listed in
+    /// <see cref="MolcaLocalSettings.Keys"/> — enable flag, provider, model, base URL, token ceiling,
+    /// streaming, reasoning effort, compaction, local context window, sub-agent concurrency — resolve through
+    /// <see cref="MolcaLocalSettings"/> and their setters write only there, so the serialized fields stay the
+    /// project's authored defaults and picking a different model never dirties a tracked asset. They depend on
+    /// which API key the developer holds and how much machine they have, so they cannot be one committed value.
+    /// <para>
+    /// The rest is project configuration and stays on the asset — in particular
+    /// <see cref="WebHostAllowlist"/> and <see cref="WebToolsEnabled"/>, which bound editor network egress:
+    /// that is a policy decision, and widening it should be visible in a diff rather than silently local.
+    /// </para>
+    /// </remarks>
     [UnityEngine.Icon("Packages/com.molca.core/Editor/Icons/molca-mcp.png")]
     [CreateAssetMenu(fileName = "Assistant Settings", menuName = "Molca/Editor/Assistant Settings", order = 110)]
     public class AssistantSettings : ScriptableObject
     {
-        [Tooltip("Enable the in-editor assistant chat.")]
+        [Tooltip("Project default — overridable per machine. Enable the in-editor assistant chat.")]
         [SerializeField] private bool enabled = false;
 
-        [Tooltip("LLM backend. OpenAI-compatible (OpenAI, DeepSeek, …) is the default; Anthropic is also supported; Local drives a self-hosted OpenAI-compatible runtime such as Ollama.")]
+        [Tooltip("Project default — overridable per machine. LLM backend. OpenAI-compatible (OpenAI, DeepSeek, …) is the default; Anthropic is also supported; Local drives a self-hosted OpenAI-compatible runtime such as Ollama.")]
         [SerializeField] private LlmProviderKind provider = LlmProviderKind.OpenAI;
 
-        [Tooltip("Model id. Leave empty to use the provider's default. For Local/Ollama this is the pulled tag, e.g. gemma4:e4b.")]
+        [Tooltip("Project default — overridable per machine. Model id. Leave empty to use the provider's default. For Local/Ollama this is the pulled tag, e.g. gemma4:e4b.")]
         [SerializeField] private string model = "";
 
-        [Tooltip("OpenAI-compatible base URL (OpenAI and Local providers). Leave empty for the provider default; set to e.g. https://api.deepseek.com for DeepSeek or http://localhost:11434/v1 for Ollama.")]
+        [Tooltip("Project default — overridable per machine. OpenAI-compatible base URL (OpenAI and Local providers). Leave empty for the provider default; set to e.g. https://api.deepseek.com for DeepSeek or http://localhost:11434/v1 for Ollama.")]
         [SerializeField] private string baseUrl = "";
 
-        [Tooltip("Output token ceiling per response.")]
+        [Tooltip("Project default — overridable per machine. Output token ceiling per response.")]
         [SerializeField] private int maxTokens = 16000;
 
-        [Tooltip("Stream assistant text incrementally (SSE) where the provider supports it. Falls back to non-streaming on tool-call turns and unsupported providers.")]
+        [Tooltip("Project default — overridable per machine. Stream assistant text incrementally (SSE) where the provider supports it. Falls back to non-streaming on tool-call turns and unsupported providers.")]
         [SerializeField] private bool streamResponses = true;
 
         [Tooltip("Maximum model→tool→model rounds per turn. A model that calls one tool per round hits roughly this many tool calls; multi-step authoring needs more headroom than read-only queries.")]
@@ -126,13 +139,13 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("Mark the stable request prefix (system prompt + tool specs) as cacheable so a multi-round turn re-sends it as a discounted cache read instead of full-price input. Auto = on for cloud providers, off for the keyless Local backend.")]
         [SerializeField] private PromptCachingMode promptCaching = PromptCachingMode.Auto;
 
-        [Tooltip("Automatically summarize the oldest conversation turns when the estimated context size crosses the threshold, so long sessions keep working without manual pruning.")]
+        [Tooltip("Project default — overridable per machine. Automatically summarize the oldest conversation turns when the estimated context size crosses the threshold, so long sessions keep working without manual pruning.")]
         [SerializeField] private bool autoCompact = true;
 
-        [Tooltip("Estimated prompt-token size that triggers auto-compaction before the next turn is sent. Matches the manual context warning by default.")]
+        [Tooltip("Project default — overridable per machine. Estimated prompt-token size that triggers auto-compaction before the next turn is sent. Matches the manual context warning by default.")]
         [SerializeField] private int autoCompactThreshold = 120000;
 
-        [Tooltip("Local backend only: the context window (num_ctx tokens) the local runtime is configured for. Set this to match your Ollama context length (Ollama app -> Settings -> Context length). Auto-compaction is aligned to this so a long local session compacts BEFORE the runtime silently truncates history, instead of at the much larger cloud threshold above. Ignored for cloud providers.")]
+        [Tooltip("Project default — overridable per machine. Local backend only: the context window (num_ctx tokens) the local runtime is configured for. Set this to match your Ollama context length (Ollama app -> Settings -> Context length). Auto-compaction is aligned to this so a long local session compacts BEFORE the runtime silently truncates history, instead of at the much larger cloud threshold above. Ignored for cloud providers.")]
         [SerializeField] private int localContextWindow = 32768;
 
         [Tooltip("When auto-compacting, first condense old tool-result payloads (no model call) before paying for a turn summary — often enough on its own.")]
@@ -153,7 +166,7 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("Maximum read-only research sub-agents the model may spawn per turn. A hard cap so a runaway swarm can't cost more than it saves.")]
         [SerializeField] private int maxSubAgentsPerTurn = 4;
 
-        [Tooltip("How many concurrently-running sub-agents are kicked off together (the rest queue in batches).")]
+        [Tooltip("Project default — overridable per machine. How many concurrently-running sub-agents are kicked off together (the rest queue in batches).")]
         [SerializeField] private int subAgentConcurrency = 3;
 
         [Tooltip("Round (model→tool→model) cap per sub-agent. On reaching it the sub-agent returns its partial digest with a truncation note.")]
@@ -197,23 +210,70 @@ namespace Molca.Editor.Mcp.Assistant
         [Tooltip("Maximum search results molca_web_search returns per query.")]
         [SerializeField] private int webSearchMaxResults = 5;
 
-        [Tooltip("Reasoning / extended-thinking budget for capable models. Off (default) sends no reasoning. Low/Medium/High map to an Anthropic thinking budget or an OpenAI reasoning_effort; non-reasoning models and the Local backend ignore it. Higher levels cost more output tokens and add latency, but improve hard multi-step and plan-mode answers.")]
+        [Tooltip("Project default — overridable per machine. Reasoning / extended-thinking budget for capable models. Off (default) sends no reasoning. Low/Medium/High map to an Anthropic thinking budget or an OpenAI reasoning_effort; non-reasoning models and the Local backend ignore it. Higher levels cost more output tokens and add latency, but improve hard multi-step and plan-mode answers.")]
         [SerializeField] private ReasoningEffort reasoningEffort = ReasoningEffort.Off;
 
-        /// <summary>Whether the assistant is enabled.</summary>
-        public bool Enabled { get => enabled; set => enabled = value; }
+        /// <summary>Whether the assistant is enabled on this machine (local override, else project default).</summary>
+        public bool Enabled
+        {
+            get => MolcaLocalOverlay.GetBool(this, MolcaLocalSettings.Keys.AssistantEnabled, enabled);
+            set => MolcaLocalOverlay.SetBool(this, MolcaLocalSettings.Keys.AssistantEnabled, ref enabled, value);
+        }
 
-        /// <summary>Selected LLM backend.</summary>
-        public LlmProviderKind Provider { get => provider; set => provider = value; }
+        /// <summary>Selected LLM backend on this machine (local override, else project default).</summary>
+        public LlmProviderKind Provider
+        {
+            get => MolcaLocalOverlay.GetEnum(this, MolcaLocalSettings.Keys.AssistantProvider, provider);
+            set => MolcaLocalOverlay.SetEnum(this, MolcaLocalSettings.Keys.AssistantProvider, ref provider, value);
+        }
+
+        /// <summary>
+        /// The configured model id before the provider-default fallback — the local override if set, else the
+        /// project default. Blank is a meaningful value here ("use the provider's default"), so an empty local
+        /// override is distinct from no override at all.
+        /// </summary>
+        public string ConfiguredModel
+        {
+            get => MolcaLocalOverlay.GetString(this, MolcaLocalSettings.Keys.AssistantModel, model);
+            set => MolcaLocalOverlay.SetString(this, MolcaLocalSettings.Keys.AssistantModel, ref model, value);
+        }
 
         /// <summary>The resolved model id (configured value, or the provider default if blank).</summary>
-        public string Model => string.IsNullOrWhiteSpace(model) ? DefaultModelFor(provider) : model;
+        public string Model
+        {
+            get
+            {
+                var configured = ConfiguredModel;
+                return string.IsNullOrWhiteSpace(configured) ? DefaultModelFor(Provider) : configured;
+            }
+        }
 
-        /// <summary>Output token ceiling per response.</summary>
-        public int MaxTokens => Mathf.Clamp(maxTokens, 256, 64000);
+        /// <summary>
+        /// The configured base URL before the provider-default fallback — the local override if set, else the
+        /// project default. Blank means "use the provider default"; see <see cref="ConfiguredModel"/>.
+        /// </summary>
+        public string ConfiguredBaseUrl
+        {
+            get => MolcaLocalOverlay.GetString(this, MolcaLocalSettings.Keys.AssistantBaseUrl, baseUrl);
+            set => MolcaLocalOverlay.SetString(this, MolcaLocalSettings.Keys.AssistantBaseUrl, ref baseUrl, value);
+        }
+
+        /// <summary>Output token ceiling per response (local override, else project default), clamped.</summary>
+        public int MaxTokens => Mathf.Clamp(
+            MolcaLocalOverlay.GetInt(this, MolcaLocalSettings.Keys.AssistantMaxTokens, maxTokens), 256, 64000);
+
+        /// <summary>Sets this machine's output token ceiling.</summary>
+        /// <param name="value">The unclamped value; <see cref="MaxTokens"/> clamps on read.</param>
+        public void SetMaxTokens(int value)
+            => MolcaLocalOverlay.SetInt(this, MolcaLocalSettings.Keys.AssistantMaxTokens, ref maxTokens, value);
 
         /// <summary>Whether to stream assistant text incrementally where the provider supports it (Sprint 24.7).</summary>
-        public bool StreamResponses { get => streamResponses; set => streamResponses = value; }
+        public bool StreamResponses
+        {
+            get => MolcaLocalOverlay.GetBool(this, MolcaLocalSettings.Keys.AssistantStreamResponses, streamResponses);
+            set => MolcaLocalOverlay.SetBool(
+                this, MolcaLocalSettings.Keys.AssistantStreamResponses, ref streamResponses, value);
+        }
 
         /// <summary>Maximum model→tool→model rounds per turn, clamped to a safe range.</summary>
         public int MaxToolRounds => Mathf.Clamp(maxToolRounds, 1, 100);
@@ -247,7 +307,7 @@ namespace Molca.Editor.Mcp.Assistant
         {
             PromptCachingMode.On => true,
             PromptCachingMode.Off => false,
-            _ => provider != LlmProviderKind.Local
+            _ => Provider != LlmProviderKind.Local
         };
 
         /// <summary>
@@ -260,7 +320,7 @@ namespace Molca.Editor.Mcp.Assistant
         {
             ToolExposureMode.Flat => true,
             ToolExposureMode.Tiered => false,
-            _ => provider == LlmProviderKind.Local
+            _ => Provider == LlmProviderKind.Local
         };
 
         /// <summary>
@@ -273,7 +333,7 @@ namespace Molca.Editor.Mcp.Assistant
         {
             ToolCallTransport.Text => true,
             ToolCallTransport.FunctionCalling => false,
-            _ => provider == LlmProviderKind.Local
+            _ => Provider == LlmProviderKind.Local
         };
 
         /// <summary>
@@ -281,20 +341,43 @@ namespace Molca.Editor.Mcp.Assistant
         /// <see cref="AutoCompactThreshold"/> (Sprint 45). When off, context grows until the user prunes
         /// manually or starts a new chat.
         /// </summary>
-        public bool AutoCompact { get => autoCompact; set => autoCompact = value; }
+        public bool AutoCompact
+        {
+            get => MolcaLocalOverlay.GetBool(this, MolcaLocalSettings.Keys.AssistantAutoCompact, autoCompact);
+            set => MolcaLocalOverlay.SetBool(
+                this, MolcaLocalSettings.Keys.AssistantAutoCompact, ref autoCompact, value);
+        }
 
         /// <summary>
         /// Estimated prompt-token size that triggers auto-compaction, clamped to a safe range. Compared
         /// against <see cref="AssistantChatController.EstimateContextTokens(string)"/> before each turn.
         /// </summary>
-        public int AutoCompactThreshold => Mathf.Clamp(autoCompactThreshold, 8000, 1000000);
+        public int AutoCompactThreshold => Mathf.Clamp(
+            MolcaLocalOverlay.GetInt(
+                this, MolcaLocalSettings.Keys.AssistantAutoCompactThreshold, autoCompactThreshold),
+            8000, 1000000);
+
+        /// <summary>Sets this machine's auto-compaction threshold.</summary>
+        /// <param name="value">The unclamped value; <see cref="AutoCompactThreshold"/> clamps on read.</param>
+        public void SetAutoCompactThreshold(int value)
+            => MolcaLocalOverlay.SetInt(
+                this, MolcaLocalSettings.Keys.AssistantAutoCompactThreshold, ref autoCompactThreshold, value);
 
         /// <summary>
         /// The context window (num_ctx tokens) the Local runtime is configured for (Sprint 89), clamped to a
         /// safe range. Set to match the Ollama context length so auto-compaction fires before the runtime
         /// truncates. Ignored for cloud providers (they have no fixed local window).
         /// </summary>
-        public int LocalContextWindow => Mathf.Clamp(localContextWindow, 2048, 1000000);
+        public int LocalContextWindow => Mathf.Clamp(
+            MolcaLocalOverlay.GetInt(
+                this, MolcaLocalSettings.Keys.AssistantLocalContextWindow, localContextWindow),
+            2048, 1000000);
+
+        /// <summary>Sets this machine's local-runtime context window.</summary>
+        /// <param name="value">The unclamped value; <see cref="LocalContextWindow"/> clamps on read.</param>
+        public void SetLocalContextWindow(int value)
+            => MolcaLocalOverlay.SetInt(
+                this, MolcaLocalSettings.Keys.AssistantLocalContextWindow, ref localContextWindow, value);
 
         /// <summary>
         /// The effective auto-compaction threshold for <paramref name="provider"/> (Sprint 89). For the Local
@@ -346,7 +429,15 @@ namespace Molca.Editor.Mcp.Assistant
         public int MaxSubAgentsPerTurn => Mathf.Clamp(maxSubAgentsPerTurn, 1, 16);
 
         /// <summary>How many sub-agents run concurrently within a batch, clamped (Sprint 56).</summary>
-        public int SubAgentConcurrency => Mathf.Clamp(subAgentConcurrency, 1, 8);
+        public int SubAgentConcurrency => Mathf.Clamp(
+            MolcaLocalOverlay.GetInt(
+                this, MolcaLocalSettings.Keys.AssistantSubAgentConcurrency, subAgentConcurrency), 1, 8);
+
+        /// <summary>Sets this machine's sub-agent concurrency.</summary>
+        /// <param name="value">The unclamped value; <see cref="SubAgentConcurrency"/> clamps on read.</param>
+        public void SetSubAgentConcurrency(int value)
+            => MolcaLocalOverlay.SetInt(
+                this, MolcaLocalSettings.Keys.AssistantSubAgentConcurrency, ref subAgentConcurrency, value);
 
         /// <summary>Per-sub-agent round cap, clamped (Sprint 56).</summary>
         public int SubAgentMaxRounds => Mathf.Clamp(subAgentMaxRounds, 1, 25);
@@ -413,7 +504,13 @@ namespace Molca.Editor.Mcp.Assistant
         /// default (lowest cost/latency); mapped per vendor by the provider and ignored for non-reasoning
         /// models and the Local backend. Threaded onto each turn's <see cref="LlmRequest.Reasoning"/>.
         /// </summary>
-        public ReasoningEffort ReasoningEffort { get => reasoningEffort; set => reasoningEffort = value; }
+        public ReasoningEffort ReasoningEffort
+        {
+            get => MolcaLocalOverlay.GetEnum(
+                this, MolcaLocalSettings.Keys.AssistantReasoningEffort, reasoningEffort);
+            set => MolcaLocalOverlay.SetEnum(
+                this, MolcaLocalSettings.Keys.AssistantReasoningEffort, ref reasoningEffort, value);
+        }
 
         /// <summary>
         /// Anthropic thinking-token budget for a reasoning level (Sprint 76), or <c>0</c> for
@@ -496,7 +593,7 @@ namespace Molca.Editor.Mcp.Assistant
 
         /// <summary>True if the selected provider is driven by a configurable OpenAI-compatible base URL.</summary>
         public bool UsesBaseUrl =>
-            provider == LlmProviderKind.OpenAI || provider == LlmProviderKind.Local;
+            Provider == LlmProviderKind.OpenAI || Provider == LlmProviderKind.Local;
 
         /// <summary>
         /// True when the configured backend is a local model known to be unreliable at the assistant's
@@ -504,7 +601,7 @@ namespace Molca.Editor.Mcp.Assistant
         /// frequently drop or malform tool calls, so multi-step authoring should not be relied on. Surfaced
         /// as a non-blocking warning in the Hub — the model still runs.
         /// </summary>
-        public bool IsWeakToolModel => IsKnownWeakLocalToolModel(provider, Model);
+        public bool IsWeakToolModel => IsKnownWeakLocalToolModel(Provider, Model);
 
         /// <summary>
         /// Whether <paramref name="model"/> on <paramref name="p"/> is a local model known to be too small
@@ -527,16 +624,23 @@ namespace Molca.Editor.Mcp.Assistant
         }
 
         /// <summary>The resolved OpenAI-compatible base URL (configured value, or the provider default if blank).</summary>
-        public string BaseUrl => provider == LlmProviderKind.MolcaFree
-            ? MolcaFreeBaseUrl
-            : string.IsNullOrWhiteSpace(baseUrl) ? DefaultBaseUrlFor(provider) : baseUrl.Trim();
+        public string BaseUrl
+        {
+            get
+            {
+                var active = Provider;
+                if (active == LlmProviderKind.MolcaFree) return MolcaFreeBaseUrl;
+                var configured = ConfiguredBaseUrl;
+                return string.IsNullOrWhiteSpace(configured) ? DefaultBaseUrlFor(active) : configured.Trim();
+            }
+        }
 
         /// <summary>True if the selected provider has an implementation in this release.</summary>
         public bool IsProviderImplemented =>
-            provider == LlmProviderKind.Anthropic
-            || provider == LlmProviderKind.OpenAI
-            || provider == LlmProviderKind.Local
-            || provider == LlmProviderKind.MolcaFree;
+            Provider == LlmProviderKind.Anthropic
+            || Provider == LlmProviderKind.OpenAI
+            || Provider == LlmProviderKind.Local
+            || Provider == LlmProviderKind.MolcaFree;
 
         /// <summary>
         /// Reports the configuration status for the settings UI and validator (Sprint 16.7): missing key
@@ -545,17 +649,18 @@ namespace Molca.Editor.Mcp.Assistant
         /// </summary>
         public AssistantConfigStatus GetStatus(out string message)
         {
-            if (!enabled)
+            if (!Enabled)
             {
                 message = "Disabled.";
                 return AssistantConfigStatus.Disabled;
             }
+            var active = Provider;
             if (!IsProviderImplemented)
             {
-                message = $"Provider '{provider}' is not implemented in this release.";
+                message = $"Provider '{active}' is not implemented in this release.";
                 return AssistantConfigStatus.Misconfigured;
             }
-            if (provider == LlmProviderKind.MolcaFree)
+            if (active == LlmProviderKind.MolcaFree)
             {
                 var token = DevEntitlementStore.LoadEffective();
                 if (DevEntitlementVerifier.Evaluate(
@@ -568,12 +673,12 @@ namespace Molca.Editor.Mcp.Assistant
                 return AssistantConfigStatus.Configured;
             }
             // Local runtimes (Ollama) are keyless by default, so a missing key is not a misconfiguration.
-            if (provider != LlmProviderKind.Local && !AssistantApiAuth.HasKey(provider))
+            if (active != LlmProviderKind.Local && !AssistantApiAuth.HasKey(active))
             {
-                message = $"No API key. Set it in the Assistant settings or via the {AssistantApiAuth.EnvVarFor(provider)} env var.";
+                message = $"No API key. Set it in the Assistant settings or via the {AssistantApiAuth.EnvVarFor(active)} env var.";
                 return AssistantConfigStatus.Misconfigured;
             }
-            message = provider == LlmProviderKind.Local
+            message = active == LlmProviderKind.Local
                 ? $"Ready ({Model} @ {BaseUrl})."
                 : $"Ready ({Model}).";
             return AssistantConfigStatus.Configured;
@@ -586,10 +691,11 @@ namespace Molca.Editor.Mcp.Assistant
         /// <exception cref="NotImplementedException">If the selected provider is a reserved seam.</exception>
         public ILlmProvider CreateProvider()
         {
-            var key = AssistantApiAuth.GetKey(provider);
+            var active = Provider;
+            var key = AssistantApiAuth.GetKey(active);
             var attempts = RetryMaxAttempts;
             var timeouts = new LlmTimeouts(RequestTimeoutSeconds, StreamStallTimeoutSeconds);
-            return provider switch
+            return active switch
             {
                 LlmProviderKind.Anthropic => new AnthropicLlmProvider(key, attempts, timeouts),
                 LlmProviderKind.OpenAI => new OpenAiCompatibleLlmProvider(BaseUrl, key, LlmProviderKind.OpenAI, requireApiKey: true, maxAttempts: attempts, timeouts: timeouts),
@@ -607,9 +713,23 @@ namespace Molca.Editor.Mcp.Assistant
                     },
                     timeouts: timeouts),
                 _ => throw new NotImplementedException(
-                    $"LLM provider '{provider}' is not implemented in this release.")
+                    $"LLM provider '{active}' is not implemented in this release.")
             };
         }
+
+        /// <summary>True when this machine overrides the project default for <paramref name="key"/>.</summary>
+        /// <param name="key">A key from <see cref="MolcaLocalSettings.Keys"/> belonging to this asset.</param>
+        public bool HasLocalOverride(string key) => MolcaLocalOverlay.IsOverridden(this, key);
+
+        /// <summary>Drops this machine's override for <paramref name="key"/>, restoring the project default.</summary>
+        /// <param name="key">A key from <see cref="MolcaLocalSettings.Keys"/> belonging to this asset.</param>
+        public void ClearLocalOverride(string key) => MolcaLocalSettings.Instance.Clear(key);
+
+        /// <summary>The committed project default for <see cref="Provider"/>, ignoring any local override.</summary>
+        public LlmProviderKind ProjectDefaultProvider => provider;
+
+        /// <summary>The committed project default for <see cref="ReasoningEffort"/>, ignoring any local override.</summary>
+        public ReasoningEffort ProjectDefaultReasoningEffort => reasoningEffort;
 
         /// <summary>Loads the existing assistant settings asset, creating one at the default path if absent.</summary>
         public static AssistantSettings GetOrCreateSettings()

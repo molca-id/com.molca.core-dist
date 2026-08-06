@@ -92,24 +92,26 @@ namespace Molca.Editor
     /// overall design.
     /// </summary>
     /// <remarks>
-    /// <see cref="callbackOrder"/> is the maximum value so this happens after every other post-process
-    /// callback — a "build completed" reader (e.g. a notification) therefore reports the version that
-    /// was actually built, not the next build's number.
+    /// <see cref="callbackOrder"/> is <see cref="MolcaBuildCallbackOrder.PostVersionAdvance"/> so this
+    /// happens after every other post-process callback — a "build completed" reader (e.g. a notification)
+    /// therefore reports the version that was actually built, not the next build's number.
+    /// <para>
+    /// Cleanup of the generated build-info asset used to live here too, which is why this class and
+    /// <c>LicenseBuildStampPostprocessor</c> both claimed <c>int.MaxValue</c> and both documented
+    /// themselves as last. Cleanup is now <see cref="BuildInfoAssetPostprocessor"/> in the
+    /// <see cref="MolcaBuildCallbackOrder.PostGeneratedCleanup"/> band, leaving one callback in the final
+    /// position and making the guarantee above true rather than merely intended.
+    /// </para>
     /// </remarks>
     public sealed class BuildVersionPostprocessor : IPostprocessBuildWithReport
     {
         /// <summary>Runs after every other build callback so readers see the built version, not the next one.</summary>
-        public int callbackOrder => int.MaxValue;
+        public int callbackOrder => MolcaBuildCallbackOrder.PostVersionAdvance;
 
         /// <summary>Records the build and advances the build number, but only when the build succeeded.</summary>
         /// <param name="report">The Unity build report for the completed build.</param>
         public void OnPostprocessBuild(BuildReport report)
         {
-            // Always remove the generated build-info asset, regardless of build outcome — the
-            // preprocessor wrote it for every build that got past the gates, including ones that then
-            // fail or are cancelled.
-            BuildInfoAsset.Cleanup();
-
             if (report.summary.result != BuildResult.Succeeded)
                 return;
 
@@ -133,6 +135,25 @@ namespace Molca.Editor
             // second upload rather than the first.
             AssetDatabase.SaveAssets();
         }
+    }
+
+    /// <summary>
+    /// Removes the generated build-info asset once the build ends, whatever its outcome.
+    /// </summary>
+    /// <remarks>
+    /// Split out of <see cref="BuildVersionPostprocessor"/> so exactly one callback occupies the final
+    /// post-process position (see <see cref="MolcaBuildCallbackOrder.PostVersionAdvance"/>). Runs for a
+    /// failed or cancelled build too: <see cref="BuildInfoAssetPreprocessor"/> writes the asset for every
+    /// build that gets past the gates, so cleanup cannot be conditional on success.
+    /// </remarks>
+    public sealed class BuildInfoAssetPostprocessor : IPostprocessBuildWithReport
+    {
+        /// <summary>Runs in the generated-artifact cleanup band, after read-only observers.</summary>
+        public int callbackOrder => MolcaBuildCallbackOrder.PostGeneratedCleanup;
+
+        /// <summary>Deletes the generated build-info asset.</summary>
+        /// <param name="report">The Unity build report for the completed build.</param>
+        public void OnPostprocessBuild(BuildReport report) => BuildInfoAsset.Cleanup();
     }
 
     /// <summary>
@@ -162,21 +183,21 @@ namespace Molca.Editor
         {
             try
             {
-                string commit = string.Empty, branch = string.Empty;
-                var projectRoot = System.IO.Directory.GetParent(Application.dataPath)?.FullName;
-                if (!string.IsNullOrEmpty(projectRoot))
-                {
-                    if (GitLogReader.TryRunGit(projectRoot, "rev-parse --short HEAD", out var c))
-                        commit = c.Trim();
-                    if (GitLogReader.TryRunGit(projectRoot, "rev-parse --abbrev-ref HEAD", out var b))
-                        branch = b.Trim();
-                }
+                GitLogReader.ReadProvenance(
+                    System.IO.Directory.GetParent(Application.dataPath)?.FullName, out var commit, out var branch);
 
                 MolcaProjectSettings project = MolcaProjectSettings.Instance;
                 var data = new MolcaBuildInfoData
                 {
                     version = versionSettings.GetVersionString(),
+                    // What the build actually is, beside what the platform's version field can hold.
+                    // Embedding only the numeric form made every player built from a pre-release report
+                    // itself as the final release.
+                    semanticVersion = versionSettings.GetSemanticVersion(),
                     buildNumber = versionSettings.GetBuildNumberString(),
+                    // Null outside a Molca build — File > Build cannot be given a profile — and recorded
+                    // as empty rather than guessed.
+                    profile = MolcaBuildSession.Current?.Profile?.name ?? string.Empty,
                     commit = commit,
                     branch = branch,
                     timestampUtc = System.DateTime.UtcNow.ToString("o"),

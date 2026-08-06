@@ -110,6 +110,7 @@ namespace Molca.Editor
     public sealed class MolcaBuildContext
     {
         private readonly HashSet<string> _facts = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _values = new Dictionary<string, string>(StringComparer.Ordinal);
 
         /// <summary>The profile being built.</summary>
         public BuildSettings.BuildProfile Profile { get; }
@@ -142,6 +143,35 @@ namespace Molca.Editor
         /// <param name="key">The fact key.</param>
         /// <returns>True when some step recorded it.</returns>
         public bool HasFact(string key) => !string.IsNullOrEmpty(key) && _facts.Contains(key);
+
+        /// <summary>
+        /// Records a value about this build for later steps and gates to read.
+        /// </summary>
+        /// <param name="key">The key, declared by the system that sets it.</param>
+        /// <param name="value">The value. Null is stored as empty.</param>
+        /// <remarks>
+        /// The values twin of <see cref="SetFact"/>, with the same ownership rule: the build core does not
+        /// know what any key means. It exists because some facts have to carry an identifier — the build
+        /// token minted for this build, for instance, which a post-build step needs in order to report
+        /// what the build produced against it. Without this, that identifier would have to live in a static
+        /// somewhere with a lifetime nobody owns, which is what <see cref="MolcaBuildSession"/> was
+        /// introduced to end.
+        /// </remarks>
+        public void SetValue(string key, string value)
+        {
+            if (!string.IsNullOrEmpty(key))
+                _values[key] = value ?? string.Empty;
+        }
+
+        /// <summary>Reads a value recorded for this build.</summary>
+        /// <param name="key">The key.</param>
+        /// <returns>The value, or null when nothing recorded it.</returns>
+        /// <remarks>
+        /// Null means "nothing is known" and must never be treated as a default — the same contract as a
+        /// null <see cref="MolcaBuildSession.Current"/>.
+        /// </remarks>
+        public string GetValue(string key) =>
+            !string.IsNullOrEmpty(key) && _values.TryGetValue(key, out var value) ? value : null;
     }
 
     /// <summary>
@@ -185,5 +215,57 @@ namespace Molca.Editor
         {
             public void Dispose() => Current = null;
         }
+    }
+
+    /// <summary>
+    /// How a gate inside the build pipeline says <em>which</em> gate refused the build.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Placement:</b> <c>Packages/com.molca.core/Editor/BuildSystem/</c>.
+    /// </para>
+    /// <para>
+    /// <b>The problem this solves.</b> A gate refuses by throwing <c>BuildFailedException</c> from a
+    /// preprocessor. Unity catches it and hands <see cref="BuildManager"/> back a report whose result is
+    /// <c>Failed</c> — indistinguishable from a compile error. So without this, the build system could tell
+    /// the reader "the build failed" and never "the localization gate refused it", and a project's build
+    /// history would be a wall of identical failures.
+    /// </para>
+    /// <para>
+    /// The alternative was to classify the report's messages after the fact, which means reading the
+    /// console text — the exact text this design keeps on the developer's machine. A gate naming itself on
+    /// the way out costs one line and needs no parsing.
+    /// </para>
+    /// <para>
+    /// <b>Scoped to one build.</b> Recorded on <see cref="MolcaBuildSession.Current"/>, so it expires with
+    /// the build rather than latching into the next one. A gate that refuses a
+    /// <c>File &gt; Build</c> — where there is no Molca session — records nothing and is simply not
+    /// attributed, which is the honest outcome for a build path that was never given a profile either.
+    /// </para>
+    /// </remarks>
+    public static class MolcaBuildRefusal
+    {
+        /// <summary>Build-context key carrying the reason code of the gate that refused.</summary>
+        internal const string ReasonKey = "build.refusalReasonCode";
+
+        /// <summary>
+        /// Records that this gate is about to refuse the running build. Call immediately before throwing.
+        /// </summary>
+        /// <param name="reasonCode">A <see cref="MolcaBuildReasonCode"/> constant.</param>
+        /// <remarks>
+        /// First writer wins. A later gate cannot run after an earlier one has thrown, so a second write
+        /// could only come from a gate that refused without aborting — and overwriting would then replace
+        /// the reason the build actually stopped for with an incidental one.
+        /// </remarks>
+        public static void Record(string reasonCode)
+        {
+            if (string.IsNullOrEmpty(reasonCode)) return;
+            var context = MolcaBuildSession.Current;
+            if (context == null || !string.IsNullOrEmpty(context.GetValue(ReasonKey))) return;
+            context.SetValue(ReasonKey, reasonCode);
+        }
+
+        /// <summary>The reason code a gate recorded for the running build, or null when none did.</summary>
+        public static string Recorded => MolcaBuildSession.Current?.GetValue(ReasonKey);
     }
 }

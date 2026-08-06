@@ -22,7 +22,6 @@ namespace Molca.Editor.Hub.Sections
         private readonly SerializedObject _editorSettings;
         private string _keyDraft = string.Empty;
         private string _searchKeyDraft = string.Empty;
-        private LlmProviderKind _providerAtBuild;
         private WebSearchProviderKind _searchProviderAtBuild;
 
         internal MolcaHubAssistantSection()
@@ -71,15 +70,26 @@ namespace Molca.Editor.Hub.Sections
             Add(configCard);
 
             var so = new SerializedObject(settings);
-            _providerAtBuild = settings.Provider;
             _searchProviderAtBuild = settings.WebSearchProvider;
 
-            configCard.Body.Add(BoundRow(so, "enabled", "Enable Assistant"));
-            configCard.Body.Add(BoundRow(so, "provider", "Provider", out var providerField));
-            configCard.Body.Add(BoundRow(so, "model", "Model"));
+            // Which backend this developer talks to is per machine — it depends on the key they hold and the
+            // hardware they have — so these rows write the local overlay, never the committed asset.
+            configCard.Body.Add(LocalBoolRow(so, "enabled", MolcaLocalSettings.Keys.AssistantEnabled,
+                "Enable Assistant", settings.Enabled, v => settings.Enabled = v));
+
+            configCard.Body.Add(MolcaLocalOverrideRow.Enum(
+                "Provider", MolcaLocalSettings.Keys.AssistantProvider,
+                settings.ProjectDefaultProvider, settings.Provider,
+                v => settings.Provider = v,
+                // A provider change flips the Base-URL row and which key the auth row reflects.
+                Rebuild));
+
+            configCard.Body.Add(LocalStringRow(so, "model", MolcaLocalSettings.Keys.AssistantModel,
+                "Model", settings.ConfiguredModel, v => settings.ConfiguredModel = v));
 
             if (settings.UsesBaseUrl)
-                configCard.Body.Add(BoundRow(so, "baseUrl", "Base URL"));
+                configCard.Body.Add(LocalStringRow(so, "baseUrl", MolcaLocalSettings.Keys.AssistantBaseUrl,
+                    "Base URL", settings.ConfiguredBaseUrl, v => settings.ConfiguredBaseUrl = v));
 
             // Known-weak local models (Gemma 3n e2b/e4b, ≤2B tags) run fine for read-only chat but drop or
             // malform tool calls, so multi-step authoring is unreliable. Non-blocking — just flag it.
@@ -94,8 +104,11 @@ namespace Molca.Editor.Hub.Sections
 
             // Essentials — the handful most users touch. Everything else lives under Advanced (Sprint 71.1),
             // collapsed by default, so the card isn't a wall of knobs.
-            configCard.Body.Add(BoundRow(so, "maxTokens", "Max Tokens"));
-            configCard.Body.Add(BoundRow(so, "streamResponses", "Stream Responses"));
+            configCard.Body.Add(LocalIntRow(so, "maxTokens", MolcaLocalSettings.Keys.AssistantMaxTokens,
+                "Max Tokens", settings.MaxTokens, settings.SetMaxTokens));
+            configCard.Body.Add(LocalBoolRow(so, "streamResponses",
+                MolcaLocalSettings.Keys.AssistantStreamResponses,
+                "Stream Responses", settings.StreamResponses, v => settings.StreamResponses = v));
 
             // Advanced: grouped, collapsible, and remembered per user via the view-data key. Includes the
             // tool-use, compaction, resilience, research sub-agent (Sprint 56), and cost-override knobs that
@@ -113,8 +126,11 @@ namespace Molca.Editor.Hub.Sections
             advanced.Add(BoundRow(so, "promptCaching", "Prompt Caching"));
 
             AddGroupHeading(advanced, "Context & Compaction");
-            advanced.Add(BoundRow(so, "autoCompact", "Auto Compact"));
-            advanced.Add(BoundRow(so, "autoCompactThreshold", "Auto Compact Threshold"));
+            advanced.Add(LocalBoolRow(so, "autoCompact", MolcaLocalSettings.Keys.AssistantAutoCompact,
+                "Auto Compact", settings.AutoCompact, v => settings.AutoCompact = v));
+            advanced.Add(LocalIntRow(so, "autoCompactThreshold",
+                MolcaLocalSettings.Keys.AssistantAutoCompactThreshold,
+                "Auto Compact Threshold", settings.AutoCompactThreshold, settings.SetAutoCompactThreshold));
             advanced.Add(BoundRow(so, "compactToolResultsFirst", "Compact Tool Results First"));
             advanced.Add(BoundRow(so, "keepRecentToolResultTurns", "Keep Recent Tool-Result Turns"));
             advanced.Add(BoundRow(so, "proactiveRetrieval", "Proactive Retrieval"));
@@ -139,7 +155,9 @@ namespace Molca.Editor.Hub.Sections
             // Research sub-agents (Sprint 56): read-only research swarm caps — now surfaced in the Hub.
             AddGroupHeading(advanced, "Research Sub-Agents");
             advanced.Add(BoundRow(so, "maxSubAgentsPerTurn", "Max Sub-Agents / Turn"));
-            advanced.Add(BoundRow(so, "subAgentConcurrency", "Sub-Agent Concurrency"));
+            advanced.Add(LocalIntRow(so, "subAgentConcurrency",
+                MolcaLocalSettings.Keys.AssistantSubAgentConcurrency,
+                "Sub-Agent Concurrency", settings.SubAgentConcurrency, settings.SetSubAgentConcurrency));
             advanced.Add(BoundRow(so, "subAgentMaxRounds", "Sub-Agent Max Rounds"));
             advanced.Add(BoundRow(so, "subAgentMaxTokens", "Sub-Agent Max Tokens"));
 
@@ -168,7 +186,10 @@ namespace Molca.Editor.Hub.Sections
             // Reasoning / extended thinking (Sprint 76): off by default; mapped per vendor and ignored for
             // non-reasoning models and the Local backend. Also selectable from the in-window model picker.
             AddGroupHeading(advanced, "Reasoning");
-            advanced.Add(BoundRow(so, "reasoningEffort", "Reasoning Effort"));
+            advanced.Add(MolcaLocalOverrideRow.Enum(
+                "Reasoning Effort", MolcaLocalSettings.Keys.AssistantReasoningEffort,
+                settings.ProjectDefaultReasoningEffort, settings.ReasoningEffort,
+                v => settings.ReasoningEffort = v));
             var reasoningNote = new Label("Extended thinking for capable models (Anthropic thinking budget, OpenAI reasoning_effort). Higher = better hard-task answers, more output tokens and latency. Ignored by non-reasoning and Local models.");
             reasoningNote.AddToClassList("molca-hub-muted");
             reasoningNote.style.whiteSpace = WhiteSpace.Normal;
@@ -182,17 +203,6 @@ namespace Molca.Editor.Hub.Sections
             // Cost: per-model price overrides for the session cost estimate (a list — full-width field).
             AddGroupHeading(advanced, "Cost");
             advanced.Add(BoundListField(so, "modelPriceOverrides", "Model Price Overrides"));
-
-            // Provider change flips the Base-URL row and the key env-var, so the card is rebuilt — but only
-            // on a real change. PropertyField fires SerializedPropertyChangeEvent on every bind too; without
-            // this guard the rebuild would re-bind and re-fire every frame (the bridge-toggle flicker bug).
-            providerField.RegisterCallback<SerializedPropertyChangeEvent>(_ =>
-            {
-                so.ApplyModifiedProperties();
-                if (settings.Provider == _providerAtBuild) return;
-                EditorUtility.SetDirty(settings);
-                Rebuild();
-            });
 
             configCard.Body.Add(BuildKeyRow(settings));
 
@@ -494,6 +504,51 @@ namespace Molca.Editor.Hub.Sections
             field.BindProperty(property);
             return field;
         }
+
+        /// <summary>
+        /// A machine-local bool row. The project default is read from the serialized field, so a new
+        /// overridable setting needs no extra accessor on <see cref="AssistantSettings"/>.
+        /// </summary>
+        /// <param name="so">A serialized view of the settings asset, used only to read the authored default.</param>
+        /// <param name="propertyName">The serialized field name holding the project default.</param>
+        /// <param name="key">The overlay key from <see cref="MolcaLocalSettings.Keys"/>.</param>
+        /// <param name="label">Field label.</param>
+        /// <param name="effective">The value in force now.</param>
+        /// <param name="write">Writes the new value through the settings property.</param>
+        /// <param name="afterChange">Optional side effect after a change or reset.</param>
+        private static VisualElement LocalBoolRow(SerializedObject so, string propertyName, string key,
+                                                  string label, bool effective, System.Action<bool> write,
+                                                  System.Action afterChange = null)
+            => MolcaLocalOverrideRow.Bool(label, key, so.FindProperty(propertyName).boolValue, effective,
+                                          write, afterChange);
+
+        /// <summary>A machine-local int row; see <see cref="LocalBoolRow"/>.</summary>
+        /// <param name="so">A serialized view of the settings asset, used only to read the authored default.</param>
+        /// <param name="propertyName">The serialized field name holding the project default.</param>
+        /// <param name="key">The overlay key from <see cref="MolcaLocalSettings.Keys"/>.</param>
+        /// <param name="label">Field label.</param>
+        /// <param name="effective">The value in force now.</param>
+        /// <param name="write">Writes the new value through the settings property.</param>
+        /// <param name="afterChange">Optional side effect after a change or reset.</param>
+        private static VisualElement LocalIntRow(SerializedObject so, string propertyName, string key,
+                                                 string label, int effective, System.Action<int> write,
+                                                 System.Action afterChange = null)
+            => MolcaLocalOverrideRow.Int(label, key, so.FindProperty(propertyName).intValue, effective,
+                                         write, afterChange);
+
+        /// <summary>A machine-local string row; see <see cref="LocalBoolRow"/>.</summary>
+        /// <param name="so">A serialized view of the settings asset, used only to read the authored default.</param>
+        /// <param name="propertyName">The serialized field name holding the project default.</param>
+        /// <param name="key">The overlay key from <see cref="MolcaLocalSettings.Keys"/>.</param>
+        /// <param name="label">Field label.</param>
+        /// <param name="effective">The value in force now.</param>
+        /// <param name="write">Writes the new value through the settings property.</param>
+        /// <param name="afterChange">Optional side effect after a change or reset.</param>
+        private static VisualElement LocalStringRow(SerializedObject so, string propertyName, string key,
+                                                    string label, string effective, System.Action<string> write,
+                                                    System.Action afterChange = null)
+            => MolcaLocalOverrideRow.String(label, key, so.FindProperty(propertyName).stringValue, effective,
+                                            write, afterChange);
 
         private static VisualElement BoundRow(SerializedObject so, string propertyName, string label) =>
             BoundRow(so, propertyName, label, out _);

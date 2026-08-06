@@ -53,38 +53,27 @@ namespace Molca.Editor.Hub.Sections
         private VisualElement _invalidVersionNotice;
         private VisualElement _outcomeStrip;
         private Label _outcomeLabel;
+        private VisualElement _preflightPanel;
+        private Button _preflightButton;
+        private VisualElement _historyList;
+        private Label _sceneSourceNote;
 
         private int _selectedProfileIndex;
 
         /// <summary>
-        /// What the last build started from this Hub did, so the section can say so.
+        /// The most recent build attempt's identity, so the refresh loop can tell a new one from a
+        /// re-render of the same one and rebuild the history list only when it changes.
         /// </summary>
         /// <remarks>
-        /// Static because the build outlives the view: a build takes minutes, during which the section
-        /// may be rebuilt (a tab switch, a domain reload from a target switch) and the instance that
-        /// started it is gone. Until this existed, the section dispatched a multi-minute operation and
-        /// then reported nothing at all — the outcome went to the console, which is the surface the Hub
-        /// exists to replace. A build that had silently aborted in a pre-build gate looked, from here,
-        /// exactly like one that had never been clicked.
+        /// The outcome itself is no longer held here at all. It used to live in a <c>static</c> field,
+        /// which the domain reload caused by <em>Restore Original Target</em> — on by default — discarded
+        /// moments after the build recorded it, so the surface added to stop builds reporting nothing
+        /// reported nothing in the most common configuration. <see cref="MolcaBuildRecordStore"/> persists
+        /// attempts outside the domain, and this view reads them.
         /// </remarks>
-        private static BuildOutcome _lastOutcome;
-
-        /// <summary>The result of one build attempt, for display.</summary>
-        private readonly struct BuildOutcome
-        {
-            public string Profile { get; }
-            public bool Succeeded { get; }
-            public string Detail { get; }
-            public System.DateTime FinishedAt { get; }
-
-            public BuildOutcome(string profile, bool succeeded, string detail)
-            {
-                Profile = profile;
-                Succeeded = succeeded;
-                Detail = detail;
-                FinishedAt = System.DateTime.Now;
-            }
-        }
+        private string _renderedRecordStamp;
+        private string _pendingLabel;
+        private System.DateTime _pendingSinceUtc;
 
         internal MolcaHubBuildVersionSection(MolcaHubState state)
         {
@@ -98,6 +87,14 @@ namespace Molca.Editor.Hub.Sections
             {
                 BuildMissingAssetNotice();
                 return;
+            }
+
+            // Assign stable ids to any profile authored before they existed. Done here, in the authoring
+            // surface, because it writes to the asset — see BuildSettings.EnsureIds for why not OnEnable.
+            if (_buildSettings.EnsureIds())
+            {
+                EditorUtility.SetDirty(_buildSettings);
+                AssetDatabase.SaveAssets();
             }
 
             _buildSerialized = new SerializedObject(_buildSettings);
@@ -350,15 +347,79 @@ namespace Molca.Editor.Hub.Sections
 
             // Target / output / package override. The profile name shows in the detail header above
             // (and is edited from the rail), matching the design handoff which has no Name field here.
-            body.Add(BuildProfileField(profile, "target", "Target"));
+            // Changing the target rebuilds this pane, because which platform fields apply depends on it.
+            body.Add(BuildProfileField(profile, "target", "Target", rebuildsDetail: true));
             body.Add(BuildProfileField(profile, "outputPath", "Output Path"));
             body.Add(BuildProfileField(profile, "applicationIdentifierOverride", "Package Name Override"));
 
+            body.Add(BuildScenesCard(profile));
             body.Add(BuildConfigurationCard(profile));
             body.Add(BuildOptionsCard(profile));
             body.Add(BuildPlatformSigningCard(profile));
             body.Add(BuildProfileActions(profile));
+            body.Add(BuildPreflightPanel());
         }
+
+        /// <summary>
+        /// The profile's scene set, and what an empty list means.
+        /// </summary>
+        /// <remarks>
+        /// Every profile used to build the one global enabled Build Settings list, so a development profile
+        /// and a production profile could not ship different scenes. An empty list still means "use the
+        /// Build Settings list", because that is what every existing profile does and silently switching
+        /// them to "no scenes at all" would produce empty players.
+        /// </remarks>
+        private VisualElement BuildScenesCard(SerializedProperty profile)
+        {
+            var card = MakeCard("Scenes");
+
+            var scenes = profile.FindPropertyRelative("scenes");
+            var field = new PropertyField(scenes, "Scenes");
+            field.BindProperty(scenes);
+            field.RegisterCallback<SerializedPropertyChangeEvent>(_ =>
+            {
+                _buildSerialized.ApplyModifiedProperties();
+                RefreshSceneSourceNote();
+            });
+            card.body.Add(field);
+
+            _sceneSourceNote = new Label();
+            _sceneSourceNote.AddToClassList("molca-hub-muted");
+            card.body.Add(_sceneSourceNote);
+            RefreshSceneSourceNote();
+
+            return card.root;
+        }
+
+        private void RefreshSceneSourceNote()
+        {
+            if (_sceneSourceNote == null)
+                return;
+
+            var profile = SelectedProfile();
+            if (profile == null)
+                return;
+
+            if (profile.HasSceneOverride)
+            {
+                _sceneSourceNote.text =
+                    $"This profile builds the {profile.scenes.Count} scene(s) listed above, in order. " +
+                    "The Editor Build Settings list is ignored.";
+            }
+            else
+            {
+                var enabled = SceneReferenceBuildValidator.EnabledBuildScenes().Count;
+                _sceneSourceNote.text =
+                    $"Empty — this profile builds the {enabled} enabled Editor Build Settings scene(s). " +
+                    "Add scenes here to give this profile its own set.";
+            }
+        }
+
+        /// <summary>The live profile object for the selected row, or null.</summary>
+        private BuildSettings.BuildProfile SelectedProfile() =>
+            _selectedProfileIndex >= 0 && _selectedProfileIndex < _buildSettings.Profiles.Count
+                ? _buildSettings.Profiles[_selectedProfileIndex]
+                : null;
 
         private VisualElement BuildConfigurationCard(SerializedProperty profile)
         {
@@ -414,37 +475,74 @@ namespace Molca.Editor.Hub.Sections
             return group;
         }
 
+        /// <summary>
+        /// Platform-specific options and signing for the selected profile's target.
+        /// </summary>
+        /// <remarks>
+        /// <b>Only the fields that apply to this profile's target are shown.</b> Every field used to be
+        /// shown for every profile, so a Windows profile offered an Android app-bundle toggle and an Apple
+        /// team ID, and an iOS profile offered a keystore path — none of which the build path reads for
+        /// those targets. A form that presents settings which cannot take effect teaches people that
+        /// filling it in does not mean anything.
+        /// </remarks>
         private VisualElement BuildPlatformSigningCard(SerializedProperty profile)
         {
-            var card = MakeCard("Platform & Signing");
+            var target = SelectedProfile()?.target ?? BuildTarget.StandaloneWindows64;
+            bool isAndroid = target == BuildTarget.Android;
+            bool isIos = target == BuildTarget.iOS;
 
-            card.body.Add(BuildToggleRow(profile, "buildAppBundle", "Build App Bundle (AAB)"));
-            card.body.Add(BuildProfileField(profile, "androidArchitectures", "Architectures"));
+            var card = MakeCard($"Platform & Signing · {ShortTarget(target)}");
 
-            var useSigning = profile.FindPropertyRelative("useCustomSigning");
-            card.body.Add(BuildToggleRow(profile, "useCustomSigning", "Use Custom Signing", out var signingToggle));
+            if (isAndroid)
+            {
+                card.body.Add(BuildToggleRow(profile, "buildAppBundle", "Build App Bundle (AAB)"));
+                card.body.Add(BuildProfileField(profile, "androidArchitectures", "Architectures"));
+            }
 
-            var signing = new VisualElement();
-            signing.AddToClassList("molca-hub-bv-signing");
-            card.body.Add(signing);
+            if (isAndroid || isIos)
+            {
+                var useSigning = profile.FindPropertyRelative("useCustomSigning");
+                card.body.Add(BuildToggleRow(profile, "useCustomSigning", "Use Custom Signing", out var signingToggle));
 
-            signing.Add(BuildProfileField(profile, "androidKeystorePath", "Keystore Path"));
-            signing.Add(BuildProfileField(profile, "androidKeyaliasName", "Key Alias Name"));
-            signing.Add(BuildProfileField(profile, "androidKeystorePassEnv", "Keystore Pass Env"));
-            signing.Add(BuildProfileField(profile, "androidKeyaliasPassEnv", "Key Alias Pass Env"));
-            signing.Add(BuildProfileField(profile, "iosTeamId", "Apple Team ID"));
-            signing.Add(BuildToggleRow(profile, "iosAutomaticSigning", "iOS Automatic Signing"));
+                var signing = new VisualElement();
+                signing.AddToClassList("molca-hub-bv-signing");
+                card.body.Add(signing);
 
-            var note = new Label("Passwords are read from the named environment variables at build time and are never stored in this asset.");
-            note.AddToClassList("molca-hub-muted");
-            signing.Add(note);
+                if (isAndroid)
+                {
+                    signing.Add(BuildProfileField(profile, "androidKeystorePath", "Keystore Path"));
+                    signing.Add(BuildProfileField(profile, "androidKeyaliasName", "Key Alias Name"));
+                    signing.Add(BuildProfileField(profile, "androidKeystorePassEnv", "Keystore Pass Env"));
+                    signing.Add(BuildProfileField(profile, "androidKeyaliasPassEnv", "Key Alias Pass Env"));
 
-            void RefreshSigning() => signing.style.display = useSigning.boolValue ? DisplayStyle.Flex : DisplayStyle.None;
-            RefreshSigning();
-            // Driven by the toggle, not by a second timer. This used to poll every 200ms alongside the
-            // section's own 250ms label poll — two independent clocks in one view, to reveal a panel
-            // whose one trigger is sitting right there.
-            signingToggle.RegisterValueChangedCallback(_ => RefreshSigning());
+                    var note = new Label(
+                        "Passwords are read from the named environment variables at build time and are never " +
+                        "stored in this asset. A build is refused — not signed with the debug keystore — when " +
+                        "the keystore, alias or either variable is missing.");
+                    note.AddToClassList("molca-hub-muted");
+                    signing.Add(note);
+                }
+                else
+                {
+                    signing.Add(BuildProfileField(profile, "iosTeamId", "Apple Team ID"));
+                    signing.Add(BuildToggleRow(profile, "iosAutomaticSigning", "iOS Automatic Signing"));
+                }
+
+                void RefreshSigning() => signing.style.display = useSigning.boolValue ? DisplayStyle.Flex : DisplayStyle.None;
+                RefreshSigning();
+                // Driven by the toggle, not by a second timer. This used to poll every 200ms alongside the
+                // section's own 250ms label poll — two independent clocks in one view, to reveal a panel
+                // whose one trigger is sitting right there.
+                signingToggle.RegisterValueChangedCallback(_ => RefreshSigning());
+            }
+            else
+            {
+                var none = new Label(
+                    $"{ShortTarget(target)} builds carry no Molca-managed signing configuration. " +
+                    "Signing options appear for Android and iOS profiles.");
+                none.AddToClassList("molca-hub-muted");
+                card.body.Add(none);
+            }
 
             card.body.Add(BuildProfileField(profile, "defineSymbols", "Define Symbols"));
             return card.root;
@@ -474,6 +572,7 @@ namespace Molca.Editor.Hub.Sections
             {
                 var profileName = profile.FindPropertyRelative("name").stringValue;
                 _buildSerialized.ApplyModifiedProperties();
+                MarkBuildPending($"{profileName} · running pre-build checks…");
                 EditorApplication.delayCall += () => BuildProfileGated(profileName);
             })
             { text = "Build This Profile" };
@@ -486,6 +585,123 @@ namespace Molca.Editor.Hub.Sections
             actions.Add(duplicate);
 
             return actions;
+        }
+
+        /// <summary>
+        /// Runs the pre-build gate on demand and reports its findings here.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The gate already ran on every build; what it had no way of doing was telling you anything in the
+        /// Hub. A refused build left this section saying only "did not run — see the Console for the gate,
+        /// step, or target-switch reason", which sends the reader to the surface this window exists to
+        /// replace, for the most consequential answer it has.
+        /// </para>
+        /// <para>
+        /// It is also the same set of checks a build will run, deliberately: a preflight that tested
+        /// something else would be a second opinion nobody asked for. <see cref="MolcaBuildGate"/> owns the
+        /// list; this panel only displays it.
+        /// </para>
+        /// </remarks>
+        private VisualElement BuildPreflightPanel()
+        {
+            var container = new VisualElement();
+
+            _preflightButton = new Button(RunPreflight) { text = "Run Preflight Checks" };
+            _preflightButton.AddToClassList("molca-hub-action-full");
+            _preflightButton.tooltip =
+                "Run the same Doctor checks a build runs, without building: " +
+                string.Join(", ", MolcaBuildGate.CheckIds);
+            container.Add(_preflightButton);
+
+            _preflightPanel = new VisualElement();
+            _preflightPanel.style.display = DisplayStyle.None;
+            container.Add(_preflightPanel);
+
+            return container;
+        }
+
+        // async void is the Unity event-handler entry-point exception in the async contract; the body is
+        // wrapped so exceptions cannot escape into Unity's synchronization context.
+        private async void RunPreflight()
+        {
+            var panelElement = _preflightPanel;
+            var button = _preflightButton;
+            if (panelElement == null)
+                return;
+
+            button?.SetEnabled(false);
+            if (button != null)
+                button.text = "Running preflight…";
+
+            try
+            {
+                var result = await MolcaBuildGate.RunAsync();
+
+                // The view may have been rebuilt (or the window closed) while the checks ran. Rendering
+                // into a detached element would silently do nothing, so re-read the current handles.
+                if (_preflightPanel != panelElement || panelElement.panel == null)
+                    return;
+
+                RenderPreflight(panelElement, result);
+            }
+            catch (System.OperationCanceledException)
+            {
+                // Cancellation is not an error; leave the panel as it was.
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[MolcaHub] Preflight checks failed to run: {e}");
+                if (_preflightPanel == panelElement && panelElement.panel != null)
+                {
+                    panelElement.Clear();
+                    panelElement.style.display = DisplayStyle.Flex;
+                    panelElement.Add(MakeFinding($"Preflight could not run: {e.Message}", isError: true));
+                }
+            }
+            finally
+            {
+                if (_preflightButton == button && button != null)
+                {
+                    button.SetEnabled(true);
+                    button.text = "Run Preflight Checks";
+                }
+            }
+        }
+
+        private void RenderPreflight(VisualElement panelElement, MolcaBuildGate.Result result)
+        {
+            panelElement.Clear();
+            panelElement.style.display = DisplayStyle.Flex;
+
+            if (result.Passed && result.Warnings.Count == 0)
+            {
+                panelElement.Add(MakeFinding(
+                    $"✓ Preflight passed — {MolcaBuildGate.CheckIds.Count} build check(s), nothing to report.",
+                    isError: false));
+                return;
+            }
+
+            var heading = new Label(result.Passed
+                ? $"Preflight passed with {result.Warnings.Count} warning(s) — a build would proceed."
+                : $"Preflight failed: {result.Errors.Count} error(s) would abort a build.");
+            heading.AddToClassList("molca-hub-bv-finding");
+            heading.EnableInClassList("molca-hub-bv-finding--error", !result.Passed);
+            panelElement.Add(heading);
+
+            foreach (var issue in result.Errors)
+                panelElement.Add(MakeFinding($"✕  [{issue.CheckId}] {issue.Message}", isError: true));
+
+            foreach (var issue in result.Warnings)
+                panelElement.Add(MakeFinding($"!  [{issue.CheckId}] {issue.Message}", isError: false));
+        }
+
+        private static Label MakeFinding(string text, bool isError)
+        {
+            var label = new Label(text);
+            label.AddToClassList("molca-hub-bv-finding");
+            label.EnableInClassList("molca-hub-bv-finding--error", isError);
+            return label;
         }
 
         // -------------------------------------------------------------------
@@ -727,9 +943,24 @@ namespace Molca.Editor.Hub.Sections
             var suggest = new Button(() =>
             {
                 suggestion = ReleaseTool.SuggestBump();
-                var since = string.IsNullOrEmpty(suggestion.Value.SinceRef) ? "recent history" : suggestion.Value.SinceRef;
-                suggestLabel.text = $"Suggested: {suggestion.Value.Bump} ({suggestion.Value.Commits.Count} commits since {since})";
                 suggestLabel.style.display = DisplayStyle.Flex;
+
+                // A suggestion with no release tag to measure from is not "no changes" — it is "no
+                // baseline". Saying so is the difference between a reading and a guess.
+                if (!suggestion.Value.HasBaseline)
+                {
+                    suggestLabel.text =
+                        "No v* release tag found, so there is no baseline to measure from. " +
+                        $"({suggestion.Value.Commits.Count} recent commit(s) seen.) Pick the version " +
+                        "yourself for the first release; suggestions work from the tag it creates.";
+                    return;
+                }
+
+                suggestLabel.text = suggestion.Value.Bump == VersionBump.None
+                    ? $"No version-affecting commits since {suggestion.Value.SinceRef} " +
+                      $"({suggestion.Value.Commits.Count} commit(s) evaluated)."
+                    : $"Suggested: {suggestion.Value.Bump} " +
+                      $"({suggestion.Value.Commits.Count} commit(s) since {suggestion.Value.SinceRef})";
             })
             { text = "Suggest Bump From Commits" };
             suggest.AddToClassList("molca-hub-action-full");
@@ -738,25 +969,41 @@ namespace Molca.Editor.Hub.Sections
 
             var applyBump = new Button(() =>
             {
-                if (suggestion.HasValue && suggestion.Value.Bump != VersionBump.None)
+                // Silence was the old behaviour here: with nothing suggested, or a suggestion of None, the
+                // click did nothing at all and looked identical to a click that had worked.
+                if (!suggestion.HasValue)
                 {
-                    ReleaseTool.ApplyBump(_versionSettings, suggestion.Value.Bump);
-                    suggestion = null;
-                    suggestLabel.style.display = DisplayStyle.None;
-                    SelectView(VersionView);
+                    suggestLabel.style.display = DisplayStyle.Flex;
+                    suggestLabel.text = "Nothing to apply — run Suggest Bump From Commits first.";
+                    return;
                 }
+
+                if (!ReleaseTool.ApplyBump(_versionSettings, suggestion.Value.Bump))
+                {
+                    suggestLabel.style.display = DisplayStyle.Flex;
+                    suggestLabel.text = suggestion.Value.HasBaseline
+                        ? $"Nothing to apply — no version-affecting commits since {suggestion.Value.SinceRef}."
+                        : "Nothing to apply — no release tag to measure from. Set the version by hand.";
+                    return;
+                }
+
+                suggestion = null;
+                suggestLabel.style.display = DisplayStyle.None;
+                SelectView(VersionView);
             })
             { text = "Apply Suggested Bump" };
             applyBump.AddToClassList("molca-hub-action-full");
             foldout.Add(applyBump);
 
-            var createTag = new Toggle($"Create git tag (v{_versionSettings.GetVersionString()})") { value = false };
+            // The release identity, not the numeric version: releasing 1.4.0-rc.1 must not offer to tag
+            // v1.4.0 — that mislabels the candidate and spends the tag the real release needs.
+            var createTag = new Toggle($"Create git tag (v{_versionSettings.GetReleaseVersionString()})") { value = false };
             foldout.Add(createTag);
 
             _releaseButton = new Button(() =>
             {
                 var confirm = EditorUtility.DisplayDialog("Create Release",
-                    $"Release v{_versionSettings.GetVersionString()}? This syncs PlayerSettings and appends a changelog entry" +
+                    $"Release v{_versionSettings.GetReleaseVersionString()}? This syncs PlayerSettings and appends a changelog entry" +
                     (createTag.value ? ", then creates a local git tag (not pushed)." : "."),
                     "Release", "Cancel");
                 if (!confirm) return;
@@ -786,15 +1033,8 @@ namespace Molca.Editor.Hub.Sections
             foldout.Add(BuildVersionPropertyField("preReleaseIdentifier", "Pre-release"));
             foldout.Add(BuildVersionPropertyField("buildMetadata", "Build Metadata"));
 
-            var sync = new Button(() =>
-            {
-                _versionSettings.SyncToUnityPlayerSettings();
-                EditorUtility.SetDirty(_versionSettings);
-            })
-            { text = "Sync Now" };
-            sync.AddToClassList("molca-hub-action-full");
-            foldout.Add(sync);
-
+            // No second Sync button here. This one and the footer's did exactly the same thing, in one
+            // view, and two buttons for one action invite the reader to look for the difference.
             return foldout;
         }
 
@@ -854,7 +1094,14 @@ namespace Molca.Editor.Hub.Sections
         // Footer + shared helpers
         // -------------------------------------------------------------------
 
-        /// <summary>The strip that reports what the last build from this Hub did.</summary>
+        /// <summary>
+        /// The strip that reports what the last build did, from the persisted record.
+        /// </summary>
+        /// <remarks>
+        /// Reads <see cref="MolcaBuildRecordStore"/> rather than a field this view wrote, so it reports
+        /// builds started from CI, from the automation workflow, or from a Hub instance that a domain reload
+        /// has since replaced — and survives that reload, which the field it replaced did not.
+        /// </remarks>
         private VisualElement BuildOutcomeStrip()
         {
             _outcomeStrip = new VisualElement();
@@ -868,34 +1115,145 @@ namespace Molca.Editor.Hub.Sections
             return _outcomeStrip;
         }
 
+        /// <summary>
+        /// Says that a build has been dispatched, until a record newer than the dispatch appears.
+        /// </summary>
+        /// <param name="what">What is starting.</param>
+        /// <remarks>
+        /// This is as much progress reporting as the editor allows: <c>BuildPipeline.BuildPlayer</c> is
+        /// synchronous and blocks the main thread, so no callback, repaint or cancel can happen while a
+        /// build runs. What can be shown is the difference between "your click did nothing" and "the build
+        /// is under way", which is the ambiguity worth removing — the asynchronous gate phase in particular
+        /// can take a while before anything else happens.
+        /// </remarks>
+        private void MarkBuildPending(string what)
+        {
+            _pendingLabel = what;
+            _pendingSinceUtc = System.DateTime.UtcNow;
+            RefreshOutcomeStrip();
+        }
+
         private void RefreshOutcomeStrip()
         {
             if (_outcomeStrip == null)
                 return;
 
-            var outcome = _lastOutcome;
-            if (string.IsNullOrEmpty(outcome.Profile))
+            var record = MolcaBuildRecordStore.Last;
+
+            if (_pendingLabel != null)
+            {
+                // Cleared only by a record from after the dispatch: an older record is the previous build's.
+                bool superseded = record != null &&
+                    System.DateTime.TryParse(record.timestampUtc, null,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out var recorded) &&
+                    recorded.ToUniversalTime() >= _pendingSinceUtc;
+
+                if (superseded)
+                {
+                    _pendingLabel = null;
+                }
+                else
+                {
+                    _outcomeStrip.style.display = DisplayStyle.Flex;
+                    _outcomeLabel.text = $"⏳  {_pendingLabel}";
+                    return;
+                }
+            }
+
+            if (record == null)
             {
                 _outcomeStrip.style.display = DisplayStyle.None;
+                _renderedRecordStamp = null;
                 return;
             }
 
             _outcomeStrip.style.display = DisplayStyle.Flex;
-            _outcomeLabel.text =
-                $"{(outcome.Succeeded ? "✓" : "✕")}  {outcome.Profile} · " +
-                $"{outcome.FinishedAt:HH:mm:ss} · {outcome.Detail}";
+            _outcomeLabel.text = DescribeRecord(record);
+
+            // Only rebuild the history list when the newest record actually changed; this runs on the
+            // 250 ms refresh loop.
+            var stamp = record.timestampUtc + record.profile + record.outcome;
+            if (stamp != _renderedRecordStamp)
+            {
+                _renderedRecordStamp = stamp;
+                RefreshHistoryList();
+            }
         }
 
-        /// <summary>Records an outcome for the strip to report.</summary>
-        /// <param name="profile">The profile that was built.</param>
-        /// <param name="succeeded">Whether the build produced a player.</param>
-        /// <param name="detail">One line saying what happened.</param>
-        private static void RecordOutcome(string profile, bool succeeded, string detail) =>
-            _lastOutcome = new BuildOutcome(profile, succeeded, detail);
+        /// <summary>One line describing a recorded build attempt.</summary>
+        private static string DescribeRecord(MolcaBuildRecord record)
+        {
+            var mark = record.Outcome switch
+            {
+                MolcaBuildOutcome.Succeeded => "✓",
+                MolcaBuildOutcome.Refused => "○",
+                _ => "✕",
+            };
+
+            var version = string.IsNullOrEmpty(record.semanticVersion)
+                ? string.Empty
+                : $"v{record.semanticVersion} ({record.buildNumber}) · ";
+
+            return $"{mark}  {record.profile} · {record.LocalTime:HH:mm:ss} · {version}{record.detail}";
+        }
+
+        /// <summary>
+        /// The recent-build list: what was attempted, when, from which commit, and how it ended.
+        /// </summary>
+        private VisualElement BuildHistoryPanel()
+        {
+            var foldout = new Foldout { text = "Recent Builds", value = false };
+            foldout.AddToClassList("molca-hub-bv-foldout");
+
+            _historyList = new VisualElement();
+            foldout.Add(_historyList);
+            RefreshHistoryList();
+
+            var clear = new Button(() =>
+            {
+                MolcaBuildRecordStore.Clear();
+                _renderedRecordStamp = null;
+                RefreshHistoryList();
+                RefreshOutcomeStrip();
+            })
+            { text = "Clear History" };
+            clear.AddToClassList("molca-hub-action-full");
+            foldout.Add(clear);
+
+            return foldout;
+        }
+
+        private void RefreshHistoryList()
+        {
+            if (_historyList == null)
+                return;
+
+            _historyList.Clear();
+
+            var records = MolcaBuildRecordStore.Recent(10);
+            if (records.Count == 0)
+            {
+                var empty = new Label("No builds recorded yet.");
+                empty.AddToClassList("molca-hub-muted");
+                _historyList.Add(empty);
+                return;
+            }
+
+            foreach (var record in records)
+            {
+                var line = new Label(DescribeRecord(record));
+                line.AddToClassList("molca-hub-bv-history-entry");
+                line.EnableInClassList("molca-hub-bv-finding--error", record.Outcome == MolcaBuildOutcome.Failed);
+                if (!string.IsNullOrEmpty(record.commit))
+                    line.tooltip = $"{record.branch} @ {record.commit}\n{record.outputPath}";
+                _historyList.Add(line);
+            }
+        }
 
         private void BuildFooter()
         {
             Add(BuildOutcomeStrip());
+            Add(BuildHistoryPanel());
 
             var footer = new VisualElement();
             footer.AddToClassList("molca-hub-bv-footer");
@@ -918,7 +1276,17 @@ namespace Molca.Editor.Hub.Sections
             RefreshDynamicLabels();
         }
 
-        private VisualElement BuildProfileField(SerializedProperty profile, string relativeName, string label)
+        /// <summary>Builds a labelled field bound to one property of the selected profile.</summary>
+        /// <param name="profile">The profile element being edited.</param>
+        /// <param name="relativeName">The property's name within the profile.</param>
+        /// <param name="label">The row's label.</param>
+        /// <param name="rebuildsDetail">
+        /// True when changing this property changes which other fields apply, so the detail pane must be
+        /// rebuilt. Deferred to the next editor tick: rebuilding the pane from inside a callback raised by
+        /// an element in that same pane would destroy the element mid-event.
+        /// </param>
+        private VisualElement BuildProfileField(
+            SerializedProperty profile, string relativeName, string label, bool rebuildsDetail = false)
         {
             var row = new VisualElement();
             row.AddToClassList("molca-hub-field-row");
@@ -930,15 +1298,98 @@ namespace Molca.Editor.Hub.Sections
             var field = new PropertyField(property, string.Empty);
             field.AddToClassList("molca-hub-field-control");
             field.BindProperty(property);
+
+            var lastValue = PropertyStamp(property);
             field.RegisterCallback<SerializedPropertyChangeEvent>(_ =>
             {
+                if (!ValueChanged(property, ref lastValue))
+                    return;
+
                 _buildSerialized.ApplyModifiedProperties();
                 RebuildProfileRail();
                 RefreshDynamicLabels();
+
+                if (rebuildsDetail)
+                {
+                    EditorApplication.delayCall += () =>
+                    {
+                        if (panel != null)
+                            RebuildProfileDetail();
+                    };
+                }
             });
             row.Add(field);
 
             return row;
+        }
+
+        /// <summary>
+        /// True when <paramref name="property"/> holds a different value than <paramref name="lastValue"/>,
+        /// which it then updates.
+        /// </summary>
+        /// <param name="property">The bound property.</param>
+        /// <param name="lastValue">The last value this field acted on.</param>
+        /// <remarks>
+        /// <b>A change event is not proof of a change.</b> UI Toolkit raises
+        /// <see cref="SerializedPropertyChangeEvent"/> when a binding first updates its field — i.e. once per
+        /// field every time this pane is built — as well as when a person edits it. Acting on the event
+        /// itself made the Target field's rebuild self-sustaining: rebuilding the pane created a new bound
+        /// field, whose bind raised the event, which scheduled another rebuild. The visible symptom was the
+        /// pane's buttons flickering between hover and not, because the element under the pointer was being
+        /// destroyed and recreated continuously.
+        /// <para>
+        /// It also silenced the harmless-but-real churn from the other fields, each of which rebuilt the
+        /// profile rail once on bind for a value nobody had touched.
+        /// </para>
+        /// </remarks>
+        private static bool ValueChanged(SerializedProperty property, ref string lastValue)
+        {
+            var current = PropertyStamp(property);
+            if (current == lastValue)
+                return false;
+
+            lastValue = current;
+            return true;
+        }
+
+        /// <summary>
+        /// A comparable string for a serialized property's current value.
+        /// </summary>
+        /// <param name="property">The property to read; may be null or disposed.</param>
+        /// <returns>The value as a string, or null when it cannot be read.</returns>
+        /// <remarks>
+        /// Covers the property types this section binds. Anything else returns a constant, which means
+        /// "never reports a change" — the safe direction, since the cost is a missed refresh rather than a
+        /// rebuild loop. A disposed property (the pane was rebuilt under this callback) also lands here.
+        /// </remarks>
+        private static string PropertyStamp(SerializedProperty property)
+        {
+            if (property == null)
+                return null;
+
+            try
+            {
+                switch (property.propertyType)
+                {
+                    case SerializedPropertyType.Integer:
+                    case SerializedPropertyType.Enum:
+                        return property.intValue.ToString();
+                    case SerializedPropertyType.Boolean:
+                        return property.boolValue ? "1" : "0";
+                    case SerializedPropertyType.String:
+                        return property.stringValue;
+                    case SerializedPropertyType.Float:
+                        return property.floatValue.ToString("R");
+                    case SerializedPropertyType.ObjectReference:
+                        return property.objectReferenceInstanceIDValue.ToString();
+                    default:
+                        return "(unstamped)";
+                }
+            }
+            catch (System.Exception)
+            {
+                return null;
+            }
         }
 
         private VisualElement BuildToggleRow(SerializedProperty profile, string relativeName, string label) =>
@@ -964,8 +1415,14 @@ namespace Molca.Editor.Hub.Sections
             toggle = new Toggle();
             toggle.AddToClassList("molca-hub-bv-toggle");
             toggle.BindProperty(property);
+
+            var lastValue = PropertyStamp(property);
             toggle.RegisterCallback<SerializedPropertyChangeEvent>(_ =>
             {
+                // Same guard as BuildProfileField: the bind itself raises this event. See ValueChanged.
+                if (!ValueChanged(property, ref lastValue))
+                    return;
+
                 _buildSerialized.ApplyModifiedProperties();
                 RebuildProfileRail();
                 RefreshDynamicLabels();
@@ -1141,37 +1598,60 @@ namespace Molca.Editor.Hub.Sections
                 return;
 
             var names = matching.ToArray();
+            MarkBuildPending($"{names.Length} profile(s) · running pre-build checks…");
             EditorApplication.delayCall += () => BuildAllGated(names);
         }
 
         // async void is the Unity event-handler entry-point exception in the async contract; the body
         // is wrapped so exceptions cannot escape into Unity's synchronization context.
+        //
+        // Nothing here records the outcome any more: BuildManager records every attempt, including the ones
+        // that never run, so the strip and the history report CI and workflow builds too and survive the
+        // domain reload a target switch causes.
         private static async void BuildProfileGated(string profileName)
         {
             try
             {
-                var report = await BuildManager.BuildAsync(profileName);
-                RecordOutcome(profileName, DescribeReport(report, out var detail), detail);
+                await BuildManager.BuildAsync(profileName);
             }
             catch (Exception e)
             {
                 Debug.LogError($"[BuildManager] Build failed: {e}");
-                RecordOutcome(profileName, false, $"failed: {e.Message}");
             }
         }
 
+        /// <summary>
+        /// Runs the pre-build gate once, then builds each profile.
+        /// </summary>
+        /// <param name="profileNames">The profiles to build, all targeting the active build target.</param>
+        /// <remarks>
+        /// The gate is run here explicitly rather than by passing <c>runPreBuildChecks: true</c> for the
+        /// first profile only. Both run it once, but the old shape made "was this batch checked?" depend on
+        /// loop position — adding a sort, a filter, or a retry ahead of the loop would have silently moved
+        /// the gate onto a different profile or dropped it. A batch either passed the gate or did not start.
+        /// </remarks>
         private static async void BuildAllGated(string[] profileNames)
         {
             try
             {
+                var gate = await MolcaBuildGate.RunAsync();
+                if (!gate.Passed)
+                {
+                    Debug.LogError(gate.DescribeFailure());
+                    Debug.LogWarning(
+                        $"[BuildManager] Build All did not start: the pre-build gate refused it, so none of " +
+                        $"the {profileNames.Length} profile(s) were built.");
+                    return;
+                }
+
                 for (int i = 0; i < profileNames.Length; i++)
                 {
-                    var report = await BuildManager.BuildAsync(profileNames[i], runPreBuildChecks: i == 0);
-                    RecordOutcome(profileNames[i], DescribeReport(report, out var detail), detail);
-
-                    if (i == 0 && report == null)
+                    var report = await BuildManager.BuildAsync(profileNames[i], runPreBuildChecks: false);
+                    if (report == null || report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded)
                     {
-                        Debug.LogWarning("[BuildManager] Build All aborted (pre-build checks failed or the first build did not run).");
+                        Debug.LogWarning(
+                            $"[BuildManager] Build All stopped at '{profileNames[i]}' " +
+                            $"({i + 1} of {profileNames.Length}); the remaining profile(s) were not built.");
                         return;
                     }
                 }
@@ -1179,39 +1659,7 @@ namespace Molca.Editor.Hub.Sections
             catch (Exception e)
             {
                 Debug.LogError($"[BuildManager] Build All failed: {e}");
-                RecordOutcome(profileNames.Length > 0 ? profileNames[0] : "Build All", false, $"failed: {e.Message}");
             }
-        }
-
-        /// <summary>
-        /// Turns a build report into the one line the outcome strip shows.
-        /// </summary>
-        /// <param name="report">The report, or null when the build never ran.</param>
-        /// <param name="detail">The line to display.</param>
-        /// <returns>True when the build produced a player.</returns>
-        /// <remarks>
-        /// A null report is the case worth naming: the build was refused by the gate or a pre-build
-        /// step, or was deferred across a build-target switch. "Nothing happened" and "it failed" want
-        /// different next actions from the reader, so they get different text.
-        /// </remarks>
-        private static bool DescribeReport(UnityEditor.Build.Reporting.BuildReport report, out string detail)
-        {
-            if (report == null)
-            {
-                detail = "did not run — see the Console for the gate, step, or target-switch reason.";
-                return false;
-            }
-
-            var summary = report.summary;
-            if (summary.result == UnityEditor.Build.Reporting.BuildResult.Succeeded)
-            {
-                detail = $"built in {summary.totalTime.TotalSeconds:F0}s · " +
-                         $"{summary.totalSize / 1024f / 1024f:F1} MB · {summary.outputPath}";
-                return true;
-            }
-
-            detail = $"{summary.result} · {summary.totalErrors} error(s)";
-            return false;
         }
     }
 }

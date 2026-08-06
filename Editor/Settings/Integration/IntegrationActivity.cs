@@ -55,16 +55,37 @@ namespace Molca.Settings.Integration
     /// <remarks>
     /// <see cref="Notes"/> is the <i>composed</i> changelog entry (raw notes + git commits) the router has
     /// already resolved, so providers do not each re-read the changelog. Editor-only.
+    /// <para>
+    /// <see cref="TagName"/> and <see cref="Commit"/> exist so a provider that creates a remote release can
+    /// point it at the commit that was actually released. A forge asked to release a tag it does not have
+    /// invents one at its default branch head — a different object at a possibly different commit from the
+    /// local annotated tag, with nothing to indicate the divergence.
+    /// </para>
     /// </remarks>
     public readonly struct ReleaseActivity
     {
         /// <summary>Initializes the release activity payload.</summary>
         public ReleaseActivity(string projectName, string version, string triggeredBy, string notes)
+            : this(projectName, version, triggeredBy, notes, null, null)
+        {
+        }
+
+        /// <summary>Initializes the release activity payload, including the released git ref.</summary>
+        /// <param name="projectName">Human-readable project name.</param>
+        /// <param name="version">The released version string.</param>
+        /// <param name="triggeredBy">User/agent that cut the release.</param>
+        /// <param name="notes">Composed release notes.</param>
+        /// <param name="tagName">The release tag, or null when none was created.</param>
+        /// <param name="commit">The commit the release was cut at, or null when it could not be resolved.</param>
+        public ReleaseActivity(
+            string projectName, string version, string triggeredBy, string notes, string tagName, string commit)
         {
             ProjectName = projectName;
             Version = version;
             TriggeredBy = triggeredBy;
             Notes = notes;
+            TagName = tagName;
+            Commit = commit;
         }
 
         /// <summary>Human-readable project name.</summary>
@@ -75,5 +96,17 @@ namespace Molca.Settings.Integration
         public readonly string TriggeredBy;
         /// <summary>Composed release notes (may be null/empty).</summary>
         public readonly string Notes;
+
+        /// <summary>
+        /// The annotated tag created for this release (e.g. <c>v1.4.0</c>), or null when the release was
+        /// cut without one.
+        /// </summary>
+        public readonly string TagName;
+
+        /// <summary>
+        /// The full commit hash the release was cut at, or null when it could not be resolved (not a git
+        /// repository, or git is unavailable).
+        /// </summary>
+        public readonly string Commit;
     }
 }

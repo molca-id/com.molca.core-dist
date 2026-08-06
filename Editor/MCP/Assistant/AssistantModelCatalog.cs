@@ -285,34 +285,36 @@ namespace Molca.Editor.Mcp.Assistant
             => (root ?? string.Empty).TrimEnd('/') + "/" + path.TrimStart('/');
 
         /// <summary>
-        /// Writes <paramref name="provider"/> and <paramref name="model"/> onto <paramref name="settings"/>
-        /// through the same <see cref="SerializedObject"/> path the Hub uses (Sprint 71), so
+        /// Applies <paramref name="provider"/> and <paramref name="model"/> to <paramref name="settings"/> so
         /// <see cref="ToolCallTransport.Auto"/>/<see cref="ToolExposureMode.Auto"/> re-resolve and the change
-        /// survives restarts. A blank model clears the field so the provider default applies.
+        /// survives restarts. A blank model clears the value so the provider default applies.
         /// </summary>
+        /// <remarks>
+        /// Writes through the settings properties, which route to <see cref="MolcaLocalSettings"/> for a
+        /// committed asset: picking a model in this window is a personal choice and must not arrive in the
+        /// repository as a diff. (It previously wrote the serialized fields directly and dirtied the asset.)
+        /// </remarks>
+        /// <param name="settings">The assistant settings, or null.</param>
+        /// <param name="provider">The chosen backend.</param>
+        /// <param name="model">The chosen model id; blank restores the provider default.</param>
         public static void ApplySelection(AssistantSettings settings, LlmProviderKind provider, string model)
         {
             if (settings == null) return;
-            var so = new SerializedObject(settings);
-            so.FindProperty("provider").enumValueIndex = (int)provider;
-            so.FindProperty("model").stringValue = model?.Trim() ?? string.Empty;
-            so.ApplyModifiedPropertiesWithoutUndo();
-            EditorUtility.SetDirty(settings);
+            settings.Provider = provider;
+            settings.ConfiguredModel = model?.Trim() ?? string.Empty;
             InvalidateCache();
         }
 
         /// <summary>
-        /// Writes the reasoning effort onto <paramref name="settings"/> through the same
-        /// <see cref="SerializedObject"/> path as <see cref="ApplySelection"/> (Sprint 76), so the in-window
-        /// picker's choice persists and applies to the next turn.
+        /// Applies the reasoning effort to <paramref name="settings"/> (Sprint 76), so the in-window picker's
+        /// choice persists and applies to the next turn. Machine-local, as with <see cref="ApplySelection"/>.
         /// </summary>
+        /// <param name="settings">The assistant settings, or null.</param>
+        /// <param name="effort">The chosen reasoning level.</param>
         public static void ApplyReasoning(AssistantSettings settings, ReasoningEffort effort)
         {
             if (settings == null) return;
-            var so = new SerializedObject(settings);
-            so.FindProperty("reasoningEffort").enumValueIndex = (int)effort;
-            so.ApplyModifiedPropertiesWithoutUndo();
-            EditorUtility.SetDirty(settings);
+            settings.ReasoningEffort = effort;
         }
 
         private struct CacheEntry

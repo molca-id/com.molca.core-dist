@@ -42,6 +42,22 @@ order: 40
 Categories are ordered by their lowest doc `order`, so a small `order` on one doc floats its whole
 category up.
 
+## Seeing your edits
+
+Because `Documentation~` is outside the AssetDatabase, saving a guide raises no import event and triggers
+no domain reload — nothing tells the Hub anything changed. The docs browser therefore refreshes on its
+own terms:
+
+| Edit | When it shows |
+|---|---|
+| Body prose | On the next visit to the tab, or immediately via **Refresh**. |
+| Front-matter (`title`/`category`/`order`/`id`/`product`) | Same — the rail is re-resolved and rebuilt, keeping your selection, search and expanded categories. |
+| A new `*.md` in a package that already ships docs | Same. |
+| The *first* doc in a project that had none | Needs a recompile or a Hub reopen — the Docs **tab** itself only appears when the workspace set is resolved. |
+
+**Refresh** sits at the top of the rail. Leaving the Docs tab and coming back does the same thing, minus
+the forced re-render of the page you are on. Neither costs you your place unless something really changed.
+
 ## Products (the switcher)
 
 Docs are grouped by **product** — one documentation set per owning package (Core, the shared SDK, a fork,

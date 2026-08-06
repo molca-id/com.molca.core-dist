@@ -18,6 +18,19 @@ namespace Molca.Settings
         public string changeType;
         public string notes;
 
+        /// <summary>
+        /// The commit this entry was written at, and therefore the lower bound of the next entry's
+        /// commit range.
+        /// </summary>
+        /// <remarks>
+        /// The range used to be anchored on a hash in <see cref="EditorPrefs"/>, which is per-machine: the
+        /// second developer to build, and every fresh CI container, had no marker and silently fell back to
+        /// "the last ten commits" — labelled as such in the changelog, but only if anyone read the heading.
+        /// The anchor belongs in the file that is committed alongside the code it describes. Empty on
+        /// entries written before this field existed.
+        /// </remarks>
+        public string commit;
+
         // Parameterless constructor required by JsonUtility deserialization.
         public VersionHistoryEntry() { }
 
@@ -43,14 +56,14 @@ namespace Molca.Settings
     /// Reads and writes the JSON build changelog. Optionally appends git commit messages to entries.
     /// </summary>
     /// <remarks>
-    /// <see cref="LastBuildHashKey"/> is stored in <see cref="EditorPrefs"/> rather than a serialized
-    /// field on the owning ScriptableObject to avoid mutating SO assets at runtime. JSON is used instead
-    /// of YAML so the dist package has no compile-time dependency on a dev-project-only parser assembly.
+    /// The commit range each entry reports is anchored on the previous entry's
+    /// <see cref="VersionHistoryEntry.commit"/> — state that lives in the changelog file itself, so it is
+    /// the same on every machine that has the file. JSON is used instead of YAML so the dist package has no
+    /// compile-time dependency on a dev-project-only parser assembly.
     /// </remarks>
     public class ChangelogWriter
     {
         private const int MaxEntries = 50;
-        private const string LastBuildHashKey = "Molca.VersionSettings.LastBuildCommitHash";
 
         private readonly string _changelogPath;
         private readonly bool _includeGitCommits;
@@ -130,34 +143,60 @@ namespace Molca.Settings
                 return;
 
             var historyList = new List<VersionHistoryEntry>(Read());
+
+            // Read the anchor before the new entry joins the list, so "since the last entry" cannot
+            // accidentally mean "since the entry being written".
+            var previousCommit = LastRecordedCommit(historyList);
+
             historyList.Add(new VersionHistoryEntry(version, changeType));
 
             if (historyList.Count > MaxEntries)
                 historyList.RemoveRange(0, historyList.Count - MaxEntries);
 
             Write(historyList.ToArray());
-            AppendNotesToLastEntry(historyList, version, notes, projectRoot);
+            AppendNotesToLastEntry(historyList, version, notes, projectRoot, previousCommit);
+        }
+
+        /// <summary>
+        /// The commit recorded by the newest entry that has one, or null when no entry does.
+        /// </summary>
+        /// <param name="entries">The existing entries, oldest first.</param>
+        /// <remarks>
+        /// Searches backwards rather than reading only the last entry, so one entry written by a build
+        /// that had no git available does not permanently break the chain.
+        /// </remarks>
+        private static string LastRecordedCommit(List<VersionHistoryEntry> entries)
+        {
+            for (int i = entries.Count - 1; i >= 0; i--)
+            {
+                if (!string.IsNullOrWhiteSpace(entries[i]?.commit))
+                    return entries[i].commit.Trim();
+            }
+
+            return null;
         }
 
         /// <summary>Clears all entries from the changelog file.</summary>
         public void Clear() => Write(Array.Empty<VersionHistoryEntry>());
 
-        private void AppendNotesToLastEntry(List<VersionHistoryEntry> historyList, string currentVersion, string buildNotes, string projectRoot)
+        private void AppendNotesToLastEntry(
+            List<VersionHistoryEntry> historyList, string currentVersion, string buildNotes,
+            string projectRoot, string previousCommit)
         {
             try
             {
                 var notes = "";
+                string headHash = null;
 
                 if (_includeGitCommits)
                 {
-                    var lastHash = MolcaEditorPrefs.GetString(LastBuildHashKey, "");
-                    var hasValidHash = !string.IsNullOrWhiteSpace(lastHash) &&
-                        GitLogReader.IsCommitAvailable(projectRoot, lastHash);
+                    var hasValidAnchor = !string.IsNullOrWhiteSpace(previousCommit) &&
+                        GitLogReader.IsCommitAvailable(projectRoot, previousCommit);
 
                     var commits = GitLogReader.GetCommitMessages(
                         projectRoot,
-                        hasValidHash ? lastHash : null,
-                        out var headHash,
+                        hasValidAnchor ? previousCommit : null,
+                        out headHash,
                         out var heading);
 
                     if (commits.Count > 0 && !string.IsNullOrEmpty(heading))
@@ -167,9 +206,12 @@ namespace Molca.Settings
                         var categorized = ConventionalCommits.Format(commits);
                         notes = string.IsNullOrEmpty(categorized) ? heading : heading + "\n" + categorized;
                     }
-
-                    if (!string.IsNullOrEmpty(headHash))
-                        MolcaEditorPrefs.SetString(LastBuildHashKey, headHash);
+                }
+                else
+                {
+                    // The anchor is recorded even when commit subjects are not included, so turning the
+                    // option on later still produces a correct range instead of restarting from HEAD~10.
+                    GitLogReader.ReadProvenance(projectRoot, out headHash, out _);
                 }
 
                 if (!string.IsNullOrWhiteSpace(buildNotes))
@@ -179,6 +221,8 @@ namespace Molca.Settings
                 if (last != null && last.version == currentVersion)
                 {
                     last.notes = notes;
+                    if (!string.IsNullOrEmpty(headHash))
+                        last.commit = headHash;
                     Write(historyList.ToArray());
                 }
             }

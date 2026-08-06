@@ -10,8 +10,10 @@ namespace Molca.Settings.Integration.OAuth
     /// <remarks>
     /// Placement: <c>Packages/com.molca.core/Editor/Settings/Integration/OAuth/</c>.
     /// Base class: <see cref="IntegrationProvider"/> (additive subclass — the Core base is untouched).
-    /// Registration: concrete subclasses (e.g. <c>GitHubIntegrationProvider</c>,
-    /// <c>FigmaIntegrationProvider</c>) are added to <see cref="IntegrationSettings"/> like any provider.
+    /// Registration: concrete subclasses are added to <see cref="IntegrationSettings"/> like any provider.
+    /// Both current subclasses ship as add-ons — <c>GitHubIntegrationProvider</c>
+    /// (<c>com.molca.integration.github</c>) and <c>FigmaIntegrationProvider</c>
+    /// (<c>com.molca.integration.figma</c>) — which is why this base stays public.
     /// <para>
     /// Tokens live in <see cref="OAuthCredentialStore"/> (access + refresh + expiry), never on this
     /// ScriptableObject. A subclass supplies its endpoint descriptor via <see cref="BuildDescriptor"/> and

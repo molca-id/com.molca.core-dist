@@ -1,7 +1,7 @@
-﻿com.molca.core@2.1.0
-Published: 2026-08-05 15:57:15Z
-Source commit: 973dc4fc
-Files: 3156
+﻿com.molca.core@2.2.0
+Published: 2026-08-06 13:43:55Z
+Source commit: 19068e80
+Files: 3164
 
 CHANGELOG.md
 CHANGELOG.md.meta
@@ -22,6 +22,7 @@ Documentation~/reference/AUDIO.md
 Documentation~/reference/AUTOMATION.md
 Documentation~/reference/AUTOMATION_COMPOSED_WORKFLOWS.md
 Documentation~/reference/BUILD_SYSTEM.md
+Documentation~/reference/CLICKUP.md
 Documentation~/reference/COLOR_ID.md
 Documentation~/reference/COLOR_ID_MIGRATION.md
 Documentation~/reference/CONTENT_PACKAGES.md
@@ -322,8 +323,6 @@ Editor/BuildSystem/CommandLineBuild.cs
 Editor/BuildSystem/CommandLineBuild.cs.meta
 Editor/BuildSystem/ConventionalCommits.cs
 Editor/BuildSystem/ConventionalCommits.cs.meta
-Editor/BuildSystem/GITHUB_ACTIONS_SETUP.md
-Editor/BuildSystem/GITHUB_ACTIONS_SETUP.md.meta
 Editor/BuildSystem/GitLogReader.cs
 Editor/BuildSystem/GitLogReader.cs.meta
 Editor/BuildSystem/LocalizationBuildGate.cs
@@ -332,14 +331,18 @@ Editor/BuildSystem/MolcaBuildCallbackOrder.cs
 Editor/BuildSystem/MolcaBuildCallbackOrder.cs.meta
 Editor/BuildSystem/MolcaBuildGate.cs
 Editor/BuildSystem/MolcaBuildGate.cs.meta
+Editor/BuildSystem/MolcaBuildReasonCode.cs
+Editor/BuildSystem/MolcaBuildReasonCode.cs.meta
+Editor/BuildSystem/MolcaBuildRecord.cs
+Editor/BuildSystem/MolcaBuildRecord.cs.meta
 Editor/BuildSystem/MolcaBuildStep.cs
 Editor/BuildSystem/MolcaBuildStep.cs.meta
 Editor/BuildSystem/MolcaBuildStepRegistry.cs
 Editor/BuildSystem/MolcaBuildStepRegistry.cs.meta
+Editor/BuildSystem/MolcaPostBuildStep.cs
+Editor/BuildSystem/MolcaPostBuildStep.cs.meta
 Editor/BuildSystem/QUICK_REFERENCE.md
 Editor/BuildSystem/QUICK_REFERENCE.md.meta
-Editor/BuildSystem/README_GITHUB_ACTIONS.md
-Editor/BuildSystem/README_GITHUB_ACTIONS.md.meta
 Editor/BuildSystem/ReferenceBuildGate.cs
 Editor/BuildSystem/ReferenceBuildGate.cs.meta
 Editor/BuildSystem/ReleaseTool.cs
@@ -616,6 +619,8 @@ Editor/Hub/MolcaHubWorkspaceRegistry.cs
 Editor/Hub/MolcaHubWorkspaceRegistry.cs.meta
 Editor/Hub/MolcaHubWorkspaceViewCache.cs
 Editor/Hub/MolcaHubWorkspaceViewCache.cs.meta
+Editor/Hub/MolcaLocalOverrideRow.cs
+Editor/Hub/MolcaLocalOverrideRow.cs.meta
 Editor/Hub/Sections.meta
 Editor/Hub/Sections/MolcaHubAboutSection.cs
 Editor/Hub/Sections/MolcaHubAboutSection.cs.meta
@@ -625,6 +630,8 @@ Editor/Hub/Sections/MolcaHubBuildVersionSection.cs
 Editor/Hub/Sections/MolcaHubBuildVersionSection.cs.meta
 Editor/Hub/Sections/MolcaHubEditorSection.cs
 Editor/Hub/Sections/MolcaHubEditorSection.cs.meta
+Editor/Hub/Sections/MolcaHubHealthSection.cs
+Editor/Hub/Sections/MolcaHubHealthSection.cs.meta
 Editor/Hub/Sections/MolcaHubIntegrationsSection.cs
 Editor/Hub/Sections/MolcaHubIntegrationsSection.cs.meta
 Editor/Hub/Sections/MolcaHubLocalizationSection.cs
@@ -777,6 +784,8 @@ Editor/KnowledgeGraph/UnityFactsExporter.cs.meta
 Editor/Licensing.meta
 Editor/Licensing/BuildTokenStore.cs
 Editor/Licensing/BuildTokenStore.cs.meta
+Editor/Licensing/ControlPlaneBuildRecorder.cs
+Editor/Licensing/ControlPlaneBuildRecorder.cs.meta
 Editor/Licensing/DevEntitlement.cs
 Editor/Licensing/DevEntitlement.cs.meta
 Editor/Licensing/DevEntitlementStore.cs
@@ -1451,20 +1460,17 @@ Editor/Settings/Integration/ClickUp/ClickUpIntegrationProviderEditor.cs
 Editor/Settings/Integration/ClickUp/ClickUpIntegrationProviderEditor.cs.meta
 Editor/Settings/Integration/ClickUp/ClickUpModels.cs
 Editor/Settings/Integration/ClickUp/ClickUpModels.cs.meta
+Editor/Settings/Integration/ClickUp/ClickUpPushTarget.cs
+Editor/Settings/Integration/ClickUp/ClickUpPushTarget.cs.meta
+Editor/Settings/Integration/ClickUp/ClickUpTaskFocus.cs
+Editor/Settings/Integration/ClickUp/ClickUpTaskFocus.cs.meta
+Editor/Settings/Integration/ClickUp/ClickUpTaskFormat.cs
+Editor/Settings/Integration/ClickUp/ClickUpTaskFormat.cs.meta
 Editor/Settings/Integration/Discord.meta
 Editor/Settings/Integration/Discord/DiscordIntegrationProvider.cs
 Editor/Settings/Integration/Discord/DiscordIntegrationProvider.cs.meta
 Editor/Settings/Integration/Discord/DiscordIntegrationProviderEditor.cs
 Editor/Settings/Integration/Discord/DiscordIntegrationProviderEditor.cs.meta
-Editor/Settings/Integration/GitHub.meta
-Editor/Settings/Integration/GitHub/GitHubApiClient.cs
-Editor/Settings/Integration/GitHub/GitHubApiClient.cs.meta
-Editor/Settings/Integration/GitHub/GitHubIntegrationProvider.cs
-Editor/Settings/Integration/GitHub/GitHubIntegrationProvider.cs.meta
-Editor/Settings/Integration/GitHub/GitHubIntegrationProviderEditor.cs
-Editor/Settings/Integration/GitHub/GitHubIntegrationProviderEditor.cs.meta
-Editor/Settings/Integration/GitHub/GitHubModels.cs
-Editor/Settings/Integration/GitHub/GitHubModels.cs.meta
 Editor/Settings/Integration/IntegrationActivity.cs
 Editor/Settings/Integration/IntegrationActivity.cs.meta
 Editor/Settings/Integration/IntegrationActivityRouter.cs
@@ -1504,6 +1510,8 @@ Editor/Settings/MolcaEditorSettingsAsset.cs
 Editor/Settings/MolcaEditorSettingsAsset.cs.meta
 Editor/Settings/MolcaEditorSettingsEditor.cs
 Editor/Settings/MolcaEditorSettingsEditor.cs.meta
+Editor/Settings/MolcaLocalSettings.cs
+Editor/Settings/MolcaLocalSettings.cs.meta
 Editor/Settings/MolcaSettingsProvider.cs
 Editor/Settings/MolcaSettingsProvider.cs.meta
 Editor/Settings/Notification.meta

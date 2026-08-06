@@ -21,8 +21,9 @@ namespace Molca.Editor
     /// CI job calling <c>BuildPipeline.BuildPlayer</c>, shipped without any reference validation at
     /// all.</para>
     ///
-    /// <para>The preprocessor cannot see a caller-supplied scene list, so it validates the enabled Editor
-    /// Build Settings scenes. <see cref="ProcessedSceneAudit"/> closes that gap from the other side: it
+    /// <para>The preprocessor cannot see a caller-supplied scene list, so it validates the scenes the running
+    /// build declared — the Molca build profile's scene set when there is one, otherwise the enabled Editor
+    /// Build Settings scenes. <see cref="ProcessedSceneAudit"/> closes the remaining gap from the other side: it
     /// observes the scenes the build <i>actually</i> processes and fails the build if one was never
     /// validated, rather than letting an explicit scene list bypass the gate silently.</para>
     ///
@@ -62,7 +63,7 @@ namespace Molca.Editor
             var isDevelopment = report?.summary.options.HasFlag(BuildOptions.Development)
                 ?? EditorUserBuildSettings.development;
 
-            var snapshot = ConsumeValidatedSnapshot() ?? SceneReferenceBuildValidator.Audit(isDevelopment);
+            var snapshot = ConsumeValidatedSnapshot() ?? AuditForCurrentBuild(isDevelopment);
 
             // Keep the validated scene set for ProcessedSceneAudit to compare against.
             _validatedScenes = new HashSet<string>(
@@ -80,6 +81,7 @@ namespace Molca.Editor
                 return;
             }
 
+            MolcaBuildRefusal.Record(MolcaBuildReasonCode.ReferenceGate);
             throw new BuildFailedException(BuildFailureMessage(snapshot, isDevelopment));
         }
 
@@ -96,6 +98,33 @@ namespace Molca.Editor
         {
             _validatedScenes = null;
             _validatedSnapshot = null;
+        }
+
+        /// <summary>
+        /// Audits the scenes this build ships, when the gate has to audit for itself.
+        /// </summary>
+        /// <param name="isDevelopment">True to apply the relaxed severity policy.</param>
+        /// <returns>The snapshot for the running build.</returns>
+        /// <remarks>
+        /// A preprocessor is handed no scene list, so this used to audit the enabled Editor Build Settings
+        /// scenes unconditionally. A build profile may now declare its own scene set, and for such a build
+        /// the enabled list is the wrong question — the audit would cover scenes that are not shipping and
+        /// miss ones that are, and <see cref="ReferenceBuildSceneAudit"/> would then fail the build for
+        /// processing an unvalidated scene. <see cref="MolcaBuildSession"/> exists for exactly this: the
+        /// running Molca build's profile is readable even from a callback Unity discovered by type. Outside
+        /// a Molca build there is no profile, and the enabled list is again the only thing the gate can know.
+        /// </remarks>
+        private static ReferenceAuditSnapshot AuditForCurrentBuild(bool isDevelopment)
+        {
+            var profile = MolcaBuildSession.Current?.Profile;
+            if (profile != null && profile.HasSceneOverride &&
+                profile.TryResolveScenePaths(out var scenePaths, out _) && scenePaths != null)
+            {
+                return SceneReferenceBuildValidator.Audit(
+                    isDevelopment, SceneReferenceBuildValidator.ScenesToAudit(scenePaths));
+            }
+
+            return SceneReferenceBuildValidator.Audit(isDevelopment);
         }
 
         /// <summary>
@@ -178,10 +207,12 @@ namespace Molca.Editor
             if (string.IsNullOrEmpty(scene.path) || ReferenceBuildGate.WasSceneValidated(scene.path))
                 return;
 
+            MolcaBuildRefusal.Record(MolcaBuildReasonCode.ReferenceGate);
             throw new BuildFailedException(
                 $"[ReferenceBuildGate] Scene '{scene.path}' is being built but was not covered by the "
-                + "reference audit, which validated only the enabled Editor Build Settings scenes. "
-                + "Enable the scene in Build Settings, or audit it explicitly via "
+                + "reference audit, which validated the scenes this build declared — the build profile's "
+                + "scene set, or the enabled Editor Build Settings scenes when it declares none. "
+                + "Add the scene to the profile (or enable it in Build Settings), or audit it explicitly via "
                 + $"{nameof(SceneReferenceBuildValidator)}.{nameof(SceneReferenceBuildValidator.Audit)} "
                 + "before building.");
         }

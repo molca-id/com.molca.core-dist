@@ -21,6 +21,60 @@ namespace Molca.Editor
         }
 
         /// <summary>
+        /// Reads the short commit hash and branch name of <paramref name="projectRoot"/>'s HEAD.
+        /// </summary>
+        /// <param name="projectRoot">Absolute path to the git repository root.</param>
+        /// <param name="commit">The short hash, or empty when unavailable.</param>
+        /// <param name="branch">The branch name, or empty when unavailable.</param>
+        /// <remarks>
+        /// Never throws and never reports failure: build provenance is best-effort, and a project that is
+        /// not a git repository still builds. Three call sites had their own copy of this pair of git
+        /// invocations — the build manifest, the embedded build-info asset, and the build record — which is
+        /// three chances for one of them to drift into recording a different commit than the others for
+        /// the same build.
+        /// </remarks>
+        public static void ReadProvenance(string projectRoot, out string commit, out string branch)
+        {
+            commit = string.Empty;
+            branch = string.Empty;
+            if (string.IsNullOrEmpty(projectRoot))
+                return;
+
+            if (TryRunGit(projectRoot, "rev-parse --short HEAD", out var c))
+                commit = c.Trim();
+            if (TryRunGit(projectRoot, "rev-parse --abbrev-ref HEAD", out var b))
+                branch = b.Trim();
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="projectRoot"/> is inside a git work tree.
+        /// </summary>
+        /// <param name="projectRoot">Absolute path to check.</param>
+        /// <remarks>
+        /// Distinguishing "not a repository" from "the command failed" matters to callers that refuse to
+        /// act rather than proceed — a release that cannot tag should say which of the two it hit.
+        /// </remarks>
+        public static bool IsGitRepository(string projectRoot) =>
+            TryRunGit(projectRoot, "rev-parse --is-inside-work-tree", out var inside) &&
+            inside.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Returns true when <paramref name="tagName"/> already exists in the local repository.
+        /// </summary>
+        /// <param name="projectRoot">Absolute path to the git repository root.</param>
+        /// <param name="tagName">The tag to look for, e.g. <c>v1.4.0</c>.</param>
+        /// <remarks>
+        /// Checked against the full <c>refs/tags/</c> path so a branch of the same name is not mistaken
+        /// for a tag.
+        /// </remarks>
+        public static bool TagExists(string projectRoot, string tagName)
+        {
+            if (string.IsNullOrWhiteSpace(tagName))
+                return false;
+            return TryRunGit(projectRoot, $"rev-parse -q --verify refs/tags/{tagName}", out _);
+        }
+
+        /// <summary>
         /// Returns commit subject lines between <paramref name="sinceHash"/> and HEAD.
         /// Falls back to the last 10 commits if <paramref name="sinceHash"/> is null or unavailable.
         /// </summary>

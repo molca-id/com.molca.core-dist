@@ -102,7 +102,8 @@ namespace Molca.App.Editor.ShaderVariant
     /// </summary>
     public class ShaderVariantBuildRecorderFlusher : UnityEditor.Build.IPostprocessBuildWithReport
     {
-        public int callbackOrder => 0;
+        /// <summary>Read-and-report only; ordered in the post-build observer band.</summary>
+        public int callbackOrder => Molca.Editor.MolcaBuildCallbackOrder.PostObserver;
 
         public void OnPostprocessBuild(UnityEditor.Build.Reporting.BuildReport report)
         {

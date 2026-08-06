@@ -874,6 +874,61 @@
     white-space: normal;
 }
 
+/* ----- Health section -----
+   Cards are siblings, never nested: the report card carries the overall verdict and the per-area cards sit
+   beside it (EDITOR_DESIGN_LANGUAGE.md > Section Card). */
+
+.molca-hub-health-section {
+    flex-grow: 1;
+}
+
+.molca-hub-health-state {
+    color: var(--hub-heading);
+    font-size: 11px;
+    white-space: normal;
+}
+
+/* A failed read must not look like a healthy project — see ShowState(). */
+.molca-hub-health-state--problem {
+    color: var(--hub-status-error);
+}
+
+.molca-hub-health-panels {
+    flex-grow: 1;
+}
+
+.molca-hub-health-finding {
+    flex-direction: row;
+    margin-bottom: 6px;
+}
+
+/* Nudged to the message's first line: a dot centred on a wrapped two-line finding reads as belonging to
+   neither line. */
+.molca-hub-health-finding .molca-status-dot {
+    margin-top: 4px;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.molca-hub-health-finding__text {
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
+.molca-hub-health-finding__message {
+    color: var(--hub-heading);
+    font-size: 11px;
+    white-space: normal;
+}
+
+/* The half of a finding that makes it actionable, so it is dimmer than the fault but never hidden. */
+.molca-hub-health-finding__action {
+    color: var(--hub-muted);
+    font-size: 10px;
+    white-space: normal;
+    margin-top: 2px;
+}
+
 .molca-hub-logo-picker {
     flex-direction: row;
     align-items: center;
@@ -1408,6 +1463,19 @@
     margin-top: 3px;
 }
 
+/* Preflight findings and recorded build rows. One rule for both: they are the same kind of line — a
+   short status sentence the reader scans — and giving them separate styles would only let them drift. */
+.molca-hub-bv-finding {
+    color: var(--hub-muted);
+    font-size: 11px;
+    margin-top: 3px;
+    white-space: normal;
+}
+
+.molca-hub-bv-finding--error {
+    color: var(--hub-status-error);
+}
+
 .molca-hub-bv-footer {
     margin-top: 12px;
     padding-top: 10px;
@@ -1938,7 +2006,7 @@
     -unity-text-align: middle-center;
 }
 
-/* ---- Tasks section (Sprint 31) ---- */
+/* ---- Tasks section (Sprint 31; rebuilt for focus/pin, badges, search & grouping) ---- */
 
 .molca-hub-tasks-section {
     flex-grow: 1;
@@ -1947,13 +2015,121 @@
 .molca-hub-tasks-controls {
     flex-direction: row;
     align-items: center;
-    margin-bottom: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
 }
 
 .molca-hub-tasks-controls Toggle {
     margin-right: 12px;
     font-size: 11px;
 }
+
+.molca-hub-tasks-search {
+    width: 160px;
+    margin-right: 8px;
+}
+
+.molca-hub-tasks-grouping {
+    width: 96px;
+    margin-right: 12px;
+    font-size: 11px;
+}
+
+/*
+ * The grouping EnumField is label-less by construction, so its empty label would still claim the shared
+ * `.molca-hub-root` field-label width and shove the control right. Zero it explicitly.
+ */
+.molca-hub-tasks-grouping .unity-base-field__label {
+    min-width: 0;
+    width: 0;
+    margin-right: 0;
+}
+
+.molca-hub-tasks-status-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.molca-hub-tasks-updated {
+    color: var(--hub-muted);
+    font-size: 9px;
+}
+
+/* A failed fetch must not read like an empty folder — see ShowError(). */
+.molca-hub-tasks-error {
+    color: var(--hub-status-error);
+}
+
+.molca-hub-tasks-create-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.molca-hub-tasks-create-field {
+    flex-grow: 1;
+    margin-right: 6px;
+}
+
+.molca-hub-tasks-create-field .unity-base-field__label {
+    min-width: 0;
+    width: 0;
+    margin-right: 0;
+}
+
+/* ----- Focus banner ----- */
+
+.molca-hub-task-focus-banner {
+    flex-direction: row;
+    align-items: center;
+    background-color: var(--hub-card-header);
+    border-left-width: 2px;
+    border-left-color: var(--hub-accent);
+    border-radius: 3px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    padding-left: 8px;
+    padding-right: 8px;
+    margin-bottom: 8px;
+}
+
+.molca-hub-task-focus-glyph {
+    color: var(--hub-accent);
+    font-size: 12px;
+    margin-right: 6px;
+}
+
+.molca-hub-task-focus-label {
+    color: var(--hub-heading);
+    font-size: 11px;
+    flex-shrink: 1;
+    white-space: normal;
+}
+
+/* ----- Group headers ----- */
+
+.molca-hub-task-group-header {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 6px;
+    margin-bottom: 4px;
+}
+
+.molca-hub-task-group-swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    margin-right: 6px;
+}
+
+.molca-hub-task-group-label {
+    color: var(--hub-label);
+    font-size: 10px;
+    -unity-font-style: bold;
+}
+
+/* ----- Task rows ----- */
 
 .molca-hub-tasks-list {
     flex-grow: 1;
@@ -1966,11 +2142,20 @@
     border-width: 1px;
     border-color: var(--hub-border-soft);
     border-radius: 3px;
-    padding-top: 7px;
-    padding-bottom: 7px;
-    padding-left: 10px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+    padding-left: 6px;
     padding-right: 10px;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
+}
+
+.molca-hub-task-row:hover {
+    background-color: var(--hub-control);
+}
+
+.molca-hub-task-row--focused {
+    border-left-width: 2px;
+    border-left-color: var(--hub-accent);
 }
 
 .molca-hub-task-name {
@@ -1984,22 +2169,115 @@
     color: var(--hub-link);
 }
 
-.molca-hub-task-list-badge {
+/*
+ * Pin/focus toggles. Sized as square glyph buttons rather than text buttons so a row's left gutter stays a
+ * fixed width whether or not the glyphs are active.
+ */
+.molca-hub-task-icon-button {
+    width: 20px;
+    min-width: 20px;
+    height: 18px;
+    margin-left: 0;
+    margin-right: 2px;
+    padding-left: 0;
+    padding-right: 0;
+    font-size: 10px;
     color: var(--hub-muted);
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    -unity-text-align: middle-center;
+}
+
+.molca-hub-task-icon-button:hover {
+    color: var(--hub-heading);
+    background-color: var(--hub-hover-wash);
+}
+
+.molca-hub-task-icon-button--active {
+    color: var(--hub-accent);
+}
+
+/* ----- Row badges ----- */
+
+/*
+ * Shared badge geometry. Color is set per-badge: the priority and tag variants are tinted inline from
+ * ClickUp's own hex values, so they intentionally declare no background here.
+ */
+.molca-hub-task-badge {
     font-size: 9px;
-    margin-left: 8px;
+    margin-left: 6px;
     padding-left: 5px;
     padding-right: 5px;
     padding-top: 1px;
     padding-bottom: 1px;
-    background-color: var(--hub-card-header);
     border-radius: 3px;
+    flex-shrink: 0;
 }
 
+.molca-hub-task-list-badge {
+    color: var(--hub-muted);
+    background-color: var(--hub-card-header);
+}
+
+.molca-hub-task-priority-badge {
+    color: var(--hub-text);
+    background-color: var(--hub-card-header);
+}
+
+.molca-hub-task-tag-badge {
+    color: var(--hub-muted);
+    background-color: var(--hub-card-header);
+}
+
+.molca-hub-task-due-badge {
+    color: var(--hub-muted);
+    background-color: var(--hub-card-header);
+}
+
+.molca-hub-task-due-badge--overdue {
+    color: var(--hub-on-row-selected);
+    background-color: var(--hub-status-error);
+}
+
+/* ----- Assignees ----- */
+
+.molca-hub-task-assignees {
+    flex-direction: row;
+    align-items: center;
+    margin-left: 8px;
+    flex-shrink: 0;
+}
+
+.molca-hub-task-assignee {
+    width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    margin-left: 2px;
+    font-size: 8px;
+    color: var(--hub-text);
+    background-color: var(--hub-control);
+    -unity-text-align: middle-center;
+}
+
+.molca-hub-task-assignee--more {
+    color: var(--hub-muted);
+    background-color: var(--hub-card-header);
+}
+
+/* ----- Status control ----- */
+
 .molca-hub-task-status {
-    min-width: 130px;
+    min-width: 120px;
     margin-left: 8px;
     font-size: 11px;
+    flex-shrink: 0;
+}
+
+/* Label-less popup: same zero-width treatment as the other unlabelled fields above. */
+.molca-hub-task-status .unity-base-field__label {
+    min-width: 0;
+    width: 0;
+    margin-right: 0;
 }
 
 .molca-hub-task-status-static {

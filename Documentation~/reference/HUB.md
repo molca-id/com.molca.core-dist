@@ -15,7 +15,7 @@ points a fork or project can add to without editing Core.
 
 ## Layout
 
-- **Settings (home).** A nested rail of configuration sections, grouped as **Framework** (Project,
+- **Settings (home).** A nested rail of configuration sections, grouped as **Framework** (Project, Health,
   Build & Version, Runtime & Global, Editor), **Tooling** (Integrations, Tasks, MCP, Network Activity) and
   **Add-ons** (Browse, Installed), followed by **Assistant** and **About**. Provider-contributed leaves join
   one of those categories or collect under **Extensions**.
@@ -38,6 +38,30 @@ points a fork or project can add to without editing Core.
 
   Note the two different **Network** surfaces: the *workspace tab* authors the route catalog, while
   Settings ▸ Tooling ▸ **Network Activity** watches what the running app is actually doing.
+
+### Settings ▸ Framework ▸ Health
+
+A read-only view of the connected backend project's operational health: whether the binding is live, what
+content is published and what is stuck, what shipped and which build tokens are about to lapse, add-ons
+awaiting approval, your own Remote sessions, and who is assigned to the project. It sits directly under
+**Project** because it answers the question Project raises — the connection is configured there, and whether
+it is actually working is the next thing anyone asks.
+
+The Hub **renders** this report; it does not compute it. Every severity and every line of finding text comes
+from `GET /api/projects/:projectId/health` on the control plane — the same payload the customer dashboard and
+the Molca operator support view read — so one project cannot read healthy in Unity and broken on the web.
+Consequences worth knowing:
+
+- **Panels you cannot see are absent, not empty.** Content, Remote, and Team each cost their own capability;
+  a short report means "your role reaches this much", never "this project has less state than it does". The
+  overall verdict is the worst of the panels you *can* open, so the badge never points at something you have
+  no way to inspect.
+- **It is read-only, and there is no write path anywhere.** Nothing in the Hub clears a finding. Each finding
+  names where the fix lives, and **Open dashboard** goes to the underlying releases, builds, and tokens.
+- **Health is state, not history.** Usage trends, version spread, and event counts are the dashboard's
+  Activity view; this section answers "is anything wrong right now".
+- **Not connected is not a health problem.** A repository with no project says so and links to **Project**
+  rather than reporting an unhealthy anything.
 
 ### The toolbar at any width
 
