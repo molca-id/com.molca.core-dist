@@ -271,6 +271,19 @@ was just built) and the build number advances. A build that fails, or that a pre
 leaves both untouched — history records what shipped, not what was attempted. Both halves are opt-in
 per project (*Auto Changelog* and *Auto Increment Build* under **Advanced**).
 
+When the number advances, PlayerSettings is re-synced to the new value in the same postprocessor. This
+is housekeeping, not part of the artifact — the player is already written — and it exists so the Player
+inspector never disagrees with the Hub. It used to: PlayerSettings was written at the *start* of a build
+and the number advanced at the *end*, so between builds the inspector showed the previous build's number
+while the Hub showed the next one. That gap read as the Hub value having reverted, and editing the
+inspector to match was futile — the next build overwrote it from the asset.
+
+**Version Settings is the version of record; PlayerSettings is a mirror of it.** Never author a version
+in the Player inspector: `Bundle Version Code`, `Version`, and the iOS build number are all derived and
+will be overwritten. The Hub's footer reports what PlayerSettings currently holds and warns when it has
+drifted; *Sync to Player Settings* rewrites both the version name and the platform version code, and
+saves.
+
 ## Validation
 
 The build path is guarded by the pre-build Doctor gate — `MolcaBuildGate.CheckIds`, currently

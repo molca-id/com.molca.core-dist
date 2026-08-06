@@ -175,18 +175,37 @@ namespace Molca.Settings
         // -------------------------------------------------------------------
 
         /// <summary>
-        /// Writes this asset's version to <see cref="PlayerSettings.bundleVersion"/>, formatted for the
-        /// active build target.
+        /// Writes this asset's version to <see cref="PlayerSettings"/> for the active build target.
         /// </summary>
         /// <remarks>
         /// Unconditional. The old <c>force</c> parameter guarded a toggle that the build path always
         /// overrode anyway; see the note on the removed <c>autoSync</c> field.
         /// </remarks>
-        public void SyncToUnityPlayerSettings()
+        public void SyncToUnityPlayerSettings() =>
+            SyncToUnityPlayerSettings(EditorUserBuildSettings.activeBuildTarget);
+
+        /// <summary>
+        /// Writes this asset's version to <see cref="PlayerSettings"/> for <paramref name="target"/> —
+        /// both the version name and the platform version code.
+        /// </summary>
+        /// <param name="target">The target the version is being written for.</param>
+        /// <remarks>
+        /// <b>The two writes are one operation, and this is the method that says so.</b> PlayerSettings
+        /// holds the version in two places — <see cref="PlayerSettings.bundleVersion"/> and the
+        /// platform's numeric code — and writing one without the other leaves the project in a state
+        /// neither this asset nor Unity describes: a Player inspector reading <c>0.3.3</c> beside version
+        /// code <c>2</c>. Every build path already called the two halves back to back; the Hub's *Sync to
+        /// Player Settings* button called only the first, so the button that exists to end the
+        /// disagreement produced one. Callers that want just the name can still call
+        /// <see cref="SyncPlatformVersionCode"/>'s partner directly, but no caller in Core does.
+        /// </remarks>
+        public void SyncToUnityPlayerSettings(BuildTarget target)
         {
-            var version = GetBundleVersionString();
+            var version = GetBundleVersionString(target);
             PlayerSettings.bundleVersion = version;
             Debug.Log($"VersionSettings: Synchronized Unity PlayerSettings version to {version}");
+
+            SyncPlatformVersionCode(target);
         }
 
         /// <summary>
@@ -211,7 +230,41 @@ namespace Molca.Settings
         /// embedded build-info asset, both of which record the full semantic version.
         /// </para>
         /// </remarks>
-        public void SyncPlatformVersionCode(BuildTarget target)
+        public void SyncPlatformVersionCode(BuildTarget target) =>
+            WritePlatformVersionCode(target, warnOnDroppedPreRelease: true);
+
+        /// <summary>
+        /// Re-points PlayerSettings at this asset after <see cref="NotifyBuildComplete(string)"/> has
+        /// advanced the build number, so the mirror does not sit one build behind its source.
+        /// </summary>
+        /// <param name="target">The target that was just built.</param>
+        /// <remarks>
+        /// <para>
+        /// <b>This exists because "the number I set keeps reverting" was the reported symptom of correct
+        /// behaviour.</b> PlayerSettings is written at the <em>start</em> of a build and the build number
+        /// advances at the <em>end</em> of it, so with <c>autoIncrementBuildNumberOnBuild</c> enabled the
+        /// Player inspector spent the entire gap between builds showing the previous build's number while
+        /// the Hub showed the next one. Editing the inspector to agree with the Hub then looked like it
+        /// was being undone by the next build, because it was — by a value the developer had no way to see
+        /// was authoritative.
+        /// </para>
+        /// <para>
+        /// Quiet by design where <see cref="SyncPlatformVersionCode"/> is not: this runs after the player
+        /// is written, so it changes nothing about the artifact, and repeating the iOS pre-release warning
+        /// here would report a consequence that has already happened. The build-time call already warned.
+        /// </para>
+        /// </remarks>
+        internal void RefreshPlayerSettingsMirror(BuildTarget target)
+        {
+            PlayerSettings.bundleVersion = GetBundleVersionString(target);
+            WritePlatformVersionCode(target, warnOnDroppedPreRelease: false);
+
+            Debug.Log(
+                $"VersionSettings: PlayerSettings now mirrors the next build — {GetBundleVersionString(target)} " +
+                $"(build {buildNumber}).");
+        }
+
+        private void WritePlatformVersionCode(BuildTarget target, bool warnOnDroppedPreRelease)
         {
             switch (target)
             {
@@ -222,7 +275,7 @@ namespace Molca.Settings
                 case BuildTarget.iOS:
                     PlayerSettings.iOS.buildNumber = buildNumber.ToString();
                     Debug.Log($"VersionSettings: Set iOS buildNumber to {buildNumber}");
-                    if (!string.IsNullOrEmpty(preReleaseIdentifier))
+                    if (warnOnDroppedPreRelease && !string.IsNullOrEmpty(preReleaseIdentifier))
                     {
                         Debug.LogWarning(
                             $"VersionSettings: pre-release identifier '{preReleaseIdentifier}' is not carried by " +

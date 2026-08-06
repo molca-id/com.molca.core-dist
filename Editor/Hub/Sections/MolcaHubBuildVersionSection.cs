@@ -214,6 +214,11 @@ namespace Molca.Editor.Hub.Sections
                 BuildBuildView();
             else
                 BuildVersionView();
+
+            // The footer survives the swap but reports on what the view just rebuilt — including whether
+            // PlayerSettings still matches the asset, which an increment button changes by way of this
+            // method. Without this the mirror notice stayed as it was until something else refreshed it.
+            RefreshDynamicLabels();
         }
 
         // -------------------------------------------------------------------
@@ -1259,13 +1264,20 @@ namespace Molca.Editor.Hub.Sections
             footer.AddToClassList("molca-hub-bv-footer");
             Add(footer);
 
+            // Saves rather than only marking dirty: this button exists to make the Player inspector agree
+            // with the Hub, and an agreement that a domain reload can drop is not one. The PlayerSettings
+            // half is flushed by the same SaveAssets.
             var sync = new Button(() =>
             {
-                _versionSettings.SyncToUnityPlayerSettings();
+                _versionSettings.SyncToUnityPlayerSettings(EditorUserBuildSettings.activeBuildTarget);
                 EditorUtility.SetDirty(_versionSettings);
+                AssetDatabase.SaveAssets();
                 RefreshDynamicLabels();
             })
-            { text = "Sync to Player Settings", tooltip = "Write the current version to Unity PlayerSettings." };
+            {
+                text = "Sync to Player Settings",
+                tooltip = "Write the current version and platform version code to Unity PlayerSettings.",
+            };
             sync.AddToClassList("molca-hub-bv-footer__button");
             footer.Add(sync);
 
@@ -1442,6 +1454,47 @@ namespace Molca.Editor.Hub.Sections
         /// bound and possibly mid-edit. Everything here reads the live objects, which the binding system
         /// already keeps current, so the poll only exists for the external state above.
         /// </remarks>
+        /// <summary>
+        /// Describes what PlayerSettings currently holds, and says so when it disagrees with this asset.
+        /// </summary>
+        /// <remarks>
+        /// The footer used to report the version name alone, which is the half of the mirror that rarely
+        /// looked wrong. Reading <c>PlayerSettings version: 0.3.3</c> here while the Player inspector
+        /// showed bundle version code <c>2</c> gave no hint that the number a store upload is rejected
+        /// over was the stale one — so the divergence is named, with the fix beside it.
+        /// </remarks>
+        private string DescribePlayerSettingsMirror()
+        {
+            var target = EditorUserBuildSettings.activeBuildTarget;
+
+            var expectedVersion = _versionSettings.GetBundleVersionString(target);
+            var actualVersion = PlayerSettings.bundleVersion;
+
+            // Null for a target with no numeric version code of its own — the desktop targets — where
+            // the version name is the whole of the mirror and there is nothing further to compare.
+            string expectedCode = null, actualCode = null;
+            switch (target)
+            {
+                case BuildTarget.Android:
+                    expectedCode = _versionSettings.GetBuildNumberString();
+                    actualCode = PlayerSettings.Android.bundleVersionCode.ToString();
+                    break;
+                case BuildTarget.iOS:
+                    expectedCode = _versionSettings.GetBuildNumberString();
+                    actualCode = PlayerSettings.iOS.buildNumber;
+                    break;
+            }
+
+            var described = actualCode == null
+                ? $"PlayerSettings version: {actualVersion}"
+                : $"PlayerSettings version: {actualVersion}  ·  version code: {actualCode}";
+
+            var matches = actualVersion == expectedVersion && (actualCode == null || actualCode == expectedCode);
+            return matches
+                ? described
+                : $"{described}   ⚠ differs from this asset — press Sync to Player Settings";
+        }
+
         private void RefreshDynamicLabels()
         {
             RefreshInvalidVersionNotice();
@@ -1466,7 +1519,7 @@ namespace Molca.Editor.Hub.Sections
                 _releaseButton.text = $"Create Release v{_versionSettings.GetVersionString()}";
 
             if (_playerSettingsVersionLabel != null)
-                _playerSettingsVersionLabel.text = $"PlayerSettings version: {PlayerSettings.bundleVersion}";
+                _playerSettingsVersionLabel.text = DescribePlayerSettingsMirror();
         }
 
         private static (VisualElement root, VisualElement body) MakeCard(string title)

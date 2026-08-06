@@ -2,6 +2,37 @@
 
 All notable changes to Molca Core will be documented here.
 
+## [2.2.1] - 2026-08-06
+
+### Fixed
+- **PlayerSettings no longer sits one build behind the Hub.** With *Auto Increment Build* enabled, the
+  version was written to PlayerSettings at the *start* of a build and the build number advanced at the
+  *end* of it, so for the entire gap until the next build the Player inspector showed the previous
+  build's number while the Hub showed the next one. This reads as the Hub's value having reverted, and
+  the obvious response — typing the right number into the Player inspector — was silently overwritten by
+  the next build, because Version Settings is the version of record and PlayerSettings only mirrors it.
+  `BuildVersionPostprocessor` now re-syncs the mirror when the number advances. The player is already
+  written at that point, so nothing about the artifact changes.
+- **"Sync to Player Settings" now syncs all of it.** The Hub button wrote `PlayerSettings.bundleVersion`
+  and not the platform version code, so the one control that exists to end a disagreement between the
+  asset and PlayerSettings produced one: version `0.3.3` beside Android version code `2`. It also only
+  marked the asset dirty, so an agreement reached by pressing it could be dropped by a domain reload
+  before Unity next saved. It now writes both halves and saves.
+- **The build-history row reported the wrong build number.** `CreateRecord` read the build number *after*
+  `BuildPipeline.BuildPlayer` returned — that is, after the postprocessor had advanced it — so the Hub's
+  *Recent Builds* list and the control-plane build row credited every successful build with the *next*
+  build's number. The manifest already captured the number before the build; the record now uses the
+  same captured value.
+
+### Changed
+- **`VersionSettings.SyncToUnityPlayerSettings(BuildTarget)`** is a new overload that writes the version
+  name *and* the platform version code for that target. The two writes were paired by hand at every call
+  site, and the one that forgot the pairing was the bug above. The parameterless overload now delegates
+  to it against the active build target, so it writes the platform version code too — previously it did
+  not.
+- **The Hub's version footer** reports the platform version code beside the version name, and warns when
+  either has drifted from the asset.
+
 ## [2.2.0] - 2026-08-06
 
 ### Added

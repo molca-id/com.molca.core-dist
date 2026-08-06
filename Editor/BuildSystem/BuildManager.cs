@@ -134,8 +134,7 @@ namespace Molca.Editor
                 }
             }
 
-            versionSettings.SyncToUnityPlayerSettings();
-            versionSettings.SyncPlatformVersionCode(profile.target);
+            versionSettings.SyncToUnityPlayerSettings(profile.target);
             PlayerSettings.companyName = Molca.MolcaProjectSettings.Instance.CompanyName;
 
             if (profile.il2cpp)
@@ -528,7 +527,8 @@ namespace Molca.Editor
                 // The record is built before the post steps run so they can read it, and appended after so
                 // it can carry what they reported.
                 var record = CreateRecord(
-                    profile.name, profile.target, MolcaBuildOutcome.Succeeded, detail, report, versionSettings);
+                    profile.name, profile.target, MolcaBuildOutcome.Succeeded, detail, report, versionSettings,
+                    buildNumber: builtBuildNumber);
 
                 var postContext = new MolcaPostBuildContext(profile, buildPath, record, buildContext);
                 if (!MolcaBuildStepRegistry.RunAllPost(postContext, out var postFailures))
@@ -574,7 +574,11 @@ namespace Molca.Editor
                     profile.name, profile.target, outcome,
                     $"{report.summary.result} · {report.summary.totalErrors} error(s) — see the Console.",
                     report, versionSettings,
-                    string.IsNullOrEmpty(refusal) ? MolcaBuildReasonCode.BuildFailed : refusal);
+                    string.IsNullOrEmpty(refusal) ? MolcaBuildReasonCode.BuildFailed : refusal,
+                    // Unchanged by a failed build — the postprocessor advances nothing unless the build
+                    // succeeded — but passed for the same reason as the success path, so the record's
+                    // number stays the attempt's own if that ever ceases to be true.
+                    buildNumber: builtBuildNumber);
 
                 MolcaBuildRecordStore.Append(failureRecord);
 
@@ -658,6 +662,15 @@ namespace Molca.Editor
         /// <param name="versionSettings">
         /// The version settings to read; resolved from Editor Settings when null.
         /// </param>
+        /// <param name="reasonCode">Why a non-successful attempt ended the way it did.</param>
+        /// <param name="buildNumber">
+        /// The build number this attempt actually carried, captured before the build ran. Falls back to
+        /// the asset's current number when null — correct for every attempt that never reached
+        /// <c>BuildPipeline.BuildPlayer</c>, and wrong for one that did: <c>BuildVersionPostprocessor</c>
+        /// advances the number inside that call, so a record built afterwards reported the <em>next</em>
+        /// build's number beside this build's version. The manifest already guarded against this; the
+        /// record — the thing the Hub's history list and the control plane read — did not.
+        /// </param>
         /// <returns>The unpersisted record.</returns>
         /// <remarks>
         /// Separate from <see cref="RecordAttempt"/> so a successful build can hand the record to its post
@@ -665,7 +678,8 @@ namespace Molca.Editor
         /// </remarks>
         private static MolcaBuildRecord CreateRecord(
             string profileName, BuildTarget? target, MolcaBuildOutcome outcome, string detail,
-            BuildReport report, VersionSettings versionSettings, string reasonCode = null)
+            BuildReport report, VersionSettings versionSettings, string reasonCode = null,
+            string buildNumber = null)
         {
             versionSettings ??= MolcaEditorSettings.Instance != null
                 ? MolcaEditorSettings.Instance.VersionSettings
@@ -680,7 +694,8 @@ namespace Molca.Editor
                 target = target?.ToString() ?? string.Empty,
                 outcome = outcome.ToString(),
                 semanticVersion = versionSettings != null ? versionSettings.GetSemanticVersion() : string.Empty,
-                buildNumber = versionSettings != null ? versionSettings.GetBuildNumberString() : string.Empty,
+                buildNumber = buildNumber
+                    ?? (versionSettings != null ? versionSettings.GetBuildNumberString() : string.Empty),
                 commit = commit,
                 branch = branch,
                 outputPath = report != null ? report.summary.outputPath : string.Empty,

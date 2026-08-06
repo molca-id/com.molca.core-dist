@@ -38,8 +38,7 @@ namespace Molca.Editor
             if (versionSettings == null)
                 return;
 
-            versionSettings.SyncToUnityPlayerSettings();
-            versionSettings.SyncPlatformVersionCode(report.summary.platform);
+            versionSettings.SyncToUnityPlayerSettings(report.summary.platform);
 
             EditorUtility.SetDirty(versionSettings);
         }
@@ -125,6 +124,14 @@ namespace Molca.Editor
             // Appends the changelog entry (naming the version just built) and then advances the build
             // number. Each half is a no-op unless enabled on the asset.
             versionSettings.NotifyBuildComplete(notes);
+
+            // The advance just made PlayerSettings stale: it holds the number this build shipped, while
+            // the asset now holds the next one. Left alone, the Player inspector disagrees with the Hub
+            // for the whole gap until the next build — which reads as the Hub's value having reverted,
+            // and invites someone to "fix" the inspector by hand only to have the next build overwrite
+            // it. The asset is the version of record, so the mirror follows it here rather than waiting.
+            if (versionSettings.AutoIncrementBuildNumberOnBuild)
+                versionSettings.RefreshPlayerSettingsMirror(report.summary.platform);
 
             EditorUtility.SetDirty(versionSettings);
 
